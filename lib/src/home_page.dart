@@ -36,6 +36,7 @@ class _HomePageState extends State<HomePage> {
   final Set<Kind> _loading = {};
   String? _group;
   String _query = '';
+  String _groupQuery = ''; // filters the category sidebar
   _Sort _sort = _Sort.provider;
 
   Kind? get _kind => _tab >= 1 && _tab <= 3 ? Kind.values[_tab - 1] : null;
@@ -75,6 +76,7 @@ class _HomePageState extends State<HomePage> {
       _tab = tab;
       _group = null;
       _query = '';
+      _groupQuery = '';
     });
     final k = _kind;
     if (k != null) _ensureLoaded(k);
@@ -344,8 +346,17 @@ class _HomePageState extends State<HomePage> {
                   IconButton(tooltip: 'Kategorileri düzenle / gizle', icon: const Icon(Icons.tune, size: 20), onPressed: () => _manageGroups(kind)),
                 ]),
               ),
-              ListTile(dense: true, selected: _group == null, title: const Text('Tümü'), trailing: Text('$totalCount'), onTap: () => setState(() => _group = null)),
-              for (final name in AppSettings.instance.orderedGroups(kind, groups.keys))
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+                child: RemoteTextField(
+                  key: ValueKey('groupSearch$_tab'),
+                  onChanged: (v) => setState(() => _groupQuery = v),
+                  decoration: const InputDecoration(prefixIcon: Icon(Icons.search, size: 18), hintText: 'Kategori ara', border: OutlineInputBorder(), isDense: true),
+                ),
+              ),
+              if (_groupQuery.trim().isEmpty)
+                ListTile(dense: true, selected: _group == null, title: const Text('Tümü'), trailing: Text('$totalCount'), onTap: () => setState(() => _group = null)),
+              for (final name in AppSettings.instance.orderedGroups(kind, groups.keys).where((n) => matchesQuery(groupLabel(n), _groupQuery)))
                 Tooltip(
                   message: name,
                   waitDuration: const Duration(milliseconds: 500),
