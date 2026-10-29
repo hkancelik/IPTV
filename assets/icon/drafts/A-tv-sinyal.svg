@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#8E7BFF"/>
+      <stop offset="0.5" stop-color="#6C5CE7"/>
+      <stop offset="1" stop-color="#2A1B6B"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.38" r="0.6">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="play" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#D9D3FF"/>
+    </linearGradient>
+    <linearGradient id="acc" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#00E5C3"/>
+      <stop offset="1" stop-color="#5BF0FF"/>
+    </linearGradient>
+    <filter id="sh" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#14083F" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+  <rect width="1024" height="1024" rx="230" fill="url(#bg)"/>
+  <rect width="1024" height="1024" rx="230" fill="url(#glow)"/>
+  <!-- antenna / signal arcs -->
+  <g fill="none" stroke="url(#acc)" stroke-linecap="round" stroke-width="34">
+    <path d="M512 262 L400 150" opacity="0"/>
+    <path d="M300 250 A300 300 0 0 1 724 250" opacity="0.55"/>
+    <path d="M372 296 A200 200 0 0 1 652 296" opacity="0.85"/>
+  </g>
+  <circle cx="512" cy="338" r="30" fill="url(#acc)"/>
+  <!-- screen -->
+  <g filter="url(#sh)">
+    <rect x="176" y="400" width="672" height="430" rx="96" fill="#1B1250"/>
+    <rect x="200" y="424" width="624" height="382" rx="76" fill="#2D1F86"/>
+    <rect x="200" y="424" width="624" height="382" rx="76" fill="none" stroke="#FFFFFF" stroke-opacity="0.18" stroke-width="4"/>
+    <path d="M452 520 L452 710 Q452 734 474 722 L640 627 Q660 615 640 603 L474 508 Q452 496 452 520 Z" fill="url(#play)" stroke="url(#play)" stroke-width="22" stroke-linejoin="round"/>
+  </g>
+  <rect x="402" y="852" width="220" height="26" rx="13" fill="#FFFFFF" fill-opacity="0.35"/>
+</svg>
