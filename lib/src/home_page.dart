@@ -376,26 +376,21 @@ class _HomePageState extends State<HomePage> {
   Widget _homeView() {
     final lib = Library.instance;
     final continueList = lib.continueWatching.take(20).toList();
-    final recent = lib.history.take(20).toList();
-    List<Item> latest(Kind k) {
-      final l = (_items[k] ?? const <Item>[]).where(_allowed).where((i) => i.added > 0).toList()..sort((a, b) => b.added.compareTo(a.added));
-      return l.take(20).toList();
-    }
-
-    final movies = latest(Kind.movie);
-    final series = latest(Kind.series);
-    final loadingLatest = _loading.contains(Kind.movie) || _loading.contains(Kind.series);
+    final favs = lib.favorites.where(_allowed).toList();
+    List<Item> of(Kind k) => favs.where((i) => i.kind == k).toList();
+    final channels = of(Kind.live);
+    final movies = of(Kind.movie);
+    final series = of(Kind.series);
 
     return ListView(
       padding: const EdgeInsets.symmetric(vertical: 16),
       children: [
         if (continueList.isNotEmpty) _row('Kaldığın yerden devam et', [for (final e in continueList) _historyCard(e, showProgress: true)]),
-        if (recent.isNotEmpty) _row('Son izlenenler', [for (final e in recent) _historyCard(e)]),
-        if (movies.isNotEmpty) _row('Son eklenen filmler', [for (final i in movies) _itemCard(i)]),
-        if (series.isNotEmpty) _row('Son eklenen diziler', [for (final i in series) _itemCard(i)]),
-        if (loadingLatest) const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator())),
-        if (!loadingLatest && continueList.isEmpty && recent.isEmpty && movies.isEmpty && series.isEmpty)
-          const Padding(padding: EdgeInsets.all(48), child: Center(child: Text('Burada izlediklerin ve yeni eklenenler görünecek.\nSolden bir kategori seç.', textAlign: TextAlign.center))),
+        if (channels.isNotEmpty) _row('Kanallarım', [for (final i in channels) _itemCard(i)]),
+        if (movies.isNotEmpty) _row('Filmlerim', [for (final i in movies) _itemCard(i)]),
+        if (series.isNotEmpty) _row('Dizilerim', [for (final i in series) _itemCard(i)]),
+        if (continueList.isEmpty && favs.isEmpty)
+          const Padding(padding: EdgeInsets.all(48), child: Center(child: Text('Burası senin sayfan.\nBeğendiğin kanal, film ve dizilerin kalp ikonuna dokun, burada görünsün.', textAlign: TextAlign.center))),
       ],
     );
   }
