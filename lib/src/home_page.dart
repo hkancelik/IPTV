@@ -92,8 +92,7 @@ class _HomePageState extends State<HomePage> {
     // Next/previous channel follows the list the user is looking at (category + search).
     List<Item> list = [item];
     if (_kind == Kind.live) {
-      final q = _query.toLowerCase();
-      list = (_items[Kind.live] ?? const <Item>[]).where(_allowed).where((i) => (_group == null || i.group == _group) && (q.isEmpty || i.name.toLowerCase().contains(q))).toList();
+      list = (_items[Kind.live] ?? const <Item>[]).where(_allowed).where((i) => (_query.trim().isNotEmpty ? matchesQuery(i.name, _query) : (_group == null || i.group == _group))).toList();
     } else if (_tab == _favoritesTab) {
       list = Library.instance.favorites.where(_allowed).where((i) => i.kind == Kind.live).toList();
     }
@@ -189,7 +188,7 @@ class _HomePageState extends State<HomePage> {
         builder: (ctx, setLocal) {
           final s = AppSettings.instance;
           final ordered = s.orderedGroups(kind, counts.keys);
-          final visible = [for (final n in ordered) if (filter.isEmpty || n.toLowerCase().contains(filter.toLowerCase())) n];
+          final visible = [for (final n in ordered) if (filter.isEmpty || matchesQuery(n, filter)) n];
           final canReorder = filter.isEmpty;
 
           void save(List<String> order) {
@@ -312,7 +311,7 @@ class _HomePageState extends State<HomePage> {
       return SettingsPage(info: widget.info, account: widget.account, client: widget.client, onLogout: () => Navigator.of(context).pop());
     }
     if (_tab == _favoritesTab) {
-      final favs = Library.instance.favorites.where(_allowed).where((i) => _query.isEmpty || i.name.toLowerCase().contains(_query.toLowerCase())).toList();
+      final favs = Library.instance.favorites.where(_allowed).where((i) => _query.isEmpty || matchesQuery(i.name, _query)).toList();
       return Column(children: [
         _searchBar(),
         Expanded(child: favs.isEmpty ? const Center(child: Text('Henüz favori yok. Bir içeriğin kalp ikonuna dokun.')) : _mixedList(favs)),
@@ -325,8 +324,7 @@ class _HomePageState extends State<HomePage> {
     for (final i in all) {
       groups[i.group] = (groups[i.group] ?? 0) + 1;
     }
-    final q = _query.toLowerCase();
-    var shown = all.where((i) => (_group == null || i.group == _group) && (q.isEmpty || i.name.toLowerCase().contains(q))).toList();
+    var shown = all.where((i) => (_query.trim().isNotEmpty ? matchesQuery(i.name, _query) : (_group == null || i.group == _group))).toList();
     // Same title listed in several categories: collapse only in the mixed "Tümü" view.
     final collapse = kind != Kind.live && AppSettings.instance.dedupe;
     if (collapse && _group == null) shown = _dedupe(shown);

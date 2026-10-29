@@ -51,6 +51,8 @@ class _PlayerPageState extends State<PlayerPage> {
   late final ValueNotifier<PlayerEntry> _current = ValueNotifier(_entry);
   final ValueNotifier<int?> _countdown = ValueNotifier(null); // seconds until the next episode starts
   Timer? _countdownTimer;
+  final ValueNotifier<String> _digits = ValueNotifier(''); // channel number being typed
+  Timer? _digitsTimer;
 
   PlayerEntry get _entry => widget.queue[_index];
   bool get _hasNext => _index < widget.queue.length - 1;
@@ -154,6 +156,18 @@ class _PlayerPageState extends State<PlayerPage> {
     if (mounted) await _afterOpen();
   }
 
+  /// Digit keys on live TV: type a channel number (position in the list, 1-based), jump after a short pause.
+  void _typeDigit(String d) {
+    if (_digits.value.length >= 4) return;
+    _digits.value += d;
+    _digitsTimer?.cancel();
+    _digitsTimer = Timer(const Duration(milliseconds: 1500), () {
+      final n = int.tryParse(_digits.value);
+      _digits.value = '';
+      if (n != null && n >= 1 && n <= widget.queue.length) _switchTo(n - 1);
+    });
+  }
+
   void _next() => _switchTo(_index + 1);
   void _prev() => _switchTo(_index - 1);
 
@@ -239,6 +253,8 @@ class _PlayerPageState extends State<PlayerPage> {
   void dispose() {
     _saveTimer?.cancel();
     _countdownTimer?.cancel();
+    _digitsTimer?.cancel();
+    _digits.dispose();
     for (final sub in _subs) {
       sub.cancel();
     }
@@ -254,7 +270,24 @@ class _PlayerPageState extends State<PlayerPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      body: Video(
+      body: Stack(children: [
+        Positioned.fill(child: _video()),
+        Positioned(
+          top: 24,
+          right: 32,
+          child: ValueListenableBuilder<String>(
+            valueListenable: _digits,
+            builder: (_, d, _) => d.isEmpty
+                ? const SizedBox.shrink()
+                : Text(d, style: const TextStyle(color: Colors.white, fontSize: 48, fontWeight: FontWeight.bold, shadows: [Shadow(blurRadius: 8)])),
+          ),
+        ),
+      ]),
+    );
+  }
+
+  Widget _video() {
+    return Video(
         controller: _controller,
         controls: (state) => ValueListenableBuilder<PlayerEntry>(
           valueListenable: _current,
@@ -272,11 +305,24 @@ class _PlayerPageState extends State<PlayerPage> {
             countdown: _countdown,
             nextTitle: _hasNext ? widget.queue[_index + 1].title : null,
             onCancelCountdown: _cancelCountdown,
+            onDigit: widget.live && widget.queue.length > 1 ? _typeDigit : null,
           ),
         ),
-      ),
     );
   }
+}
+
+String? _digitOf(LogicalKeyboardKey k) {
+  const keys = [
+    LogicalKeyboardKey.digit0, LogicalKeyboardKey.digit1, LogicalKeyboardKey.digit2, LogicalKeyboardKey.digit3, LogicalKeyboardKey.digit4,
+    LogicalKeyboardKey.digit5, LogicalKeyboardKey.digit6, LogicalKeyboardKey.digit7, LogicalKeyboardKey.digit8, LogicalKeyboardKey.digit9,
+  ];
+  const pad = [
+    LogicalKeyboardKey.numpad0, LogicalKeyboardKey.numpad1, LogicalKeyboardKey.numpad2, LogicalKeyboardKey.numpad3, LogicalKeyboardKey.numpad4,
+    LogicalKeyboardKey.numpad5, LogicalKeyboardKey.numpad6, LogicalKeyboardKey.numpad7, LogicalKeyboardKey.numpad8, LogicalKeyboardKey.numpad9,
+  ];
+  final i = keys.contains(k) ? keys.indexOf(k) : pad.indexOf(k);
+  return i < 0 ? null : '$i';
 }
 
 String _fmt(Duration d) {
@@ -307,6 +353,7 @@ class _Controls extends StatefulWidget {
     this.onNext,
     this.queued = false,
     this.nextTitle,
+    this.onDigit,
   });
 
   final VideoState state;
@@ -321,6 +368,7 @@ class _Controls extends StatefulWidget {
   final bool queued; // more than one channel/episode to move between
   final ValueNotifier<int?> countdown;
   final String? nextTitle;
+  final void Function(String digit)? onDigit;
   final VoidCallback onCancelCountdown;
 
   @override
@@ -487,6 +535,12 @@ class _ControlsState extends State<_Controls> {
     if (k == LogicalKeyboardKey.mediaTrackPrevious || k == LogicalKeyboardKey.channelDown || k == LogicalKeyboardKey.pageUp) {
       if (widget.onPrev == null) return KeyEventResult.ignored;
       widget.onPrev!();
+      _poke();
+      return KeyEventResult.handled;
+    }
+    final digit = widget.onDigit == null ? null : _digitOf(k);
+    if (digit != null) {
+      widget.onDigit!(digit);
       _poke();
       return KeyEventResult.handled;
     }

@@ -58,3 +58,26 @@ String groupLabel(String group) {
   final label = i >= 0 ? group.substring(i + 1).trim() : group.trim();
   return label.isEmpty ? group : label;
 }
+
+const _foldMap = {
+  'İ': 'i', 'I': 'i', 'ı': 'i', 'Ş': 's', 'ş': 's', 'Ğ': 'g', 'ğ': 'g',
+  'Ü': 'u', 'ü': 'u', 'Ö': 'o', 'ö': 'o', 'Ç': 'c', 'ç': 'c',
+  'Â': 'a', 'â': 'a', 'Î': 'i', 'î': 'i', 'Û': 'u', 'û': 'u',
+};
+
+/// Lower-cases and strips Turkish diacritics so "Kör Nokta" matches "kor nokta" and "ISIK" matches "ışık".
+String foldTr(String s) {
+  final b = StringBuffer();
+  for (final r in s.runes) {
+    final c = String.fromCharCode(r);
+    b.write(_foldMap[c] ?? c.toLowerCase());
+  }
+  return b.toString();
+}
+
+/// True when every whitespace-separated word of [query] occurs in [text] (diacritic and case insensitive).
+bool matchesQuery(String text, String query) {
+  if (query.trim().isEmpty) return true;
+  final t = foldTr(text);
+  return foldTr(query).split(RegExp(r'\s+')).where((w) => w.isNotEmpty).every(t.contains);
+}
