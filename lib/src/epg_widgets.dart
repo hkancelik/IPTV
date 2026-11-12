@@ -5,17 +5,20 @@ import 'package:flutter/material.dart';
 
 import 'xtream.dart';
 
-/// Short-EPG cache with at most [_maxParallel] requests in flight.
+/// Short-EPG cache with at most [_maxParallel] requests in flight. Every row of the channel list asks for its
+/// channel, so while scrolling the newest requests (the rows on screen) go first and at most [_maxWaiting]
+/// wait: older ones are answered with an empty list and asked again when their row is shown again.
 class EpgCache {
   EpgCache(this.client);
 
   final XtreamClient client;
   static const _maxParallel = 4;
+  static const _maxWaiting = 24;
   static const _ttl = Duration(minutes: 5);
 
   final Map<int, ({DateTime at, List<Programme> list})> _cache = {};
   final Map<int, Future<List<Programme>>> _inflight = {};
-  final Queue<Completer<void>> _waiting = Queue();
+  final Queue<Completer<bool>> _waiting = Queue(); // completed with true when a request slot is handed over
   int _running = 0;
 
   List<Programme>? cached(int id) {
@@ -26,23 +29,32 @@ class EpgCache {
   Future<List<Programme>> get(int id) {
     final c = cached(id);
     if (c != null) return Future.value(c);
-    return _inflight[id] ??= _fetch(id).whenComplete(() => _inflight.remove(id));
+    // The block body matters: returning the removed future from whenComplete would make it wait for itself.
+    return _inflight[id] ??= _fetch(id).whenComplete(() {
+      _inflight.remove(id);
+    });
   }
 
   Future<List<Programme>> _fetch(int id) async {
-    if (_running >= _maxParallel) {
-      final gate = Completer<void>();
-      _waiting.add(gate);
-      await gate.future;
+    if (_running < _maxParallel) {
+      _running++;
+    } else {
+      final gate = Completer<bool>();
+      _waiting.addLast(gate);
+      if (_waiting.length > _maxWaiting) _waiting.removeFirst().complete(false);
+      if (!await gate.future) return const []; // skipped, not cached
     }
-    _running++;
     try {
       final list = await client.shortEpg(id);
       _cache[id] = (at: DateTime.now(), list: list);
       return list;
     } finally {
-      _running--;
-      if (_waiting.isNotEmpty) _waiting.removeFirst().complete();
+      // The slot goes straight to the newest waiter, if any.
+      if (_waiting.isNotEmpty) {
+        _waiting.removeLast().complete(true);
+      } else {
+        _running--;
+      }
     }
   }
 }

@@ -59,6 +59,8 @@ class _HomePageState extends State<HomePage> {
       };
     } on XtreamException catch (e) {
       _errors[kind] = e.message;
+    } catch (e) {
+      _errors[kind] = 'Liste yüklenemedi: $e';
     } finally {
       if (mounted) setState(() => _loading.remove(kind));
     }
@@ -487,6 +489,7 @@ class _HomePageState extends State<HomePage> {
         child: Row(children: [
           Expanded(
             child: RemoteTextField(
+              key: ValueKey('search$_tab'), // a new, empty field per tab: _select() resets the query
               onChanged: (v) => setState(() => _query = v),
               decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'Ara', border: OutlineInputBorder(), isDense: true),
             ),

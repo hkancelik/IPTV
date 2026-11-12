@@ -46,6 +46,10 @@ class _PlayerPageState extends State<PlayerPage> {
   final List<StreamSubscription<dynamic>> _subs = [];
   int _retries = 0;
   int _gen = 0; // bumped on every channel/episode change so stale retries are dropped
+  int _progress = 0; // bumped whenever the playback position moves
+  int? _errorGen; // the [_gen] whose error is being handled right now
+  String? _ignoredError; // an error after which playback went on
+  bool _saveable = false; // the player's position is the one to remember (not while opening / before the resume seek)
   late int _index = widget.index;
   Future<List<Programme>>? _epg;
   late final ValueNotifier<PlayerEntry> _current = ValueNotifier(_entry);
@@ -96,20 +100,25 @@ class _PlayerPageState extends State<PlayerPage> {
       await set('slang', s.slang);
       await set('sid', 'auto');
     }
+    if (!mounted) return; // left again while the options were being set: the player is already disposed
 
     Library.instance.touch(url: _entry.url, title: _entry.title, logo: _entry.logo, kind: widget.kind);
 
-    _subs.add(_player.stream.error.listen(_onError));
-    _subs.add(_player.stream.playing.listen((playing) {
-      if (playing) {
-        _retries = 0;
-        if (_error.value != null) _error.value = null;
-      }
+    _subs.add(_player.stream.error.listen((message) => _onError(message)));
+    // Only a moving position proves that the stream plays: media_kit reports playing=true as soon as open()
+    // is called, before any data has arrived, so that must not reset the retry counter or hide the error.
+    var last = Duration.zero;
+    _subs.add(_player.stream.position.listen((position) {
+      if (position == Duration.zero || position == last) return;
+      last = position;
+      _progress++;
+      _retries = 0;
+      if (_error.value != null) _error.value = null;
     }));
     if (widget.live) {
       // A live stream that "ends" has dropped: reconnect.
       _subs.add(_player.stream.completed.listen((done) {
-        if (done) _onError('stream ended');
+        if (done) _onError('stream ended', stopped: true);
       }));
     } else {
       _subs.add(_player.stream.completed.listen((done) {
@@ -127,11 +136,17 @@ class _PlayerPageState extends State<PlayerPage> {
     if (AppSettings.instance.resume) {
       final saved = Library.instance.positionFor(_entry.url);
       if (saved != null) {
-        await _player.stream.duration.firstWhere((d) => d > Duration.zero);
+        try {
+          await _player.stream.duration.firstWhere((d) => d > Duration.zero);
+        } catch (_) {
+          return; // the player was closed before the video loaded
+        }
         if (gen != _gen || !mounted) return;
         await _player.seek(saved);
+        if (gen != _gen || !mounted) return;
       }
     }
+    _saveable = true;
     _saveTimer?.cancel();
     _saveTimer = Timer.periodic(const Duration(seconds: 10), (_) => _save());
   }
@@ -144,9 +159,11 @@ class _PlayerPageState extends State<PlayerPage> {
     _cancelCountdown();
     _saveTimer?.cancel();
     _save();
+    _saveable = false;
     _gen++;
     _retries = 0;
     _error.value = null;
+    _ignoredError = null;
     _index = i;
     final e = _entry;
     _epg = e.epg?.call();
@@ -175,6 +192,14 @@ class _PlayerPageState extends State<PlayerPage> {
   void _onCompleted() {
     if (!mounted) return;
     _save();
+    // mpv also reports a connection that died for good as the end of the file. If an error was let pass because
+    // the buffered part still played, and this "end" is far from the real one, it was that connection.
+    final ignored = _ignoredError;
+    final state = _player.state;
+    if (ignored != null && state.duration - state.position > const Duration(seconds: 60)) {
+      _error.value = 'Yayın yarıda kesildi.\n\n$ignored';
+      return;
+    }
     if (!AppSettings.instance.autoNext || !_hasNext) return;
     _countdownTimer?.cancel();
     _countdown.value = 10;
@@ -202,50 +227,70 @@ class _PlayerPageState extends State<PlayerPage> {
     }
   }
 
-  Future<void> _onError(String message) async {
-    if (!mounted) return;
-    // Is the account's connection limit used up (e.g. watching on the PC and the TV stick at once)?
-    final info = await _accountInfo();
-    if (!mounted) return;
-    if (info != null && info.limitReached) {
-      final n = '${info.activeConnections}/${info.maxConnections}';
-      if (widget.live && _retries < 3) {
-        // The server may still count our own dropped connection for a few seconds: wait and retry.
-        _retries++;
-        _error.value = 'Bağlantı sınırı dolu ($n). Başka bir cihazda izleme açık olabilir ya da önceki bağlantın henüz kapanmadı. Yeniden deneniyor ($_retries/3)...';
-        final gen = _gen;
-        Future.delayed(Duration(seconds: 4 * _retries), () {
+  /// [stopped]: playback is known to have ended. Otherwise the error may be a passing decoder hiccup, which mpv
+  /// reports the same way, so it only counts if the position stops moving.
+  Future<void> _onError(String message, {bool stopped = false}) async {
+    final gen = _gen;
+    // mpv logs several lines for one failure: one recovery per channel/episode at a time.
+    if (!mounted || _errorGen == gen) return;
+    _errorGen = gen;
+    try {
+      if (!stopped) {
+        final before = _progress;
+        await Future<void>.delayed(const Duration(seconds: 2));
+        if (!mounted || gen != _gen) return;
+        if (_progress != before) {
+          _ignoredError = message;
+          return;
+        }
+      }
+      // Is the account's connection limit used up (e.g. watching on the PC and the TV stick at once)?
+      final info = await _accountInfo();
+      if (!mounted || gen != _gen) return; // the user moved on to another channel/episode meanwhile
+      if (info != null && info.limitReached) {
+        final n = '${info.activeConnections}/${info.maxConnections}';
+        if (widget.live && _retries < 3) {
+          // The server may still count our own dropped connection for a few seconds: wait and retry.
+          _retries++;
+          _error.value = 'Bağlantı sınırı dolu ($n). Başka bir cihazda izleme açık olabilir ya da önceki bağlantın henüz kapanmadı. Yeniden deneniyor ($_retries/3)...';
+          await Future<void>.delayed(Duration(seconds: 4 * _retries));
           if (mounted && gen == _gen) _open();
-        });
+          return;
+        }
+        _error.value = 'Bağlantı sınırı dolu ($n).\n\nHesabın aynı anda en fazla ${info.maxConnections} cihazda izlemeye izin veriyor. '
+            'Başka bir cihazda (TV, telefon, bilgisayar) açık yayını kapat, birkaç saniye bekle ve Tekrar dene.';
         return;
       }
-      _error.value = 'Bağlantı sınırı dolu ($n).\n\nHesabın aynı anda en fazla ${info.maxConnections} cihazda izlemeye izin veriyor. '
-          'Başka bir cihazda (TV, telefon, bilgisayar) açık yayını kapat, birkaç saniye bekle ve Tekrar dene.';
-      return;
-    }
-    if (widget.live && _retries < 3) {
-      _retries++;
-      _error.value = 'Bağlantı koptu, yeniden deneniyor ($_retries/3)...';
-      final gen = _gen;
-      Future.delayed(Duration(seconds: 2 * _retries), () {
+      if (widget.live && _retries < 3) {
+        _retries++;
+        _error.value = 'Bağlantı koptu, yeniden deneniyor ($_retries/3)...';
+        await Future<void>.delayed(Duration(seconds: 2 * _retries));
         if (mounted && gen == _gen) _open();
-      });
-      return;
+        return;
+      }
+      final refused = RegExp(r'(401|403|404|509|884|forbidden|unauthorized)', caseSensitive: false).hasMatch(message);
+      _error.value = refused
+          ? 'Yayın açılamadı. Sağlayıcı isteği reddetti (hesap süresi dolmuş ya da bağlantı sınırı olabilir).\n\n$message'
+          : 'Yayın açılamadı.\n\n$message';
+    } finally {
+      if (_errorGen == gen) _errorGen = null;
     }
-    final refused = RegExp(r'(401|403|404|509|884|forbidden|unauthorized)', caseSensitive: false).hasMatch(message);
-    _error.value = refused
-        ? 'Yayın açılamadı. Sağlayıcı isteği reddetti (hesap süresi dolmuş ya da bağlantı sınırı olabilir).\n\n$message'
-        : 'Yayın açılamadı.\n\n$message';
   }
 
-  void _retry() {
+  /// "Tekrar dene": opens the current channel/episode again (a movie continues from the saved position).
+  Future<void> _retry() async {
+    _gen++; // drops a recovery or a resume that still waits on the failed attempt
     _retries = 0;
     _error.value = null;
-    _open();
+    _ignoredError = null;
+    _saveTimer?.cancel();
+    _saveable = false;
+    await _open();
+    if (mounted) await _afterOpen();
   }
 
   void _save() {
-    if (widget.live) return;
+    if (widget.live || !_saveable) return;
     Library.instance.savePosition(_entry.url, _player.state.position, _player.state.duration);
   }
 
@@ -345,6 +390,9 @@ String _fmt(Duration d) {
   final h = d.inHours;
   return '${h > 0 ? '$h:' : ''}${two(d.inMinutes % 60)}:${two(d.inSeconds % 60)}';
 }
+
+/// The error message announces an automatic retry (no "Tekrar dene" button then).
+bool _isRetrying(String message) => message.contains('Yeniden deneniyor') || message.startsWith('Bağlantı koptu');
 
 String _trackLabel(String id, String? title, String? language) {
   if (id == 'auto') return 'Otomatik';
@@ -566,6 +614,13 @@ class _ControlsState extends State<_Controls> {
 
     final isSelect = k == LogicalKeyboardKey.select || k == LogicalKeyboardKey.enter || k == LogicalKeyboardKey.numpadEnter;
 
+    // A failed stream: OK is "Tekrar dene" (like the countdown below, its button can't take focus from the video).
+    final failure = widget.error.value;
+    if (isSelect && failure != null && !_isRetrying(failure) && !_barFocused) {
+      widget.onRetry();
+      return KeyEventResult.handled;
+    }
+
     // Next-episode countdown: OK starts it right away (the dialog's button can't take focus from the video).
     if (isSelect && widget.countdown.value != null && widget.onNext != null && !_barFocused) {
       widget.onNext!();
@@ -681,7 +736,7 @@ class _ControlsState extends State<_Controls> {
               valueListenable: widget.error,
               builder: (_, msg, _) {
                 if (msg == null) return const SizedBox.shrink();
-                final retrying = msg.contains('Yeniden deneniyor') || msg.startsWith('Bağlantı koptu');
+                final retrying = _isRetrying(msg);
                 return Center(
                   child: Container(
                     constraints: const BoxConstraints(maxWidth: 460),

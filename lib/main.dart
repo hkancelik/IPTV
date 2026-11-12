@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 
 import 'src/app_nav.dart';
-import 'src/library.dart';
 import 'src/login_page.dart';
 import 'src/phone_remote.dart';
 import 'src/ui_scale.dart';
@@ -19,7 +18,7 @@ Future<void> main() async {
       ..maximumSizeBytes = 32 << 20
       ..maximumSize = 120;
   }
-  await Future.wait([AppSettings.instance.load(), Library.instance.load()]);
+  await AppSettings.instance.load();
   if (AppSettings.instance.phoneRemote) PhoneRemote.instance.setEnabled(true);
   runApp(const IptvApp());
 }

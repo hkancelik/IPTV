@@ -33,7 +33,7 @@ class HistoryEntry {
       );
 }
 
-/// Favorites and watch history.
+/// Favorites and watch history of the signed-in account ([use]).
 class Library extends ChangeNotifier {
   Library._();
   static final Library instance = Library._();
@@ -56,31 +56,82 @@ class Library extends ChangeNotifier {
     return null;
   }
 
-  Future<void> load() async {
+  static const _favoritesKey = 'favorites';
+  static const _historyKey = 'history';
+
+  Account? _account; // nothing is stored until an account is in use
+
+  /// Switches to the favorites and history of [account]. Each account has its own lists, and stream URLs are
+  /// stored without host and credentials ([Account.portableUrl]), so no password ends up in plain preferences.
+  Future<void> use(Account account) async {
+    _account = account;
+    _favorites.clear();
+    _history.clear();
     final p = await SharedPreferences.getInstance();
-    try {
-      final f = p.getString('favorites');
-      if (f != null) {
-        for (final j in jsonDecode(f) as List) {
-          final it = Item.fromJson(j as Map<String, dynamic>);
-          _favorites[it.id] = it;
-        }
+
+    List<Map<String, dynamic>> read(String key) {
+      try {
+        final raw = p.getString(key);
+        return raw == null ? [] : [for (final j in jsonDecode(raw) as List) j as Map<String, dynamic>];
+      } catch (_) {
+        return []; // corrupt data: start fresh
       }
-      final h = p.getString('history');
-      if (h != null) {
-        _history.addAll([for (final j in jsonDecode(h) as List) HistoryEntry.fromJson(j as Map<String, dynamic>)]);
+    }
+
+    // Older versions kept one list for all accounts, with full URLs. Take over the entries of this account
+    // (those without a URL, i.e. series, go to the first account that signs in) and leave the rest.
+    var migrated = false;
+    Future<List<Map<String, dynamic>>> claim(String key) async {
+      final old = read(key);
+      bool mine(Map<String, dynamic> j) => j['url'] is! String || account.portableUrl(j['url'] as String) != j['url'];
+      final rest = [for (final j in old) if (!mine(j)) j];
+      if (rest.length == old.length) return [];
+      migrated = true;
+      rest.isEmpty ? await p.remove(key) : await p.setString(key, jsonEncode(rest));
+      return [for (final j in old) if (mine(j)) j];
+    }
+
+    Map<String, dynamic> playable(Map<String, dynamic> j) {
+      final url = j['url'];
+      return url is String ? {...j, 'url': account.fullUrl(account.portableUrl(url))} : j;
+    }
+
+    final favorites = [...read(_scoped(_favoritesKey)), ...await claim(_favoritesKey)];
+    final history = [...read(_scoped(_historyKey)), ...await claim(_historyKey)];
+    if (_account != account) return; // another account was selected meanwhile
+    for (final j in favorites) {
+      try {
+        final it = Item.fromJson(playable(j));
+        _favorites.putIfAbsent(it.id, () => it);
+      } catch (_) {
+        // corrupt entry: skip it
       }
-    } catch (_) {
-      // corrupt data: start fresh
+    }
+    for (final j in history) {
+      try {
+        final e = HistoryEntry.fromJson(playable(j));
+        if (_find(e.url) == null && _history.length < _maxHistory) _history.add(e);
+      } catch (_) {
+        // corrupt entry: skip it
+      }
     }
     notifyListeners();
+    if (migrated) await Future.wait([_persistFavorites(), _persist()]);
   }
+
+  String _scoped(String key) => '$key:${_account!.key}';
 
   Future<void> toggleFavorite(Item i) async {
     if (_favorites.remove(i.id) == null) _favorites[i.id] = i;
     notifyListeners();
-    final p = await SharedPreferences.getInstance();
-    await p.setString('favorites', jsonEncode([for (final f in _favorites.values) f.toJson()]));
+    await _persistFavorites();
+  }
+
+  Future<void> _persistFavorites() async {
+    final a = _account;
+    if (a == null) return;
+    final json = jsonEncode([for (final f in _favorites.values) {...f.toJson(), 'url': f.url == null ? null : a.portableUrl(f.url!)}]);
+    await (await SharedPreferences.getInstance()).setString(_scoped(_favoritesKey), json);
   }
 
   Duration? positionFor(String url) {
@@ -101,6 +152,8 @@ class Library extends ChangeNotifier {
   Future<void> savePosition(String url, Duration position, Duration total) async {
     final e = _find(url);
     if (e == null || e.kind == Kind.live) return;
+    // Nothing was loaded yet (the player was left while still opening): keep the position we have.
+    if (position == Duration.zero && total == Duration.zero) return;
     final finished = total > Duration.zero && total - position < const Duration(seconds: 60);
     e.positionMs = finished ? 0 : position.inMilliseconds;
     e.durationMs = total.inMilliseconds;
@@ -109,7 +162,9 @@ class Library extends ChangeNotifier {
   }
 
   Future<void> _persist() async {
-    final p = await SharedPreferences.getInstance();
-    await p.setString('history', jsonEncode([for (final e in _history) e.toJson()]));
+    final a = _account;
+    if (a == null) return;
+    final json = jsonEncode([for (final e in _history) {...e.toJson(), 'url': a.portableUrl(e.url)}]);
+    await (await SharedPreferences.getInstance()).setString(_scoped(_historyKey), json);
   }
 }

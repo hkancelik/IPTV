@@ -60,7 +60,7 @@ class SettingsPage extends StatelessWidget {
                 icon: Icons.storage,
                 title: 'Ön bellek (tampon)',
                 value: s.cacheSecs,
-                options: const {10: '10 sn', 30: '30 sn', 60: '60 sn', 120: '120 sn'},
+                options: const {10: '10 sn', 15: '15 sn', 30: '30 sn', 60: '60 sn', 120: '120 sn'},
                 onChanged: (v) => s.update(cacheSecs: v),
               ),
               SwitchListTile(
@@ -187,7 +187,8 @@ class _Choice<T> extends StatelessWidget {
       leading: Icon(icon),
       title: Text(title),
       trailing: DropdownButton<T>(
-        value: value,
+        // A stored value that is not (or no longer) offered: show no selection rather than fail.
+        value: options.containsKey(value) ? value : null,
         underline: const SizedBox.shrink(),
         items: [for (final e in options.entries) DropdownMenuItem(value: e.key, child: Text(e.value))],
         onChanged: (v) {

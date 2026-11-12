@@ -70,4 +70,47 @@ void main() {
     expect(items.last.group, 'Kategorisiz');
     await server.close(force: true);
   });
+
+  /// Serves a fake `player_api.php`: [answer] returns the JSON for an action, or an int HTTP status to fail with.
+  Future<(HttpServer, XtreamClient)> api(Object? Function(String? action) answer) async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    server.listen((req) {
+      final a = answer(req.uri.queryParameters['action']);
+      if (a is int) {
+        req.response.statusCode = a;
+      } else {
+        req.response.headers.contentType = ContentType.json;
+        req.response.write(jsonEncode(a));
+      }
+      req.response.close();
+    });
+    return (server, XtreamClient(Account(name: 't', host: 'http://127.0.0.1:${server.port}', username: 'u', password: 'p')));
+  }
+
+  test('a stream list the server refuses raises an XtreamException with the HTTP status', () async {
+    final (server, client) = await api((action) => action == 'get_vod_streams' ? 500 : <Object>[]);
+    await expectLater(client.movies(), throwsA(isA<XtreamException>().having((e) => e.message, 'message', 'Sunucu HTTP 500 döndürdü')));
+    await server.close(force: true);
+  });
+
+  test('a movie without metadata ("info": []) gives empty details instead of failing', () async {
+    final (server, client) = await api((_) => {'info': <Object>[], 'movie_data': {'stream_id': 1}});
+    final details = await client.vodDetails(1);
+    expect(details.plot, '');
+    expect(details.poster, '');
+    await server.close(force: true);
+  });
+
+  test('a series without metadata ("info": []) still lists its episodes', () async {
+    final (server, client) = await api((_) => {
+          'info': <Object>[],
+          'episodes': {
+            '1': [{'id': 5, 'episode_num': 1, 'title': 'Pilot', 'container_extension': 'mkv'}],
+          },
+        });
+    final data = await client.seriesData(9);
+    expect(data.episodes.map((e) => e.title), ['Pilot']);
+    expect(data.episodes.single.url, endsWith('/series/u/p/5.mkv'));
+    await server.close(force: true);
+  });
 }

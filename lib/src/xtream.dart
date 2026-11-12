@@ -27,6 +27,23 @@ class Account {
         password: j['password'] as String,
       );
 
+  /// A stream URL of this account without host and credentials ("movie/42.mkv"), so favorites and the watch
+  /// history can be stored in plain preferences. URLs that are not this account's are returned unchanged.
+  String portableUrl(String url) {
+    if (!url.startsWith('$host/')) return url;
+    final parts = url.substring(host.length + 1).split('/');
+    // kind / username / password / file: the password is not compared, it may have changed since.
+    if (parts.length < 4 || parts[1] != Uri.encodeComponent(username)) return url;
+    return [parts[0], ...parts.skip(3)].join('/');
+  }
+
+  /// The playable URL of a [portableUrl] with the current host and credentials.
+  String fullUrl(String portable) {
+    final slash = portable.indexOf('/');
+    if (portable.contains('://') || slash < 0) return portable;
+    return _streamUrl(_authOf(this), portable.substring(0, slash), portable.substring(slash + 1));
+  }
+
   static String normalizeHost(String input) {
     var h = input.trim().replaceAll(RegExp(r'/+$'), '');
     if (!RegExp(r'^https?://', caseSensitive: false).hasMatch(h)) h = 'http://$h';
@@ -150,10 +167,10 @@ class XtreamClient {
     });
   }
 
-  String _stream(String kind, Object id, String ext) => _streamUrl(_auth, kind, id, ext);
+  String _stream(String kind, Object? id, String ext) => _streamUrl(_auth, kind, '$id.$ext');
 
   /// Host and credentials for stream URLs, as plain strings so they can be sent to a background isolate.
-  _Auth get _auth => (host: acc.host, user: Uri.encodeComponent(acc.username), pass: Uri.encodeComponent(acc.password));
+  _Auth get _auth => _authOf(acc);
 
   Future<dynamic> _getJson(Uri uri, {Duration timeout = const Duration(seconds: 90)}) async {
     final body = await _getBytes(uri, timeout: timeout);
@@ -170,7 +187,9 @@ class XtreamClient {
   /// ratings, ...), which on a TV stick cost seconds of UI-thread copying and a lot of memory.
   Future<List<Item>> _streams(String categoriesAction, String streamsAction, _ToItem toItem) async {
     final auth = _auth;
-    final (cats, body) = await (_categories(categoriesAction), _getBytes(_api(streamsAction), timeout: const Duration(seconds: 90))).wait;
+    final categories = _categories(categoriesAction); // never fails: falls back to no categories
+    final body = await _getBytes(_api(streamsAction), timeout: const Duration(seconds: 90));
+    final cats = await categories;
     try {
       return await Isolate.run(() {
         final list = jsonDecode(utf8.decode(body));
@@ -194,7 +213,7 @@ class XtreamClient {
 
   Future<AccountInfo> authenticate() async {
     final data = await _getJson(_api(null), timeout: const Duration(seconds: 30));
-    final info = (data is Map ? data['user_info'] : null) as Map?;
+    final info = _map(data is Map ? data['user_info'] : null);
     if (info == null || '${info['auth']}' == '0') {
       throw XtreamException('Giriş reddedildi: kullanıcı adı veya parola hatalı');
     }
@@ -224,6 +243,9 @@ class XtreamClient {
   Future<List<Item>> series() => _streams('get_series_categories', 'get_series', _seriesItem);
 
 
+  /// PHP panels send an empty object as `[]`: anything that is not a map counts as "no data".
+  static Map? _map(dynamic v) => v is Map ? v : null;
+
   static String _first(dynamic v) {
     if (v is List) return v.isEmpty ? '' : '${v.first}';
     return v == null ? '' : '$v';
@@ -248,7 +270,7 @@ class XtreamClient {
 
   Future<Details> vodDetails(int streamId) async {
     final data = await _getJson(_api('get_vod_info', {'vod_id': '$streamId'}));
-    return _details(data is Map ? data['info'] as Map? : null);
+    return _details(_map(data is Map ? data['info'] : null));
   }
 
   Future<SeriesData> seriesData(int seriesId) async {
@@ -259,7 +281,8 @@ class XtreamClient {
     void add(String seasonKey, dynamic list) {
       if (list is! List) return;
       for (final e in list) {
-        final info = e['info'] is Map ? e['info'] as Map : const {};
+        if (e is! Map) continue;
+        final info = _map(e['info']) ?? const {};
         out.add(Episode(
           season: int.tryParse('${e['season'] ?? seasonKey}') ?? 1,
           number: int.tryParse('${e['episode_num']}') ?? 1,
@@ -280,7 +303,7 @@ class XtreamClient {
       }
     }
     out.sort((a, b) => a.season != b.season ? a.season.compareTo(b.season) : a.number.compareTo(b.number));
-    return SeriesData(_details(map['info'] as Map?), out);
+    return SeriesData(_details(_map(map['info'])), out);
   }
 
   /// Current and upcoming programmes of a live channel (empty when the provider has no EPG).
@@ -319,7 +342,10 @@ class XtreamClient {
 typedef _Auth = ({String host, String user, String pass});
 typedef _ToItem = Item Function(Map s, Map<String, String> cats, _Auth auth);
 
-String _streamUrl(_Auth a, String kind, Object? id, String ext) => '${a.host}/$kind/${a.user}/${a.pass}/$id.$ext';
+_Auth _authOf(Account a) => (host: a.host, user: Uri.encodeComponent(a.username), pass: Uri.encodeComponent(a.password));
+
+/// [file] is the stream id with its extension, e.g. "42.mkv".
+String _streamUrl(_Auth a, String kind, String file) => '${a.host}/$kind/${a.user}/${a.pass}/$file';
 
 // Top-level (not closures) so they can run on the background isolate without capturing the client.
 Item _liveItem(Map s, Map<String, String> cats, _Auth auth) => Item(
@@ -328,7 +354,7 @@ Item _liveItem(Map s, Map<String, String> cats, _Auth auth) => Item(
       logo: '${s['stream_icon'] ?? ''}',
       group: cats['${s['category_id']}'] ?? 'Kategorisiz',
       kind: Kind.live,
-      url: _streamUrl(auth, 'live', s['stream_id'], 'ts'),
+      url: _streamUrl(auth, 'live', '${s['stream_id']}.ts'),
     );
 
 Item _movieItem(Map s, Map<String, String> cats, _Auth auth) => Item(
@@ -337,7 +363,7 @@ Item _movieItem(Map s, Map<String, String> cats, _Auth auth) => Item(
       logo: '${s['stream_icon'] ?? ''}',
       group: cats['${s['category_id']}'] ?? 'Kategorisiz',
       kind: Kind.movie,
-      url: _streamUrl(auth, 'movie', s['stream_id'], '${(s['container_extension'] ?? 'mp4')}'),
+      url: _streamUrl(auth, 'movie', '${s['stream_id']}.${s['container_extension'] ?? 'mp4'}'),
       added: int.tryParse('${s['added']}') ?? 0,
     );
 

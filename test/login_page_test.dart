@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:iptv_app/src/accounts.dart';
+import 'package:iptv_app/src/library.dart';
 import 'package:iptv_app/src/login_page.dart';
 import 'package:iptv_app/src/settings.dart';
 import 'package:iptv_app/src/xtream.dart';
@@ -129,5 +130,22 @@ void main() {
     expect(find.text('Ev'), findsOneWidget);
     final left = await tester.runAsync(AccountStore.load);
     expect(left!.map((a) => a.name), ['Ev']);
+  });
+
+  testWidgets('signing in opens the favorites of that account, not those of the previous one', (tester) async {
+    await _pump(tester, auto: false, saved: [_a, _b], last: _a.key);
+    await tester.runAsync(() async {
+      await Library.instance.use(_b);
+      await Library.instance.toggleFavorite(Item(id: 'l7', name: 'Kanal 7', logo: '', group: 'G', kind: Kind.live, url: 'http://b.example:8080/live/ub/pb/7.ts'));
+      await Library.instance.use(_a);
+    });
+    expect(Library.instance.favorites, isEmpty);
+
+    await tester.tap(find.text('Ofis'));
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+    await _settle(tester);
+
+    expect(find.text('HOME Ofis'), findsOneWidget);
+    expect(Library.instance.favorites.map((i) => i.name), ['Kanal 7']);
   });
 }

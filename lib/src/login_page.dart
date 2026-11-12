@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'accounts.dart';
 import 'focus_frame.dart';
 import 'home_page.dart';
+import 'library.dart';
 import 'remote_entry.dart';
 import 'settings.dart';
 import 'tv_text_field.dart';
@@ -98,6 +99,7 @@ class _LoginPageState extends State<LoginPage> {
       }
       _lastKey = acc.key;
       await AccountStore.saveLast(acc.key);
+      await Library.instance.use(acc); // favorites and history are per account
       if (!mounted) return;
       await Navigator.of(context).push(MaterialPageRoute(builder: (_) => widget.homeBuilder(client, info, acc)));
     } on XtreamException catch (e) {
