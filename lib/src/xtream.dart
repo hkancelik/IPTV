@@ -150,10 +150,38 @@ class XtreamClient {
     });
   }
 
-  String _stream(String kind, Object id, String ext) =>
-      '${acc.host}/$kind/${Uri.encodeComponent(acc.username)}/${Uri.encodeComponent(acc.password)}/$id.$ext';
+  String _stream(String kind, Object id, String ext) => _streamUrl(_auth, kind, id, ext);
+
+  /// Host and credentials for stream URLs, as plain strings so they can be sent to a background isolate.
+  _Auth get _auth => (host: acc.host, user: Uri.encodeComponent(acc.username), pass: Uri.encodeComponent(acc.password));
 
   Future<dynamic> _getJson(Uri uri, {Duration timeout = const Duration(seconds: 90)}) async {
+    final body = await _getBytes(uri, timeout: timeout);
+    try {
+      // Large lists (tens of thousands of entries) are decoded off the UI isolate.
+      return await Isolate.run(() => jsonDecode(utf8.decode(body)));
+    } catch (_) {
+      throw XtreamException('Sunucu geçersiz (JSON olmayan) yanıt verdi');
+    }
+  }
+
+  /// A stream list (live/movies/series). Categories and streams are fetched in parallel, and the [Item]s are
+  /// built on the background isolate too: only the slim items come back, not the full decoded maps (plots,
+  /// ratings, ...), which on a TV stick cost seconds of UI-thread copying and a lot of memory.
+  Future<List<Item>> _streams(String categoriesAction, String streamsAction, _ToItem toItem) async {
+    final auth = _auth;
+    final (cats, body) = await (_categories(categoriesAction), _getBytes(_api(streamsAction), timeout: const Duration(seconds: 90))).wait;
+    try {
+      return await Isolate.run(() {
+        final list = jsonDecode(utf8.decode(body));
+        return list is List ? [for (final s in list) if (s is Map) toItem(s, cats, auth)] : <Item>[];
+      });
+    } catch (_) {
+      throw XtreamException('Sunucu geçersiz (JSON olmayan) yanıt verdi');
+    }
+  }
+
+  Future<List<int>> _getBytes(Uri uri, {required Duration timeout}) async {
     final http.Response res;
     try {
       res = await http.get(uri, headers: {'User-Agent': _userAgent}).timeout(timeout);
@@ -161,13 +189,7 @@ class XtreamClient {
       throw XtreamException('Sunucuya erişilemiyor: $e');
     }
     if (res.statusCode != 200) throw XtreamException('Sunucu HTTP ${res.statusCode} döndürdü');
-    final body = res.bodyBytes;
-    try {
-      // Large lists (tens of thousands of entries) are decoded off the UI isolate.
-      return await Isolate.run(() => jsonDecode(utf8.decode(body)));
-    } catch (_) {
-      throw XtreamException('Sunucu geçersiz (JSON olmayan) yanıt verdi');
-    }
+    return res.bodyBytes;
   }
 
   Future<AccountInfo> authenticate() async {
@@ -195,58 +217,12 @@ class XtreamClient {
     }
   }
 
-  Future<List<Item>> live() async {
-    final cats = await _categories('get_live_categories');
-    final list = await _getJson(_api('get_live_streams'));
-    if (list is! List) return [];
-    return [
-      for (final s in list)
-        Item(
-          id: 'l${s['stream_id']}',
-          name: '${s['name'] ?? ''}',
-          logo: '${s['stream_icon'] ?? ''}',
-          group: cats['${s['category_id']}'] ?? 'Kategorisiz',
-          kind: Kind.live,
-          url: _stream('live', s['stream_id'], 'ts'),
-        )
-    ];
-  }
+  Future<List<Item>> live() => _streams('get_live_categories', 'get_live_streams', _liveItem);
 
-  Future<List<Item>> movies() async {
-    final cats = await _categories('get_vod_categories');
-    final list = await _getJson(_api('get_vod_streams'));
-    if (list is! List) return [];
-    return [
-      for (final s in list)
-        Item(
-          id: 'm${s['stream_id']}',
-          name: '${s['name'] ?? ''}',
-          logo: '${s['stream_icon'] ?? ''}',
-          group: cats['${s['category_id']}'] ?? 'Kategorisiz',
-          kind: Kind.movie,
-          url: _stream('movie', s['stream_id'], '${(s['container_extension'] ?? 'mp4')}'),
-          added: int.tryParse('${s['added']}') ?? 0,
-        )
-    ];
-  }
+  Future<List<Item>> movies() => _streams('get_vod_categories', 'get_vod_streams', _movieItem);
 
-  Future<List<Item>> series() async {
-    final cats = await _categories('get_series_categories');
-    final list = await _getJson(_api('get_series'));
-    if (list is! List) return [];
-    return [
-      for (final s in list)
-        Item(
-          id: 's${s['series_id']}',
-          name: '${s['name'] ?? ''}',
-          logo: '${s['cover'] ?? ''}',
-          group: cats['${s['category_id']}'] ?? 'Kategorisiz',
-          kind: Kind.series,
-          seriesId: int.tryParse('${s['series_id']}'),
-          added: int.tryParse('${s['last_modified']}') ?? 0,
-        )
-    ];
-  }
+  Future<List<Item>> series() => _streams('get_series_categories', 'get_series', _seriesItem);
+
 
   static String _first(dynamic v) {
     if (v is List) return v.isEmpty ? '' : '${v.first}';
@@ -339,3 +315,38 @@ class XtreamClient {
     }
   }
 }
+
+typedef _Auth = ({String host, String user, String pass});
+typedef _ToItem = Item Function(Map s, Map<String, String> cats, _Auth auth);
+
+String _streamUrl(_Auth a, String kind, Object? id, String ext) => '${a.host}/$kind/${a.user}/${a.pass}/$id.$ext';
+
+// Top-level (not closures) so they can run on the background isolate without capturing the client.
+Item _liveItem(Map s, Map<String, String> cats, _Auth auth) => Item(
+      id: 'l${s['stream_id']}',
+      name: '${s['name'] ?? ''}',
+      logo: '${s['stream_icon'] ?? ''}',
+      group: cats['${s['category_id']}'] ?? 'Kategorisiz',
+      kind: Kind.live,
+      url: _streamUrl(auth, 'live', s['stream_id'], 'ts'),
+    );
+
+Item _movieItem(Map s, Map<String, String> cats, _Auth auth) => Item(
+      id: 'm${s['stream_id']}',
+      name: '${s['name'] ?? ''}',
+      logo: '${s['stream_icon'] ?? ''}',
+      group: cats['${s['category_id']}'] ?? 'Kategorisiz',
+      kind: Kind.movie,
+      url: _streamUrl(auth, 'movie', s['stream_id'], '${(s['container_extension'] ?? 'mp4')}'),
+      added: int.tryParse('${s['added']}') ?? 0,
+    );
+
+Item _seriesItem(Map s, Map<String, String> cats, _Auth auth) => Item(
+      id: 's${s['series_id']}',
+      name: '${s['name'] ?? ''}',
+      logo: '${s['cover'] ?? ''}',
+      group: cats['${s['category_id']}'] ?? 'Kategorisiz',
+      kind: Kind.series,
+      seriesId: int.tryParse('${s['series_id']}'),
+      added: int.tryParse('${s['last_modified']}') ?? 0,
+    );

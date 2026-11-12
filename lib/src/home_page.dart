@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'detail_page.dart';
 import 'epg_widgets.dart';
@@ -43,14 +44,6 @@ class _HomePageState extends State<HomePage> {
 
   late final EpgCache _epg = EpgCache(widget.client);
 
-  @override
-  void initState() {
-    super.initState();
-    // The home tab shows recently added movies/series.
-    _ensureLoaded(Kind.movie);
-    _ensureLoaded(Kind.series);
-  }
-
   Future<void> _ensureLoaded(Kind kind) async {
     if (_items.containsKey(kind) || _loading.contains(kind)) return;
     setState(() {
@@ -94,8 +87,8 @@ class _HomePageState extends State<HomePage> {
     // Next/previous channel follows the list the user is looking at (category + search).
     List<Item> list = [item];
     if (_kind == Kind.live) {
-      list = (_items[Kind.live] ?? const <Item>[]).where(_allowed).where((i) => (_query.trim().isNotEmpty ? matchesQuery(i.name, _query) : (_group == null || i.group == _group))).toList();
-    } else if (_tab == _favoritesTab) {
+      list = _viewOf(Kind.live).shown;
+    } else if (_tab == _favoritesTab || _tab == _homeTab) {
       list = Library.instance.favorites.where(_allowed).where((i) => i.kind == Kind.live).toList();
     }
     var index = list.indexWhere((i) => i.id == item.id);
@@ -120,7 +113,41 @@ class _HomePageState extends State<HomePage> {
   bool _allowed(Item i) {
     final s = AppSettings.instance;
     if (s.hiddenGroups.contains(AppSettings.groupKey(i.kind, i.group))) return false;
-    return !s.hideAdult || !(AppSettings.adultPattern.hasMatch(i.group) || AppSettings.adultPattern.hasMatch(i.name));
+    return !s.hideAdult || !_isAdult(i);
+  }
+
+  static final _adult = Expando<bool>();
+  bool _isAdult(Item i) => _adult[i] ??= AppSettings.adultPattern.hasMatch(i.group) || AppSettings.adultPattern.hasMatch(i.name);
+
+  _View? _view;
+
+  /// The filtered/sorted list and category counts of a list tab. Recomputed only when an input changes, not
+  /// on every rebuild: the page also rebuilds under the player (position saves every 10 s) and on each
+  /// favorite toggle, and redoing this for ~20 000 items is slow on a TV stick.
+  _View _viewOf(Kind kind) {
+    final s = AppSettings.instance;
+    final all = _items[kind] ?? const <Item>[];
+    final key = (kind, all, s.hiddenGroups, s.hideAdult, s.dedupe, _group, _query, _sort);
+    final cached = _view;
+    if (cached != null && cached.key == key) return cached;
+
+    final allowed = all.where(_allowed).toList();
+    final groups = <String, int>{};
+    for (final i in allowed) {
+      groups[i.group] = (groups[i.group] ?? 0) + 1;
+    }
+    final List<Item> shown;
+    if (_query.trim().isNotEmpty) {
+      final match = queryMatcher(_query);
+      shown = allowed.where((i) => match(foldedNameOf(i))).toList();
+    } else {
+      shown = _group == null ? allowed : allowed.where((i) => i.group == _group).toList();
+    }
+    // Same title listed in several categories: collapse only in the mixed "Tümü" view.
+    final collapse = kind != Kind.live && s.dedupe;
+    var result = collapse && _group == null ? _dedupe(shown) : shown;
+    if (kind != Kind.live) result = _sorted(result);
+    return _view = _View(key, result, groups, collapse ? _dedupe(allowed).length : allowed.length);
   }
 
   List<Item> _sorted(List<Item> items) {
@@ -281,8 +308,22 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     return ListenableBuilder(
       listenable: Listenable.merge([AppSettings.instance, Library.instance]),
-      builder: (context, _) => Scaffold(
-        body: Row(
+      // Back (TV remote) never lands on the profile page: it steps back to "Tümü", then to Ana Sayfa,
+      // then leaves the app. Switching user goes through Ayarlar (Navigator.pop ignores this PopScope).
+      builder: (context, _) => PopScope(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, _) {
+          if (didPop) return;
+          if (_group != null && _kind != null) {
+            setState(() => _group = null);
+          } else if (_tab != _homeTab) {
+            _select(_homeTab);
+          } else {
+            SystemNavigator.pop();
+          }
+        },
+        child: Scaffold(
+          body: Row(
           children: [
             NavigationRail(
               selectedIndex: _tab,
@@ -302,6 +343,7 @@ class _HomePageState extends State<HomePage> {
             const VerticalDivider(width: 1),
             Expanded(child: _content()),
           ],
+          ),
         ),
       ),
     );
@@ -313,7 +355,8 @@ class _HomePageState extends State<HomePage> {
       return SettingsPage(info: widget.info, account: widget.account, client: widget.client, onLogout: () => Navigator.of(context).pop());
     }
     if (_tab == _favoritesTab) {
-      final favs = Library.instance.favorites.where(_allowed).where((i) => _query.isEmpty || matchesQuery(i.name, _query)).toList();
+      final match = queryMatcher(_query);
+      final favs = Library.instance.favorites.where(_allowed).where((i) => match(foldedNameOf(i))).toList();
       return Column(children: [
         _searchBar(),
         Expanded(child: favs.isEmpty ? const Center(child: Text('Henüz favori yok. Bir içeriğin kalp ikonuna dokun.')) : _mixedList(favs)),
@@ -321,17 +364,10 @@ class _HomePageState extends State<HomePage> {
     }
 
     final kind = _kind!;
-    final all = (_items[kind] ?? const <Item>[]).where(_allowed).toList();
-    final groups = <String, int>{};
-    for (final i in all) {
-      groups[i.group] = (groups[i.group] ?? 0) + 1;
-    }
-    var shown = all.where((i) => (_query.trim().isNotEmpty ? matchesQuery(i.name, _query) : (_group == null || i.group == _group))).toList();
-    // Same title listed in several categories: collapse only in the mixed "Tümü" view.
-    final collapse = kind != Kind.live && AppSettings.instance.dedupe;
-    if (collapse && _group == null) shown = _dedupe(shown);
-    final totalCount = collapse ? _dedupe(all).length : all.length;
-    if (kind != Kind.live) shown = _sorted(shown);
+    final view = _viewOf(kind);
+    final groups = view.groups;
+    final shown = view.shown;
+    final totalCount = view.total;
 
     return Row(
       children: [
@@ -548,3 +584,11 @@ class _HomePageState extends State<HomePage> {
       );
 }
 
+class _View {
+  _View(this.key, this.shown, this.groups, this.total);
+
+  final Object key;
+  final List<Item> shown;
+  final Map<String, int> groups; // category -> item count
+  final int total; // count shown next to "Tümü"
+}

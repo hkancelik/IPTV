@@ -268,6 +268,21 @@ class _PlayerPageState extends State<PlayerPage> {
 
   @override
   Widget build(BuildContext context) {
+    // The remote's Back key first cancels a running next-episode countdown, then leaves the player.
+    return ValueListenableBuilder<int?>(
+      valueListenable: _countdown,
+      builder: (_, left, child) => PopScope(
+        canPop: left == null,
+        onPopInvokedWithResult: (didPop, _) {
+          if (!didPop) _cancelCountdown();
+        },
+        child: child!,
+      ),
+      child: _scaffold(),
+    );
+  }
+
+  Widget _scaffold() {
     return Scaffold(
       backgroundColor: Colors.black,
       body: Stack(children: [
@@ -550,6 +565,21 @@ class _ControlsState extends State<_Controls> {
     }
 
     final isSelect = k == LogicalKeyboardKey.select || k == LogicalKeyboardKey.enter || k == LogicalKeyboardKey.numpadEnter;
+
+    // Next-episode countdown: OK starts it right away (the dialog's button can't take focus from the video).
+    if (isSelect && widget.countdown.value != null && widget.onNext != null && !_barFocused) {
+      widget.onNext!();
+      return KeyEventResult.handled;
+    }
+
+    // Live TV has nothing to seek: Left/Right change the channel, so a plain D-pad remote (no channel keys) can zap.
+    if (widget.live && !_barFocused && (k == LogicalKeyboardKey.arrowLeft || k == LogicalKeyboardKey.arrowRight)) {
+      final go = k == LogicalKeyboardKey.arrowRight ? widget.onNext : widget.onPrev;
+      if (go == null) return KeyEventResult.ignored;
+      go();
+      _poke();
+      return KeyEventResult.handled;
+    }
 
     if (_tv) {
       // Bar mode: the arrows move between the buttons, OK presses them, Up goes back to the video.

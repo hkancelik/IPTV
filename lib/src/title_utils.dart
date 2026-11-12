@@ -76,8 +76,15 @@ String foldTr(String s) {
 }
 
 /// True when every whitespace-separated word of [query] occurs in [text] (diacritic and case insensitive).
-bool matchesQuery(String text, String query) {
-  if (query.trim().isEmpty) return true;
-  final t = foldTr(text);
-  return foldTr(query).split(RegExp(r'\s+')).where((w) => w.isNotEmpty).every(t.contains);
+bool matchesQuery(String text, String query) => query.trim().isEmpty || queryMatcher(query)(foldTr(text));
+
+/// [matchesQuery] for many texts: folds the query once; the returned test takes an already folded text.
+bool Function(String foldedText) queryMatcher(String query) {
+  final words = foldTr(query).split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+  return (t) => words.every(t.contains);
 }
+
+final _folded = Expando<String>();
+
+/// [foldTr] of the item's name, memoised (a search checks every item on each keystroke).
+String foldedNameOf(Item item) => _folded[item] ??= foldTr(item.name);

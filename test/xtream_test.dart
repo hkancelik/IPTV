@@ -45,4 +45,29 @@ void main() {
     expect(client.authenticate(), throwsA(isA<XtreamException>()));
     await server.close(force: true);
   });
+
+  test('movie list is parsed off the UI isolate with categories and stream URLs', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    server.listen((req) {
+      final action = req.uri.queryParameters['action'];
+      req.response.headers.contentType = ContentType.json;
+      req.response.write(jsonEncode(switch (action) {
+        'get_vod_categories' => [{'category_id': '7', 'category_name': 'Aksiyon'}],
+        'get_vod_streams' => [
+            {'stream_id': 42, 'name': 'Film A', 'stream_icon': 'http://x/a.jpg', 'category_id': '7', 'container_extension': 'mkv', 'added': '1700000000', 'plot': 'long text'},
+            {'stream_id': 43, 'name': 'Film B', 'category_id': '99'},
+          ],
+        _ => <Object>[],
+      }));
+      req.response.close();
+    });
+    final host = 'http://127.0.0.1:${server.port}';
+    final items = await XtreamClient(Account(name: 't', host: host, username: 'u ser', password: 'p')).movies();
+    expect(items.map((i) => i.id), ['m42', 'm43']);
+    expect(items.first.group, 'Aksiyon');
+    expect(items.first.url, '$host/movie/u%20ser/p/42.mkv');
+    expect(items.first.added, 1700000000);
+    expect(items.last.group, 'Kategorisiz');
+    await server.close(force: true);
+  });
 }
