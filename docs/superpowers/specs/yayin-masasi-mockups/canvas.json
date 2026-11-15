@@ -1,0 +1,33 @@
+{
+  "v": 3,
+  "createdOnFiles": { "v": 1, "at": "2026-11-12T12:00:00Z" },
+  "title": "IPTV arayüz tasarımı",
+  "launch": { "view": "canvas" },
+  "pages": [],
+  "boards": {
+    "Main.dc.html": { "x": 0, "y": 0, "w": 1280, "h": 720, "title": "Ana sayfa" },
+    "B-Canli.dc.html": { "x": 1360, "y": 0, "w": 1280, "h": 720, "title": "Canlı TV" },
+    "B-Filmler.dc.html": { "x": 2720, "y": 0, "w": 1280, "h": 720, "title": "Filmler" },
+    "B-Detay.dc.html": { "x": 0, "y": 840, "w": 1280, "h": 720, "title": "Dizi detayı" },
+    "B-Oynatici.dc.html": { "x": 1360, "y": 840, "w": 1280, "h": 720, "title": "Oynatıcı, film ve dizi" },
+    "B-OynaticiCanli.dc.html": { "x": 2720, "y": 840, "w": 1280, "h": 720, "title": "Oynatıcı, canlı yayın" },
+    "B-Profiller.dc.html": { "x": 0, "y": 1680, "w": 1280, "h": 720, "title": "Profil seçimi" },
+    "B-Ayarlar.dc.html": { "x": 1360, "y": 1680, "w": 1280, "h": 720, "title": "Ayarlar" },
+    "B-Sistem.dc.html": { "x": 2720, "y": 1680, "w": 1280, "h": 720, "title": "Tasarım dili" }
+  },
+  "order": [
+    "Main.dc.html",
+    "B-Canli.dc.html",
+    "B-Filmler.dc.html",
+    "B-Detay.dc.html",
+    "B-Oynatici.dc.html",
+    "B-OynaticiCanli.dc.html",
+    "B-Profiller.dc.html",
+    "B-Ayarlar.dc.html",
+    "B-Sistem.dc.html"
+  ],
+  "notes": {
+    "yonB": { "x": 0, "y": -300, "text": "B: Yayın Masası", "kind": "title1", "maxW": 4000 }
+  },
+  "designSystems": []
+}

@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<title>Yayın Masası, ayarlar</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#C5CDD1;text-decoration:none}a:hover{color:#FFFFFF}
+</style>
+</helmet>
+<div style="position: relative; width: 1280px; height: 720px; box-sizing: border-box; overflow: hidden; background-color: #0E1011; background-image: linear-gradient(rgba(255,255,255,0.028) 1px, rgba(255,255,255,0) 1px), linear-gradient(90deg, rgba(255,255,255,0.028) 1px, rgba(255,255,255,0) 1px); background-size: 40px 40px; color: #E9EDEF; font-family: 'Archivo', sans-serif">
+
+<header style="position: absolute; left: 28px; right: 28px; top: 16px; height: 44px; display: flex; align-items: center; gap: 8px">
+<span role="img" aria-label="IPTV" style="display: flex; height: 30px">
+<span style="width: 7px; background: #C8C8C8"></span><span style="width: 7px; background: #C8C800"></span><span style="width: 7px; background: #00C8C8"></span><span style="width: 7px; background: #00C800"></span><span style="width: 7px; background: #C800C8"></span><span style="width: 7px; background: #D01818"></span><span style="width: 7px; background: #1818D0"></span>
+</span>
+<span style="margin: 0 18px 0 8px; font-weight: 800; font-stretch: 125%; font-size: 20px; letter-spacing: 0.02em">IPTV</span>
+<nav aria-label="Ana menü" style="display: flex; gap: 6px">
+<a href="Main.dc.html" style="display: flex; align-items: center; height: 40px; padding: 0 16px; border-radius: 4px; border: 1px solid #30373B; background: #1B1F21; font-weight: 600; font-size: 15px; font-stretch: 88%">Ana sayfa</a>
+<a href="B-Canli.dc.html" style="display: flex; align-items: center; height: 40px; padding: 0 16px; border-radius: 4px; border: 1px solid #30373B; background: #1B1F21; font-weight: 600; font-size: 15px; font-stretch: 88%">Canlı TV</a>
+<a href="B-Filmler.dc.html" style="display: flex; align-items: center; height: 40px; padding: 0 16px; border-radius: 4px; border: 1px solid #30373B; background: #1B1F21; font-weight: 600; font-size: 15px; font-stretch: 88%">Filmler</a>
+<a href="B-Detay.dc.html" style="display: flex; align-items: center; height: 40px; padding: 0 16px; border-radius: 4px; border: 1px solid #30373B; background: #1B1F21; font-weight: 600; font-size: 15px; font-stretch: 88%">Diziler</a>
+<a href="Main.dc.html" style="display: flex; align-items: center; height: 40px; padding: 0 16px; border-radius: 4px; border: 1px solid #30373B; background: #1B1F21; font-weight: 600; font-size: 15px; font-stretch: 88%">Favoriler</a>
+<a href="B-Ayarlar.dc.html" aria-current="page" style="display: flex; align-items: center; height: 40px; padding: 0 16px; border-radius: 4px; border: 1px solid #FF3B30; background: #FF3B30; color: #140504; font-weight: 700; font-size: 15px; font-stretch: 88%">Ayarlar</a>
+</nav>
+<span style="margin-left: auto; font-family: 'IBM Plex Mono', monospace; font-weight: 600; font-size: 22px; color: #FFB020">21:47:05</span>
+</header>
+<div aria-hidden="true" style="position: absolute; left: 0; right: 0; top: 72px; height: 1px; background: #2A3034"></div>
+
+<aside aria-label="Ayar bölümleri" style="position: absolute; left: 28px; top: 88px; width: 196px; display: flex; flex-direction: column; gap: 4px">
+<sc-for list="{{sections}}" as="g" hint-placeholder-count="6">
+<button style="display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 12px; border-radius: 4px; border: 1px solid {{g.border}}; background: {{g.bg}}; color: {{g.fg}}; font: {{g.weight}} 15px 'Archivo', sans-serif; text-align: left; cursor: pointer">
+<span style="width: 8px; height: 8px; flex: none; border-radius: 50%; background: {{g.led}}"></span>
+{{g.name}}
+</button>
+</sc-for>
+</aside>
+
+<main style="position: absolute; left: 244px; top: 88px; width: 1008px; display: flex; flex-direction: column">
+<section aria-label="Hesap" style="display: flex; align-items: center; gap: 22px; height: 68px; padding: 0 18px; border-radius: 4px; background: #050606">
+<div style="display: flex; flex-direction: column; gap: 2px">
+<span style="font-weight: 800; font-stretch: 125%; font-size: 20px; line-height: 1.1">Hakan</span>
+<span style="font-family: 'IBM Plex Mono', monospace; font-weight: 500; font-size: 13px; color: #8B969C">[SUNUCU ADRESİ]</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 2px; padding-left: 22px; border-left: 1px solid #30373B">
+<span style="font-weight: 600; font-stretch: 88%; font-size: 13px; color: #8B969C">Abonelik bitişi</span>
+<span style="font-family: 'IBM Plex Mono', monospace; font-weight: 600; font-size: 15px">[TARİH]</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 2px; padding-left: 22px; border-left: 1px solid #30373B">
+<span style="font-weight: 600; font-stretch: 88%; font-size: 13px; color: #8B969C">Eşzamanlı bağlantı</span>
+<span style="font-family: 'IBM Plex Mono', monospace; font-weight: 600; font-size: 15px; color: #FFB020">1 / 2 kullanımda</span>
+</div>
+<a href="B-Profiller.dc.html" style="margin-left: auto; display: flex; align-items: center; height: 44px; padding: 0 16px; border-radius: 4px; border: 1px solid #30373B; background: #1B1F21; color: #E9EDEF; font-weight: 600; font-size: 15px; font-stretch: 88%">Kullanıcı değiştir</a>
+</section>
+
+<h1 style="margin: 22px 0 6px; font-weight: 800; font-stretch: 125%; font-size: 24px; line-height: 1.1">Oynatma</h1>
+
+<sc-for list="{{rows}}" as="r" hint-placeholder-count="7">
+<div style="box-sizing: border-box; display: flex; align-items: center; gap: 20px; height: 62px; padding: 0 14px; border-radius: 4px; {{r.style}}">
+<div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+<span style="font-weight: 600; font-size: 16px">{{r.title}}</span>
+<span style="font-size: 14px; color: #8B969C; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{r.desc}}</span>
+</div>
+<sc-if value="{{r.isChoice}}" hint-placeholder-val="{{ true }}">
+<div role="radiogroup" aria-label="{{r.title}}" style="display: flex; gap: 2px; padding: 3px; border-radius: 4px; border: 1px solid #30373B; background: #050606">
+<sc-for list="{{r.options}}" as="o" hint-placeholder-count="3">
+<button role="radio" aria-checked="{{o.checked}}" style="height: 34px; padding: 0 14px; border: 0; border-radius: 3px; background: {{o.bg}}; color: {{o.fg}}; font: {{o.weight}} 14px 'Archivo', sans-serif; font-stretch: 88%; cursor: pointer">{{o.label}}</button>
+</sc-for>
+</div>
+</sc-if>
+<sc-if value="{{r.isSwitch}}" hint-placeholder-val="{{ false }}">
+<button role="switch" aria-checked="{{r.on}}" style="display: flex; align-items: center; gap: 12px; height: 44px; padding: 0; border: 0; background: transparent; color: #E9EDEF; font: 600 14px 'Archivo', sans-serif; font-stretch: 88%; cursor: pointer">
+{{r.state}}
+<span style="box-sizing: border-box; display: flex; justify-content: {{r.knobSide}}; width: 54px; height: 28px; padding: 3px; border-radius: 4px; border: 1px solid #5B666C; background: #050606">
+<span style="width: 22px; height: 100%; border-radius: 2px; background: {{r.knob}}"></span>
+</span>
+</button>
+</sc-if>
+</div>
+</sc-for>
+</main>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":720}}'>
+class Component extends DCLogic {
+renderVals() {
+const section = (name, selected) => ({
+name,
+bg: selected ? '#262C30' : 'transparent',
+border: selected ? '#3A4247' : 'transparent',
+fg: selected ? '#FFFFFF' : '#C5CDD1',
+weight: selected ? 700 : 500,
+led: selected ? '#FF3B30' : '#30373B'
+});
+const rest = 'border: 3px solid transparent; border-bottom-color: transparent; background: transparent';
+const focus = 'border: 3px solid #FFB020; background: #2A2414';
+const choice = (title, desc, labels, picked) => ({
+title, desc, isChoice: true, isSwitch: false, style: rest,
+options: labels.map((label, i) => ({
+label,
+checked: i === picked ? 'true' : 'false',
+bg: i === picked ? '#E9EDEF' : 'transparent',
+fg: i === picked ? '#0E1011' : '#C5CDD1',
+weight: i === picked ? 700 : 600
+}))
+});
+const toggle = (title, desc, on, focused) => ({
+title, desc, isChoice: false, isSwitch: true,
+style: focused ? focus : rest,
+on: on ? 'true' : 'false',
+state: on ? 'Açık' : 'Kapalı',
+knobSide: on ? 'flex-end' : 'flex-start',
+knob: on ? '#E9EDEF' : '#5B666C'
+});
+return {
+sections: [
+section('Hesap', false),
+section('Oynatma', true),
+section('İçerik', false),
+section('Kumanda', false),
+section('Görünüm', false),
+section('Kısayollar', false)
+],
+rows: [
+choice('Ses dili', 'Birden çok ses parçası olan içerikte ilk seçilecek dil', ['Otomatik', 'Türkçe', 'İngilizce'], 0),
+choice('Altyazı dili', 'Açılışta gösterilecek altyazı', ['Kapalı', 'Türkçe', 'İngilizce'], 0),
+toggle('Donanım hızlandırma', 'Video takılıyor ya da bozuk görünüyorsa kapatmayı dene', true, true),
+toggle('Kaldığım yerden devam et', 'Film ve dizilerde son konumu hatırla', true, false),
+toggle('Sonraki bölümü otomatik oynat', 'Bölüm bitince 10 saniye sayar, sonra sıradaki bölüme geçer', true, false),
+choice('Sarma adımı', 'İleri ve geri sarma tuşlarının atladığı süre', ['5 sn', '10 sn', '15 sn', '30 sn'], 1),
+choice('Önbellek', 'Bağlantı dalgalanırsa daha uzun süre seç', ['15 sn', '30 sn', '60 sn'], 1)
+]
+};
+}
+}
+</script>
+</body>
+</html>

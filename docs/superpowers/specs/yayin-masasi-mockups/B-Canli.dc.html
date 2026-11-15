@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<title>B, Yayın Masası, Canlı TV</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#C5CDD1;text-decoration:none}a:hover{color:#FFFFFF}
+</style>
+</helmet>
+<div style="position: relative; width: 1280px; height: 720px; box-sizing: border-box; overflow: hidden; background-color: #0E1011; background-image: linear-gradient(rgba(255,255,255,0.028) 1px, rgba(255,255,255,0) 1px), linear-gradient(90deg, rgba(255,255,255,0.028) 1px, rgba(255,255,255,0) 1px); background-size: 40px 40px; color: #E9EDEF; font-family: 'Archivo', sans-serif">
+
+<header style="position: absolute; left: 28px; right: 28px; top: 16px; height: 44px; display: flex; align-items: center; gap: 8px">
+<span role="img" aria-label="IPTV" style="display: flex; height: 30px">
+<span style="width: 7px; background: #C8C8C8"></span><span style="width: 7px; background: #C8C800"></span><span style="width: 7px; background: #00C8C8"></span><span style="width: 7px; background: #00C800"></span><span style="width: 7px; background: #C800C8"></span><span style="width: 7px; background: #D01818"></span><span style="width: 7px; background: #1818D0"></span>
+</span>
+<span style="margin: 0 18px 0 8px; font-weight: 800; font-stretch: 125%; font-size: 20px; letter-spacing: 0.02em">IPTV</span>
+<nav aria-label="Ana menü" style="display: flex; gap: 6px">
+<a href="Main.dc.html" style="display: flex; align-items: center; height: 40px; padding: 0 16px; border-radius: 4px; border: 1px solid #30373B; background: #1B1F21; font-weight: 600; font-size: 15px; font-stretch: 88%">Ana sayfa</a>
+<a href="B-Canli.dc.html" aria-current="page" style="display: flex; align-items: center; height: 40px; padding: 0 16px; border-radius: 4px; border: 1px solid #FF3B30; background: #FF3B30; color: #140504; font-weight: 700; font-size: 15px; font-stretch: 88%">Canlı TV</a>
+<a href="Main.dc.html" style="display: flex; align-items: center; height: 40px; padding: 0 16px; border-radius: 4px; border: 1px solid #30373B; background: #1B1F21; font-weight: 600; font-size: 15px; font-stretch: 88%">Filmler</a>
+<a href="Main.dc.html" style="display: flex; align-items: center; height: 40px; padding: 0 16px; border-radius: 4px; border: 1px solid #30373B; background: #1B1F21; font-weight: 600; font-size: 15px; font-stretch: 88%">Diziler</a>
+<a href="Main.dc.html" style="display: flex; align-items: center; height: 40px; padding: 0 16px; border-radius: 4px; border: 1px solid #30373B; background: #1B1F21; font-weight: 600; font-size: 15px; font-stretch: 88%">Favoriler</a>
+<a href="Main.dc.html" style="display: flex; align-items: center; height: 40px; padding: 0 16px; border-radius: 4px; border: 1px solid #30373B; background: #1B1F21; font-weight: 600; font-size: 15px; font-stretch: 88%">Ayarlar</a>
+</nav>
+<span style="margin-left: auto; font-family: 'IBM Plex Mono', monospace; font-weight: 600; font-size: 22px; color: #FFB020">21:47:05</span>
+</header>
+<div aria-hidden="true" style="position: absolute; left: 0; right: 0; top: 72px; height: 1px; background: #2A3034"></div>
+
+<aside aria-label="Kategoriler" style="position: absolute; left: 28px; top: 88px; width: 196px; display: flex; flex-direction: column; gap: 4px">
+<sc-for list="{{groups}}" as="g" hint-placeholder-count="10">
+<button style="display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 12px; border-radius: 4px; border: 1px solid {{g.border}}; background: {{g.bg}}; color: {{g.fg}}; font: {{g.weight}} 15px 'Archivo', sans-serif; text-align: left; cursor: pointer">
+<span style="width: 8px; height: 8px; border-radius: 50%; background: {{g.led}}"></span>
+<span style="flex: 1">{{g.name}}</span>
+<span style="font-family: 'IBM Plex Mono', monospace; font-weight: 500; font-size: 13px; color: #8B969C">{{g.count}}</span>
+</button>
+</sc-for>
+</aside>
+
+<main style="position: absolute; left: 244px; top: 88px; width: 1008px">
+<div style="display: flex; height: 30px; align-items: center">
+<span style="width: 180px; font-weight: 600; font-stretch: 112%; font-size: 14px; color: #8B969C">Ulusal, 64 kanal</span>
+<div style="position: relative; flex: 1; height: 100%">
+<sc-for list="{{ticks}}" as="t" hint-placeholder-count="5">
+<span style="position: absolute; top: 6px; left: {{t.x}}; padding-left: 6px; border-left: 1px solid #3A4247; font-family: 'IBM Plex Mono', monospace; font-weight: 500; font-size: 13px; color: #8B969C">{{t.label}}</span>
+</sc-for>
+</div>
+</div>
+<div style="position: relative; display: flex; flex-direction: column; gap: 4px; margin-top: 4px">
+<sc-for list="{{rows}}" as="row" hint-placeholder-count="9">
+<div style="display: flex; height: 50px">
+<div style="width: 180px; flex: none; display: flex; align-items: center; gap: 12px">
+<span style="width: 32px; font-family: 'IBM Plex Mono', monospace; font-weight: 600; font-size: 14px; color: #FFB020">{{row.no}}</span>
+<span style="font-weight: 600; font-size: 16px">{{row.name}}</span>
+</div>
+<div style="position: relative; flex: 1">
+<sc-for list="{{row.blocks}}" as="b" hint-placeholder-count="2">
+<div style="position: absolute; top: 0; height: 50px; box-sizing: border-box; left: {{b.left}}; width: {{b.width}}; padding: 5px 10px; border-radius: 3px; overflow: hidden; display: flex; flex-direction: column; justify-content: center; {{b.style}}">
+<span style="font-weight: 600; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{b.title}}</span>
+<span style="font-family: 'IBM Plex Mono', monospace; font-weight: 500; font-size: 12px; color: #9AA5AB; white-space: nowrap; overflow: hidden">{{b.time}}</span>
+</div>
+</sc-for>
+</div>
+</div>
+</sc-for>
+<div aria-hidden="true" style="position: absolute; left: 439px; top: -6px; bottom: 0; width: 2px; background: #FF3B30"></div>
+<span style="position: absolute; left: 441px; top: -32px; padding: 2px 7px; border-radius: 0 2px 2px 0; background: #FF3B30; color: #140504; font-family: 'IBM Plex Mono', monospace; font-weight: 600; font-size: 13px">21:47</span>
+</div>
+</main>
+
+<section aria-label="Seçili program" style="position: absolute; left: 244px; top: 620px; width: 1008px; height: 76px; box-sizing: border-box; display: flex; align-items: center; gap: 18px; padding: 0 18px; background: #050606; border-radius: 4px">
+<span style="font-family: 'IBM Plex Mono', monospace; font-weight: 600; font-size: 34px; color: #FFB020">003</span>
+<span style="font-weight: 800; font-stretch: 125%; font-size: 22px">ATV</span>
+<span style="padding: 2px 8px; border-radius: 2px; background: #FF3B30; color: #140504; font-family: 'IBM Plex Mono', monospace; font-weight: 600; font-size: 13px">CANLI</span>
+<div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 7px">
+<div style="display: flex; align-items: baseline; gap: 14px">
+<span style="font-weight: 700; font-size: 18px">Yerli sinema</span>
+<span style="font-family: 'IBM Plex Mono', monospace; font-weight: 500; font-size: 14px; color: #C5CDD1">21:15 – 23:20</span>
+</div>
+<div style="height: 3px; background: #2A3034"><div style="width: 26%; height: 100%; background: #FFB020"></div></div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 3px; text-align: right">
+<span style="font-size: 13px; font-weight: 600; font-stretch: 112%; color: #8B969C">Sırada</span>
+<span style="font-size: 15px; font-weight: 600">Gece haberleri <span style="font-family: 'IBM Plex Mono', monospace; font-weight: 500; font-size: 14px; color: #C5CDD1">23:20</span></span>
+</div>
+</section>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":720}}'>
+class Component extends DCLogic {
+renderVals() {
+const PX = 5.52;
+const END = 150;
+const two = (n) => String(n).padStart(2, '0');
+const clock = (m) => { const t = 21 * 60 + m; return two(Math.floor(t / 60) % 24) + ':' + two(((t % 60) + 60) % 60); };
+const group = (name, count, selected) => ({
+name, count,
+bg: selected ? '#262C30' : 'transparent',
+border: selected ? '#3A4247' : 'transparent',
+fg: selected ? '#FFFFFF' : '#C5CDD1',
+weight: selected ? 700 : 500,
+led: selected ? '#FF3B30' : '#30373B'
+});
+const row = (no, name, progs) => ({
+no, name,
+blocks: progs.filter((p) => p[1] > 0 && p[0] < END).map((p) => {
+const s = Math.max(p[0], 0);
+const e = Math.min(p[1], END);
+const now = p[0] <= 47 && p[1] > 47;
+const focused = !!p[3];
+return {
+title: p[2],
+time: clock(p[0]) + ' – ' + clock(p[1]),
+left: Math.round(s * PX) + 'px',
+width: Math.round((e - s) * PX - 3) + 'px',
+style: focused
+? 'border: 3px solid #FFB020; background: #2A2414'
+: 'border: 1px solid ' + (now ? '#3A4247' : '#24292C') + '; background: ' + (now ? '#262C30' : '#181B1D')
+};
+})
+});
+return {
+ticks: [0, 30, 60, 90, 120].map((m) => ({ x: Math.round(m * PX) + 'px', label: clock(m) })),
+groups: [
+group('Tümü', '1248', false),
+group('Ulusal', '64', true),
+group('Haber', '38', false),
+group('Spor', '52', false),
+group('Belgesel', '41', false),
+group('Çocuk', '29', false),
+group('Sinema', '77', false),
+group('Müzik', '33', false),
+group('Yerel', '58', false),
+group('Avrupa', '112', false)
+],
+rows: [
+row('001', 'TRT 1', [[-60, 90, 'Akşam dizisi'], [90, 120, 'Gece haberleri'], [120, 180, 'Belgesel']]),
+row('002', 'Kanal D', [[-60, 120, 'Akşam dizisi'], [120, 150, 'Gece haberleri']]),
+row('003', 'ATV', [[-60, 15, 'Ana haber'], [15, 140, 'Yerli sinema', true], [140, 170, 'Gece haberleri']]),
+row('004', 'Show TV', [[-60, 135, 'Akşam dizisi'], [135, 165, 'Gece haberleri']]),
+row('005', 'Star TV', [[-30, 105, 'Yarışma'], [105, 210, 'Sinema kuşağı']]),
+row('006', 'NOW', [[-60, 110, 'Akşam dizisi'], [110, 140, 'Gece haberleri'], [140, 200, 'Dizi tekrarı']]),
+row('007', 'TV8', [[-60, 195, 'Yarışma']]),
+row('008', 'TRT 2', [[-30, 30, 'Sanat gündemi'], [30, 80, 'Belgesel kuşağı'], [80, 200, 'Dünya sineması']]),
+row('009', 'Kanal 7', [[-60, 100, 'Akşam dizisi'], [100, 160, 'Yaşam programı']])
+]
+};
+}
+}
+</script>
+</body>
+</html>

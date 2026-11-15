@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<title>Yayın Masası, tasarım dili</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#C5CDD1;text-decoration:none}a:hover{color:#FFFFFF}
+</style>
+</helmet>
+<div style="width: 1280px; height: 720px; box-sizing: border-box; overflow: hidden; padding: 36px 40px; display: grid; grid-template-columns: 300px minmax(0, 1fr) minmax(0, 1.15fr); gap: 48px; background-color: #0E1011; background-image: linear-gradient(rgba(255,255,255,0.028) 1px, rgba(255,255,255,0) 1px), linear-gradient(90deg, rgba(255,255,255,0.028) 1px, rgba(255,255,255,0) 1px); background-size: 40px 40px; color: #E9EDEF; font-family: 'Archivo', sans-serif">
+
+<section style="display: flex; flex-direction: column; gap: 10px">
+<h2 style="margin: 0 0 8px; font-weight: 800; font-stretch: 125%; font-size: 22px">Renk</h2>
+<sc-for list="{{colors}}" as="c" hint-placeholder-count="10">
+<div style="display: flex; align-items: center; gap: 14px">
+<span style="width: 44px; height: 44px; flex: none; border-radius: 4px; border: 1px solid #3A4247; background: {{c.hex}}"></span>
+<span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px">
+<span style="font-weight: 600; font-size: 15px">{{c.name}}</span>
+<span style="font-size: 13px; font-stretch: 88%; color: #8B969C">{{c.use}}</span>
+</span>
+<span style="font-family: 'IBM Plex Mono', monospace; font-weight: 500; font-size: 13px; color: #C5CDD1">{{c.hex}}</span>
+</div>
+</sc-for>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 22px">
+<h2 style="margin: 0; font-weight: 800; font-stretch: 125%; font-size: 22px">Yazı</h2>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<span style="font-weight: 800; font-stretch: 125%; font-size: 40px; line-height: 1.1">Kış Uykusu</span>
+<span style="font-size: 13px; font-stretch: 88%; color: #8B969C">Archivo geniş, 800. Başlıklar, kanal ve bölüm adları.</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<span style="font-weight: 600; font-size: 20px">Yerli sinema, akşam kuşağı</span>
+<span style="font-size: 13px; font-stretch: 88%; color: #8B969C">Archivo, 600. İçerik adları ve gövde metni.</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<span style="font-weight: 600; font-stretch: 88%; font-size: 17px">Kategorileri düzenle, Zamana git, Sıralama</span>
+<span style="font-size: 13px; font-stretch: 88%; color: #8B969C">Archivo dar, 600. Tuşlar ve etiketler.</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<span style="font-family: 'IBM Plex Mono', monospace; font-weight: 600; font-size: 24px; color: #FFB020">003  21:47:05  -01:12:00</span>
+<span style="font-size: 13px; font-stretch: 88%; color: #8B969C">IBM Plex Mono, 600. Kanal numarası, saat ve kalan süre.</span>
+</div>
+<h2 style="margin: 12px 0 0; font-weight: 800; font-stretch: 125%; font-size: 22px">Etiketler</h2>
+<div style="display: flex; align-items: center; gap: 10px">
+<span style="padding: 2px 8px; border-radius: 2px; background: #FF3B30; color: #140504; font-family: 'IBM Plex Mono', monospace; font-weight: 600; font-size: 13px">PGM</span>
+<span style="padding: 2px 8px; border-radius: 2px; background: #FF3B30; color: #140504; font-family: 'IBM Plex Mono', monospace; font-weight: 600; font-size: 13px">CANLI</span>
+<span style="padding: 2px 8px; border: 1px solid #5B666C; border-radius: 2px; font-family: 'IBM Plex Mono', monospace; font-weight: 500; font-size: 13px; color: #C5CDD1">2014</span>
+<span style="padding: 1px 7px; border: 1px solid #5B666C; border-radius: 3px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #C5CDD1">OK</span>
+</div>
+<div style="display: flex; align-items: center; gap: 14px">
+<div style="width: 220px; height: 4px; background: #2A3034"><div style="width: 57%; height: 100%; background: #FFB020"></div></div>
+<span style="font-size: 13px; font-stretch: 88%; color: #8B969C">Konum çubuğu</span>
+</div>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 18px">
+<h2 style="margin: 0; font-weight: 800; font-stretch: 125%; font-size: 22px">Durumlar</h2>
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: end">
+<div style="display: flex; flex-direction: column; gap: 8px">
+<button style="height: 44px; border-radius: 4px; border: 1px solid #30373B; background: #1B1F21; color: #C5CDD1; font: 600 15px 'Archivo', sans-serif; font-stretch: 88%; cursor: pointer">Filmler</button>
+<span style="font-size: 13px; font-stretch: 88%; color: #8B969C">Tuş, olağan</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px">
+<button style="height: 44px; border-radius: 4px; border: 1px solid #FF3B30; background: #FF3B30; color: #140504; font: 700 15px 'Archivo', sans-serif; font-stretch: 88%; cursor: pointer">Filmler</button>
+<span style="font-size: 13px; font-stretch: 88%; color: #8B969C">Etkin bölüm</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px">
+<button style="height: 44px; box-sizing: border-box; border-radius: 4px; border: 3px solid #FFB020; background: #2A2414; color: #FFFFFF; font: 700 15px 'Archivo', sans-serif; font-stretch: 88%; cursor: pointer">Filmler</button>
+<span style="font-size: 13px; font-stretch: 88%; color: #8B969C">Odakta</span>
+</div>
+</div>
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px">
+<div style="display: flex; flex-direction: column; gap: 8px">
+<div style="display: flex; flex-direction: column">
+<div style="height: 84px; border-radius: 4px 4px 0 0; background: linear-gradient(160deg, #4C6A8C 0 58%, #334A66 58% 100%)"></div>
+<div style="display: flex; align-items: center; height: 28px; padding: 0 8px; background: #050606; font-weight: 600; font-stretch: 88%; font-size: 14px">Kış Uykusu</div>
+</div>
+<span style="font-size: 13px; font-stretch: 88%; color: #8B969C">Ekran, olağan</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px">
+<div style="display: flex; flex-direction: column">
+<div style="height: 84px; border-radius: 4px 4px 0 0; background: linear-gradient(160deg, #4C6A8C 0 58%, #334A66 58% 100%); box-shadow: inset 0 0 0 4px #FFB020"></div>
+<div style="display: flex; align-items: center; height: 28px; padding: 0 8px; background: #2A2414; font-weight: 600; font-stretch: 88%; font-size: 14px">Kış Uykusu</div>
+</div>
+<span style="font-size: 13px; font-stretch: 88%; color: #8B969C">Odakta</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px">
+<div style="display: flex; flex-direction: column">
+<div style="height: 84px; border-radius: 4px 4px 0 0; background: linear-gradient(160deg, #4C6A8C 0 58%, #334A66 58% 100%)"></div>
+<div style="display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px; background: #050606; font-weight: 600; font-stretch: 88%; font-size: 14px">
+<span style="padding: 1px 6px; border-radius: 2px; background: #FF3B30; color: #140504; font-family: 'IBM Plex Mono', monospace; font-weight: 600; font-size: 12px">PGM</span>
+Kış Uykusu
+</div>
+</div>
+<span style="font-size: 13px; font-stretch: 88%; color: #8B969C">Oynatılan</span>
+</div>
+</div>
+<div style="display: flex; align-items: center; gap: 28px">
+<div style="display: flex; align-items: center; gap: 12px; font-weight: 600; font-stretch: 88%; font-size: 14px">
+Açık
+<span style="box-sizing: border-box; display: flex; justify-content: flex-end; width: 54px; height: 28px; padding: 3px; border-radius: 4px; border: 1px solid #5B666C; background: #050606"><span style="width: 22px; height: 100%; border-radius: 2px; background: #E9EDEF"></span></span>
+</div>
+<div style="display: flex; align-items: center; gap: 12px; font-weight: 600; font-stretch: 88%; font-size: 14px; color: #C5CDD1">
+Kapalı
+<span style="box-sizing: border-box; display: flex; justify-content: flex-start; width: 54px; height: 28px; padding: 3px; border-radius: 4px; border: 1px solid #5B666C; background: #050606"><span style="width: 22px; height: 100%; border-radius: 2px; background: #5B666C"></span></span>
+</div>
+<div style="display: flex; gap: 2px; padding: 3px; border-radius: 4px; border: 1px solid #30373B; background: #050606">
+<span style="display: flex; align-items: center; height: 34px; padding: 0 14px; border-radius: 3px; background: #E9EDEF; color: #0E1011; font-weight: 700; font-stretch: 88%; font-size: 14px">Otomatik</span>
+<span style="display: flex; align-items: center; height: 34px; padding: 0 14px; border-radius: 3px; color: #C5CDD1; font-weight: 600; font-stretch: 88%; font-size: 14px">Türkçe</span>
+</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 4px">
+<div style="box-sizing: border-box; display: flex; align-items: center; gap: 12px; height: 48px; padding: 0 12px; border-radius: 4px; border: 3px solid transparent; background: #181B1D">
+<span style="font-family: 'IBM Plex Mono', monospace; font-weight: 600; font-size: 14px; color: #FFB020">002</span>
+<span style="font-weight: 600; font-size: 16px">Kanal D</span>
+<span style="margin-left: auto; font-size: 13px; font-stretch: 88%; color: #8B969C">Satır, olağan</span>
+</div>
+<div style="box-sizing: border-box; display: flex; align-items: center; gap: 12px; height: 48px; padding: 0 12px; border-radius: 4px; border: 3px solid #FFB020; background: #2A2414">
+<span style="font-family: 'IBM Plex Mono', monospace; font-weight: 600; font-size: 14px; color: #FFB020">003</span>
+<span style="font-weight: 600; font-size: 16px">ATV</span>
+<span style="margin-left: auto; font-size: 13px; font-stretch: 88%; color: #C5CDD1">Satır, odakta</span>
+</div>
+</div>
+</section>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":720}}'>
+class Component extends DCLogic {
+renderVals() {
+return {
+colors: [
+{ name: 'Zemin', use: 'Sayfa arka planı', hex: '#0E1011' },
+{ name: 'Panel', use: 'Satır ve kutular', hex: '#181B1D' },
+{ name: 'Tuş', use: 'Tuş yüzeyi', hex: '#1B1F21' },
+{ name: 'Etiket çubuğu', use: 'Ekran altı ve bilgi çubuğu', hex: '#050606' },
+{ name: 'Çizgi', use: 'Ayırıcı ve çerçeve', hex: '#30373B' },
+{ name: 'Metin', use: 'Birincil metin', hex: '#E9EDEF' },
+{ name: 'İkincil metin', use: 'Açıklama', hex: '#C5CDD1' },
+{ name: 'Soluk metin', use: 'Etiket ve ipucu', hex: '#8B969C' },
+{ name: 'Kehribar', use: 'Odak, konum, saat', hex: '#FFB020' },
+{ name: 'Kırmızı', use: 'Canlı ve etkin bölüm', hex: '#FF3B30' }
+]
+};
+}
+}
+</script>
+</body>
+</html>

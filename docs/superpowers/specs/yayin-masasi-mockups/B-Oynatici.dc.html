@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<title>Yayın Masası, oynatıcı, film ve dizi</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#C5CDD1;text-decoration:none}a:hover{color:#FFFFFF}
+</style>
+</helmet>
+<div style="position: relative; width: 1280px; height: 720px; box-sizing: border-box; overflow: hidden; background: #000000; color: #E9EDEF; font-family: 'Archivo', sans-serif">
+
+<svg viewBox="0 0 1280 720" preserveAspectRatio="xMidYMid slice" aria-hidden="true" style="position: absolute; inset: 0; width: 100%; height: 100%">
+<rect width="1280" height="720" fill="#2A5560"></rect>
+<rect y="330" width="1280" height="90" fill="#D9A45A"></rect>
+<path d="M120 420V300h220l60 44h200v76z" fill="#8A4E26"></path>
+<path d="M860 420V270h300v150z" fill="#6E3D1E"></path>
+<rect y="420" width="1280" height="300" fill="#5B3A1E"></rect>
+<rect x="520" y="452" width="300" height="112" rx="16" fill="#E8E2D0"></rect>
+<rect x="556" y="474" width="70" height="40" rx="6" fill="#2A5560"></rect>
+<circle cx="586" cy="572" r="24" fill="#1E1A14"></circle>
+<circle cx="756" cy="572" r="24" fill="#1E1A14"></circle>
+</svg>
+
+<div style="position: absolute; left: 28px; right: 28px; top: 20px; display: flex; align-items: center; gap: 8px">
+<a href="B-Detay.dc.html" aria-label="Geri" style="width: 44px; height: 44px; border-radius: 4px; border: 1px solid #30373B; background: rgba(5,6,6,0.9); color: #E9EDEF; display: flex; align-items: center; justify-content: center">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 6-6 6 6 6"></path></svg>
+</a>
+<div style="display: flex; align-items: center; gap: 12px; height: 44px; padding: 0 14px; border-radius: 4px; background: rgba(5,6,6,0.9)">
+<span style="padding: 2px 8px; border-radius: 2px; background: #FF3B30; color: #140504; font-family: 'IBM Plex Mono', monospace; font-weight: 600; font-size: 13px">PGM</span>
+<span style="font-weight: 800; font-stretch: 125%; font-size: 18px">Breaking Bad</span>
+<span style="font-size: 15px; color: #C5CDD1">1. sezon 3. bölüm</span>
+</div>
+<span style="margin-left: auto; height: 44px; display: flex; align-items: center; padding: 0 14px; border-radius: 4px; background: rgba(5,6,6,0.9); font-family: 'IBM Plex Mono', monospace; font-weight: 600; font-size: 20px; color: #FFB020">21:47:05</span>
+</div>
+
+<div style="position: absolute; left: 28px; right: 28px; bottom: 24px; box-sizing: border-box; padding: 18px 18px 16px; border-radius: 4px; background: rgba(5,6,6,0.92); display: flex; flex-direction: column; gap: 16px">
+
+<div style="display: flex; align-items: flex-start; gap: 16px">
+<span style="font-family: 'IBM Plex Mono', monospace; font-weight: 600; font-size: 20px; line-height: 22px; color: #FFB020">00:21:04</span>
+<div style="flex: 1; display: flex; flex-direction: column; gap: 5px; padding-top: 7px">
+<div role="slider" aria-label="Konum" aria-valuemin="0" aria-valuemax="100" aria-valuenow="44" tabindex="0" style="position: relative; height: 8px; background: #2A3034">
+<div style="position: absolute; left: 0; top: 0; height: 100%; width: 60%; background: #4A545A"></div>
+<div style="position: absolute; left: 0; top: 0; height: 100%; width: 44%; background: #FFB020"></div>
+<div style="position: absolute; left: 44%; top: -7px; width: 4px; height: 22px; margin-left: -2px; background: #FFFFFF"></div>
+</div>
+<div aria-hidden="true" style="height: 6px; background: repeating-linear-gradient(90deg, #5B666C 0 1px, rgba(0,0,0,0) 1px 10%)"></div>
+</div>
+<span style="font-family: 'IBM Plex Mono', monospace; font-weight: 500; font-size: 20px; line-height: 22px; color: #C5CDD1">-00:27:08</span>
+</div>
+
+<div style="display: flex; align-items: center; gap: 8px">
+<button aria-label="Önceki bölüm" style="width: 48px; height: 44px; border-radius: 4px; border: 1px solid #30373B; background: #1B1F21; color: #E9EDEF; display: flex; align-items: center; justify-content: center; cursor: pointer">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><path d="M19 20 9 12l10-8z"></path><path d="M5 19V5" fill="none"></path></svg>
+</button>
+<button aria-label="10 saniye geri" style="width: 56px; height: 44px; border-radius: 4px; border: 1px solid #30373B; background: #1B1F21; color: #E9EDEF; font: 600 15px 'IBM Plex Mono', monospace; cursor: pointer">-10</button>
+<button aria-label="Duraklat" style="width: 72px; height: 44px; box-sizing: border-box; border-radius: 4px; border: 3px solid #FFB020; background: #2A2414; color: #FFFFFF; display: flex; align-items: center; justify-content: center; cursor: pointer">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="5" y="4" width="5" height="16"></rect><rect x="14" y="4" width="5" height="16"></rect></svg>
+</button>
+<button aria-label="10 saniye ileri" style="width: 56px; height: 44px; border-radius: 4px; border: 1px solid #30373B; background: #1B1F21; color: #E9EDEF; font: 600 15px 'IBM Plex Mono', monospace; cursor: pointer">+10</button>
+<button aria-label="Sonraki bölüm" style="width: 48px; height: 44px; border-radius: 4px; border: 1px solid #30373B; background: #1B1F21; color: #E9EDEF; display: flex; align-items: center; justify-content: center; cursor: pointer">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><path d="M5 4l10 8-10 8z"></path><path d="M19 5v14" fill="none"></path></svg>
+</button>
+<button style="height: 44px; margin-left: 8px; padding: 0 14px; border-radius: 4px; border: 1px solid #30373B; background: #1B1F21; color: #E9EDEF; font: 600 15px 'Archivo', sans-serif; font-stretch: 88%; cursor: pointer">Zamana git</button>
+
+<div role="slider" aria-label="Ses düzeyi" aria-valuemin="0" aria-valuemax="10" aria-valuenow="7" tabindex="0" style="display: flex; align-items: center; gap: 10px; height: 44px; margin-left: 16px">
+<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#C5CDD1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H2v6h4l5 4z"></path><path d="M15.5 8.5a5 5 0 0 1 0 7"></path></svg>
+<span style="display: flex; gap: 3px">
+<sc-for list="{{meter}}" as="m" hint-placeholder-count="10">
+<span style="width: 7px; height: 20px; background: {{m.color}}"></span>
+</sc-for>
+</span>
+</div>
+
+<button role="switch" aria-checked="true" style="display: flex; align-items: center; gap: 10px; height: 44px; margin-left: auto; padding: 0 14px; border-radius: 4px; border: 1px solid #30373B; background: #1B1F21; color: #E9EDEF; font: 600 15px 'Archivo', sans-serif; font-stretch: 88%; cursor: pointer">
+<span style="width: 8px; height: 8px; border-radius: 50%; background: #E9EDEF"></span>
+Otomatik sonraki açık
+</button>
+<button style="display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 14px; border-radius: 4px; border: 1px solid #30373B; background: #1B1F21; color: #E9EDEF; font: 600 15px 'Archivo', sans-serif; cursor: pointer">
+<span style="font-stretch: 88%; color: #8B969C">Ses</span>
+Türkçe
+</button>
+<button style="display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 14px; border-radius: 4px; border: 1px solid #30373B; background: #1B1F21; color: #E9EDEF; font: 600 15px 'Archivo', sans-serif; cursor: pointer">
+<span style="font-stretch: 88%; color: #8B969C">Altyazı</span>
+Kapalı
+</button>
+<button aria-label="Tam ekran" style="width: 48px; height: 44px; border-radius: 4px; border: 1px solid #30373B; background: #1B1F21; color: #E9EDEF; display: flex; align-items: center; justify-content: center; cursor: pointer">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H3v5M21 8V3h-5M3 16v5h5M16 21h5v-5"></path></svg>
+</button>
+</div>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":720}}'>
+class Component extends DCLogic {
+renderVals() {
+const meter = [];
+for (let i = 0; i < 10; i++) meter.push({ color: i < 7 ? '#E9EDEF' : '#30373B' });
+return { meter };
+}
+}
+</script>
+</body>
+</html>
