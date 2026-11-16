@@ -10,6 +10,10 @@ import 'settings.dart';
 import 'settings_page.dart';
 import 'title_utils.dart';
 import 'tv_text_field.dart';
+import 'ui/controls.dart';
+import 'ui/format.dart';
+import 'ui/shell.dart';
+import 'ui/tokens.dart';
 import 'xtream.dart';
 
 class HomePage extends StatefulWidget {
@@ -81,7 +85,11 @@ class _HomePageState extends State<HomePage> {
     if (item.kind == Kind.live) {
       _playLive(item);
     } else {
-      Navigator.of(context).push(MaterialPageRoute(builder: (_) => DetailPage(client: widget.client, item: item)));
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => DetailPage(client: widget.client, item: item),
+        ),
+      );
     }
   }
 
@@ -103,13 +111,23 @@ class _HomePageState extends State<HomePage> {
       return PlayerEntry(url: i.url!, title: i.name, logo: i.logo, epg: id == null ? null : () => _epg.get(id));
     }
 
-    Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => PlayerPage(queue: [for (final i in list) entry(i)], index: index, kind: Kind.live, client: widget.client),
-    ));
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PlayerPage(queue: [for (final i in list) entry(i)], index: index, kind: Kind.live, client: widget.client),
+      ),
+    );
   }
 
   void _openHistory(HistoryEntry e) {
-    Navigator.of(context).push(MaterialPageRoute(builder: (_) => PlayerPage(queue: [PlayerEntry(url: e.url, title: e.title, logo: e.logo)], kind: e.kind, client: widget.client)));
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PlayerPage(
+          queue: [PlayerEntry(url: e.url, title: e.title, logo: e.logo)],
+          kind: e.kind,
+          client: widget.client,
+        ),
+      ),
+    );
   }
 
   bool _allowed(Item i) {
@@ -173,7 +191,10 @@ class _HomePageState extends State<HomePage> {
 
   List<Item> _dedupe(List<Item> items) {
     final seen = <String>{};
-    return [for (final i in items) if (seen.add(_nameKeys[i] ??= i.name.toLowerCase().replaceAll(_nonAlnum, ''))) i];
+    return [
+      for (final i in items)
+        if (seen.add(_nameKeys[i] ??= i.name.toLowerCase().replaceAll(_nonAlnum, ''))) i,
+    ];
   }
 
   /// Right-click menu on a category: move to top / hide.
@@ -192,7 +213,12 @@ class _HomePageState extends State<HomePage> {
     switch (choice) {
       case 'top':
         final order = s.orderedGroups(kind, all)..remove(name);
-        s.update(groupOrder: {...s.groupOrder, kind.name: [name, ...order]});
+        s.update(
+          groupOrder: {
+            ...s.groupOrder,
+            kind.name: [name, ...order],
+          },
+        );
       case 'hide':
         s.update(hiddenGroups: {...s.hiddenGroups, AppSettings.groupKey(kind, name)});
         if (_group == name) setState(() => _group = null);
@@ -204,7 +230,10 @@ class _HomePageState extends State<HomePage> {
   /// All category names of a kind in provider order (hidden ones included).
   List<String> _allGroups(Kind kind) {
     final seen = <String>{};
-    return [for (final i in _items[kind] ?? const <Item>[]) if (seen.add(i.group)) i.group];
+    return [
+      for (final i in _items[kind] ?? const <Item>[])
+        if (seen.add(i.group)) i.group,
+    ];
   }
 
   Future<void> _manageGroups(Kind kind) async {
@@ -219,7 +248,10 @@ class _HomePageState extends State<HomePage> {
         builder: (ctx, setLocal) {
           final s = AppSettings.instance;
           final ordered = s.orderedGroups(kind, counts.keys);
-          final visible = [for (final n in ordered) if (filter.isEmpty || matchesQuery(n, filter)) n];
+          final visible = [
+            for (final n in ordered)
+              if (filter.isEmpty || matchesQuery(n, filter)) n,
+          ];
           final canReorder = filter.isEmpty;
 
           void save(List<String> order) {
@@ -240,27 +272,51 @@ class _HomePageState extends State<HomePage> {
               key: ValueKey(n),
               dense: true,
               contentPadding: const EdgeInsets.only(left: 0, right: 4),
-              leading: Row(mainAxisSize: MainAxisSize.min, children: [
-                if (canReorder)
-                  ReorderableDragStartListener(index: index, child: const Padding(padding: EdgeInsets.symmetric(horizontal: 6), child: Icon(Icons.drag_indicator, size: 20))),
-                Checkbox(
-                  value: !s.hiddenGroups.contains(key),
-                  onChanged: (v) {
-                    final next = {...s.hiddenGroups};
-                    (v ?? true) ? next.remove(key) : next.add(key);
-                    s.update(hiddenGroups: next);
-                    setLocal(() {});
-                  },
-                ),
-              ]),
+              leading: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (canReorder)
+                    ReorderableDragStartListener(
+                      index: index,
+                      child: const Padding(padding: EdgeInsets.symmetric(horizontal: 6), child: Icon(Icons.drag_indicator, size: 20)),
+                    ),
+                  Checkbox(
+                    value: !s.hiddenGroups.contains(key),
+                    onChanged: (v) {
+                      final next = {...s.hiddenGroups};
+                      (v ?? true) ? next.remove(key) : next.add(key);
+                      s.update(hiddenGroups: next);
+                      setLocal(() {});
+                    },
+                  ),
+                ],
+              ),
               title: Text(groupLabel(n), maxLines: 1, overflow: TextOverflow.ellipsis),
               subtitle: Text('${counts[n]} öğe', style: const TextStyle(fontSize: 11)),
               trailing: canReorder
-                  ? Row(mainAxisSize: MainAxisSize.min, children: [
-                      IconButton(tooltip: 'En üste al', visualDensity: VisualDensity.compact, icon: const Icon(Icons.vertical_align_top, size: 18), onPressed: index == 0 ? null : () => move(index, 0)),
-                      IconButton(tooltip: 'Yukarı', visualDensity: VisualDensity.compact, icon: const Icon(Icons.keyboard_arrow_up, size: 20), onPressed: index == 0 ? null : () => move(index, index - 1)),
-                      IconButton(tooltip: 'Aşağı', visualDensity: VisualDensity.compact, icon: const Icon(Icons.keyboard_arrow_down, size: 20), onPressed: index >= ordered.length - 1 ? null : () => move(index, index + 1)),
-                    ])
+                  ? Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          tooltip: 'En üste al',
+                          visualDensity: VisualDensity.compact,
+                          icon: const Icon(Icons.vertical_align_top, size: 18),
+                          onPressed: index == 0 ? null : () => move(index, 0),
+                        ),
+                        IconButton(
+                          tooltip: 'Yukarı',
+                          visualDensity: VisualDensity.compact,
+                          icon: const Icon(Icons.keyboard_arrow_up, size: 20),
+                          onPressed: index == 0 ? null : () => move(index, index - 1),
+                        ),
+                        IconButton(
+                          tooltip: 'Aşağı',
+                          visualDensity: VisualDensity.compact,
+                          icon: const Icon(Icons.keyboard_arrow_down, size: 20),
+                          onPressed: index >= ordered.length - 1 ? null : () => move(index, index + 1),
+                        ),
+                      ],
+                    )
                   : null,
             );
           }
@@ -270,25 +326,35 @@ class _HomePageState extends State<HomePage> {
             content: SizedBox(
               width: 520,
               height: 520,
-              child: Column(children: [
-                const Align(alignment: Alignment.centerLeft, child: Text('Sürükleyerek ya da oklarla sırayı değiştir. Kutuyu kaldırarak kategoriyi gizle.', style: TextStyle(fontSize: 12))),
-                const SizedBox(height: 8),
-                RemoteTextField(
-                  onChanged: (v) => setLocal(() => filter = v),
-                  decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'Kategori ara (arama sırasında sıralama kapalı)', isDense: true, border: OutlineInputBorder()),
-                ),
-                const SizedBox(height: 8),
-                Expanded(
-                  child: canReorder
-                      ? ReorderableListView.builder(
-                          buildDefaultDragHandles: false,
-                          itemCount: visible.length,
-                          onReorderItem: (from, to) => move(from, to),
-                          itemBuilder: (_, i) => tile(i, visible[i]),
-                        )
-                      : ListView(children: [for (var i = 0; i < visible.length; i++) tile(i, visible[i])]),
-                ),
-              ]),
+              child: Column(
+                children: [
+                  const Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text('Sürükleyerek ya da oklarla sırayı değiştir. Kutuyu kaldırarak kategoriyi gizle.', style: TextStyle(fontSize: 12)),
+                  ),
+                  const SizedBox(height: 8),
+                  RemoteTextField(
+                    onChanged: (v) => setLocal(() => filter = v),
+                    decoration: const InputDecoration(
+                      prefixIcon: Icon(Icons.search),
+                      hintText: 'Kategori ara (arama sırasında sıralama kapalı)',
+                      isDense: true,
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: canReorder
+                        ? ReorderableListView.builder(
+                            buildDefaultDragHandles: false,
+                            itemCount: visible.length,
+                            onReorderItem: (from, to) => move(from, to),
+                            itemBuilder: (_, i) => tile(i, visible[i]),
+                          )
+                        : ListView(children: [for (var i = 0; i < visible.length; i++) tile(i, visible[i])]),
+                  ),
+                ],
+              ),
             ),
             actions: [
               TextButton(
@@ -326,43 +392,52 @@ class _HomePageState extends State<HomePage> {
         },
         child: Scaffold(
           body: Row(
-          children: [
-            NavigationRail(
-              selectedIndex: _tab,
-              onDestinationSelected: _select,
-              labelType: NavigationRailLabelType.all,
-              minWidth: 76,
-              leading: const Padding(padding: EdgeInsets.only(top: 12, bottom: 8), child: Icon(Icons.live_tv, size: 26)),
-              destinations: const [
-                NavigationRailDestination(icon: Icon(Icons.home), label: Text('Ana Sayfa')),
-                NavigationRailDestination(icon: Icon(Icons.tv), label: Text('Canlı TV')),
-                NavigationRailDestination(icon: Icon(Icons.movie), label: Text('Filmler')),
-                NavigationRailDestination(icon: Icon(Icons.video_library), label: Text('Diziler')),
-                NavigationRailDestination(icon: Icon(Icons.favorite), label: Text('Favoriler')),
-                NavigationRailDestination(icon: Icon(Icons.settings), label: Text('Ayarlar')),
-              ],
-            ),
-            const VerticalDivider(width: 1),
-            Expanded(child: _content()),
-          ],
+            children: [
+              SideMenu(selected: _tab, onSelect: _select, accountName: widget.account.name, onAccount: () => Navigator.of(context).pop()),
+              const SizedBox(width: 26),
+              Expanded(child: _content()),
+            ],
           ),
         ),
       ),
     );
   }
 
+  /// Heading + body of a tab. The body gets the full width; scroll areas inside keep their own 8 px margin.
+  Widget _page(PageHeader header, Widget body) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Padding(padding: const EdgeInsets.fromLTRB(AppSizes.scrollPad, 26, 26, 0), child: header),
+      const SizedBox(height: 14),
+      Expanded(child: body),
+    ],
+  );
+
+  /// The content search box of the current tab; its key changes per tab so switching tabs empties it.
+  Widget _searchField(String hint) => LayoutBuilder(
+    builder: (context, c) {
+      final w = MediaQuery.sizeOf(context).width;
+      return SearchField(key: ValueKey('search$_tab'), hint: hint, width: (w * 0.22).clamp(180.0, 300.0), onChanged: (v) => setState(() => _query = v));
+    },
+  );
+
   Widget _content() {
-    if (_tab == _homeTab) return _homeView();
+    if (_tab == _homeTab) {
+      return _page(PageHeader(title: '${greeting(DateTime.now())}, ${widget.account.name}', actions: const [ClockPill()]), _homeView());
+    }
     if (_tab == _settingsTab) {
-      return SettingsPage(info: widget.info, account: widget.account, client: widget.client, onLogout: () => Navigator.of(context).pop());
+      return _page(
+        const PageHeader(title: 'Ayarlar', actions: [ClockPill()]),
+        SettingsPage(info: widget.info, account: widget.account, client: widget.client, onLogout: () => Navigator.of(context).pop()),
+      );
     }
     if (_tab == _favoritesTab) {
       final match = queryMatcher(_query);
       final favs = Library.instance.favorites.where(_allowed).where((i) => match(foldedNameOf(i))).toList();
-      return Column(children: [
-        _searchBar(),
-        Expanded(child: favs.isEmpty ? const Center(child: Text('Henüz favori yok. Bir içeriğin kalp ikonuna dokun.')) : _mixedList(favs)),
-      ]);
+      return _page(
+        PageHeader(title: 'Favoriler', actions: [_searchField('Favorilerde ara'), const ClockPill()]),
+        favs.isEmpty ? const Center(child: Text('Henüz favori yok. Bir içeriğin kalp ikonuna dokun.')) : _mixedList(favs),
+      );
     }
 
     final kind = _kind!;
@@ -370,53 +445,76 @@ class _HomePageState extends State<HomePage> {
     final groups = view.groups;
     final shown = view.shown;
     final totalCount = view.total;
+    final ready = !_loading.contains(kind) && _errors[kind] == null;
+    final n = groupCount(shown.length);
+    final (title, hint, subtitle) = switch (kind) {
+      Kind.live => ('Canlı TV', 'Kanal ara', '${_group == null ? 'Tümü' : groupLabel(_group!)}, $n kanal'),
+      Kind.movie => ('Filmler', 'Film ara', '$n film'),
+      Kind.series => ('Diziler', 'Dizi ara', '$n dizi'),
+    };
 
-    return Row(
-      children: [
-        SizedBox(
-          width: 260,
-          child: ListView(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 4, 0),
-                child: Row(children: [
-                  Expanded(child: Text(widget.account.name, style: Theme.of(context).textTheme.titleSmall)),
-                  IconButton(tooltip: 'Kategorileri düzenle / gizle', icon: const Icon(Icons.tune, size: 20), onPressed: () => _manageGroups(kind)),
-                ]),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
-                child: RemoteTextField(
-                  key: ValueKey('groupSearch$_tab'),
-                  onChanged: (v) => setState(() => _groupQuery = v),
-                  decoration: const InputDecoration(prefixIcon: Icon(Icons.search, size: 18), hintText: 'Kategori ara', border: OutlineInputBorder(), isDense: true),
+    return _page(
+      PageHeader(title: title, subtitle: ready ? subtitle : null, actions: [_searchField(hint), if (kind != Kind.live) _sortButton(), const ClockPill()]),
+      Row(
+        children: [
+          SizedBox(
+            width: 260,
+            child: ListView(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 4, 0),
+                  child: Row(
+                    children: [
+                      Expanded(child: Text(widget.account.name, style: Theme.of(context).textTheme.titleSmall)),
+                      IconButton(tooltip: 'Kategorileri düzenle / gizle', icon: const Icon(Icons.tune, size: 20), onPressed: () => _manageGroups(kind)),
+                    ],
+                  ),
                 ),
-              ),
-              if (_groupQuery.trim().isEmpty)
-                ListTile(dense: true, selected: _group == null, title: const Text('Tümü'), trailing: Text('$totalCount'), onTap: () => setState(() => _group = null)),
-              for (final name in AppSettings.instance.orderedGroups(kind, groups.keys).where((n) => matchesQuery(groupLabel(n), _groupQuery)))
-                Tooltip(
-                  message: name,
-                  waitDuration: const Duration(milliseconds: 500),
-                  child: GestureDetector(
-                    // right click: quick pin / hide
-                    onSecondaryTapUp: (d) => _groupMenu(kind, name, d.globalPosition),
-                    child: ListTile(
-                      dense: true,
-                      selected: _group == name,
-                      title: Text(groupLabel(name), maxLines: 1, overflow: TextOverflow.ellipsis),
-                      trailing: Text('${groups[name]}'),
-                      onTap: () => setState(() => _group = name),
-                      onLongPress: () => _manageGroups(kind),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+                  child: RemoteTextField(
+                    key: ValueKey('groupSearch$_tab'),
+                    onChanged: (v) => setState(() => _groupQuery = v),
+                    decoration: const InputDecoration(
+                      prefixIcon: Icon(Icons.search, size: 18),
+                      hintText: 'Kategori ara',
+                      border: OutlineInputBorder(),
+                      isDense: true,
                     ),
                   ),
                 ),
-            ],
+                if (_groupQuery.trim().isEmpty)
+                  ListTile(
+                    dense: true,
+                    selected: _group == null,
+                    title: const Text('Tümü'),
+                    trailing: Text('$totalCount'),
+                    onTap: () => setState(() => _group = null),
+                  ),
+                for (final name in AppSettings.instance.orderedGroups(kind, groups.keys).where((n) => matchesQuery(groupLabel(n), _groupQuery)))
+                  Tooltip(
+                    message: name,
+                    waitDuration: const Duration(milliseconds: 500),
+                    child: GestureDetector(
+                      // right click: quick pin / hide
+                      onSecondaryTapUp: (d) => _groupMenu(kind, name, d.globalPosition),
+                      child: ListTile(
+                        dense: true,
+                        selected: _group == name,
+                        title: Text(groupLabel(name), maxLines: 1, overflow: TextOverflow.ellipsis),
+                        trailing: Text('${groups[name]}'),
+                        onTap: () => setState(() => _group = name),
+                        onLongPress: () => _manageGroups(kind),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
-        ),
-        const VerticalDivider(width: 1),
-        Expanded(child: Column(children: [_searchBar(withSort: kind != Kind.live), Expanded(child: _body(kind, shown))])),
-      ],
+          const VerticalDivider(width: 1),
+          Expanded(child: _body(kind, shown)),
+        ],
+      ),
     );
   }
 
@@ -439,32 +537,51 @@ class _HomePageState extends State<HomePage> {
         if (movies.isNotEmpty) _row('Filmlerim', [for (final i in movies) _itemCard(i)]),
         if (series.isNotEmpty) _row('Dizilerim', [for (final i in series) _itemCard(i)]),
         if (continueList.isEmpty && favs.isEmpty)
-          const Padding(padding: EdgeInsets.all(48), child: Center(child: Text('Burası senin sayfan.\nBeğendiğin kanal, film ve dizilerin kalp ikonuna dokun, burada görünsün.', textAlign: TextAlign.center))),
+          const Padding(
+            padding: EdgeInsets.all(48),
+            child: Center(
+              child: Text('Burası senin sayfan.\nBeğendiğin kanal, film ve dizilerin kalp ikonuna dokun, burada görünsün.', textAlign: TextAlign.center),
+            ),
+          ),
       ],
     );
   }
 
   Widget _row(String title, List<Widget> cards) => Padding(
-        padding: const EdgeInsets.only(bottom: 20),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Padding(padding: const EdgeInsets.fromLTRB(20, 0, 20, 10), child: Text(title, style: Theme.of(context).textTheme.titleMedium)),
-          SizedBox(
-            height: 230,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              itemCount: cards.length,
-              separatorBuilder: (_, _) => const SizedBox(width: 12),
-              itemBuilder: (_, i) => cards[i],
-            ),
+    padding: const EdgeInsets.only(bottom: 20),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+          child: Text(title, style: Theme.of(context).textTheme.titleMedium),
+        ),
+        SizedBox(
+          height: 230,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            itemCount: cards.length,
+            separatorBuilder: (_, _) => const SizedBox(width: 12),
+            itemBuilder: (_, i) => cards[i],
           ),
-        ]),
-      );
+        ),
+      ],
+    ),
+  );
 
-  Widget _card({required String logo, required String title, required VoidCallback onTap, String? year, List<String> tags = const [], double? progress, IconData? badge}) => SizedBox(
-        width: 125,
-        child: PosterCard(logo: logo, title: title, year: year, tags: tags, progress: progress, badge: badge, onTap: onTap),
-      );
+  Widget _card({
+    required String logo,
+    required String title,
+    required VoidCallback onTap,
+    String? year,
+    List<String> tags = const [],
+    double? progress,
+    IconData? badge,
+  }) => SizedBox(
+    width: 125,
+    child: PosterCard(logo: logo, title: title, year: year, tags: tags, progress: progress, badge: badge, onTap: onTap),
+  );
 
   Widget _itemCard(Item i) {
     final t = parsedTitleOf(i);
@@ -484,47 +601,35 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _searchBar({bool withSort = false}) => Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(children: [
-          Expanded(
-            child: RemoteTextField(
-              key: ValueKey('search$_tab'), // a new, empty field per tab: _select() resets the query
-              onChanged: (v) => setState(() => _query = v),
-              decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'Ara', border: OutlineInputBorder(), isDense: true),
-            ),
-          ),
-          if (withSort) ...[
-            const SizedBox(width: 12),
-            Icon(Icons.sort, size: 20, color: Theme.of(context).hintColor),
-            const SizedBox(width: 6),
-            DropdownButton<_Sort>(
-              value: _sort,
-              underline: const SizedBox.shrink(),
-              onChanged: (v) => setState(() => _sort = v ?? _sort),
-              items: const [
-                DropdownMenuItem(value: _Sort.provider, child: Text('Varsayılan')),
-                DropdownMenuItem(value: _Sort.added, child: Text('Yeni eklenen')),
-                DropdownMenuItem(value: _Sort.name, child: Text('A – Z')),
-                DropdownMenuItem(value: _Sort.year, child: Text('Yıl (yeni → eski)')),
-              ],
-            ),
-          ],
-        ]),
-      );
+  Widget _sortButton() => DropdownButton<_Sort>(
+    value: _sort,
+    underline: const SizedBox.shrink(),
+    onChanged: (v) => setState(() => _sort = v ?? _sort),
+    items: const [
+      DropdownMenuItem(value: _Sort.provider, child: Text('Varsayılan')),
+      DropdownMenuItem(value: _Sort.added, child: Text('Yeni eklenen')),
+      DropdownMenuItem(value: _Sort.name, child: Text('A – Z')),
+      DropdownMenuItem(value: _Sort.year, child: Text('Yıl, yeniden eskiye')),
+    ],
+  );
 
   Widget _body(Kind kind, List<Item> shown) {
     if (_loading.contains(kind)) {
-      return const Center(child: Column(mainAxisSize: MainAxisSize.min, children: [CircularProgressIndicator(), SizedBox(height: 12), Text('Yükleniyor...')]));
+      return const Center(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [CircularProgressIndicator(), SizedBox(height: 12), Text('Yükleniyor...')]),
+      );
     }
     final err = _errors[kind];
     if (err != null) {
       return Center(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text(err),
-          const SizedBox(height: 12),
-          FilledButton(onPressed: () => _ensureLoaded(kind), child: const Text('Tekrar dene')),
-        ]),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(err),
+            const SizedBox(height: 12),
+            FilledButton(onPressed: () => _ensureLoaded(kind), child: const Text('Tekrar dene')),
+          ],
+        ),
       );
     }
     if (shown.isEmpty) return const Center(child: Text('Sonuç yok'));
@@ -532,59 +637,71 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _heart(Item it, {double size = 22}) => IconButton(
-        iconSize: size,
-        visualDensity: VisualDensity.compact,
-        tooltip: Library.instance.isFavorite(it) ? 'Favorilerden çıkar' : 'Favorilere ekle',
-        icon: Icon(Library.instance.isFavorite(it) ? Icons.favorite : Icons.favorite_border, color: Library.instance.isFavorite(it) ? Colors.redAccent : null),
-        onPressed: () => Library.instance.toggleFavorite(it),
-      );
+    iconSize: size,
+    visualDensity: VisualDensity.compact,
+    tooltip: Library.instance.isFavorite(it) ? 'Favorilerden çıkar' : 'Favorilere ekle',
+    icon: Icon(Library.instance.isFavorite(it) ? Icons.favorite : Icons.favorite_border, color: Library.instance.isFavorite(it) ? Colors.redAccent : null),
+    onPressed: () => Library.instance.toggleFavorite(it),
+  );
 
   Widget _liveList(List<Item> shown) => ListView.builder(
-        itemCount: shown.length,
-        itemBuilder: (_, i) {
-          final it = shown[i];
-          return ListTile(
-            leading: PosterImage(it.logo, size: 40, fit: BoxFit.contain),
-            title: Text(it.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-            subtitle: NowPlaying(cache: _epg, item: it, fallback: it.group),
-            trailing: _heart(it),
-            onTap: () => _open(it),
-          );
-        },
+    itemCount: shown.length,
+    itemBuilder: (_, i) {
+      final it = shown[i];
+      return ListTile(
+        leading: PosterImage(it.logo, size: 40, fit: BoxFit.contain),
+        title: Text(it.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+        subtitle: NowPlaying(cache: _epg, item: it, fallback: it.group),
+        trailing: _heart(it),
+        onTap: () => _open(it),
       );
+    },
+  );
 
   Widget _posterGrid(List<Item> shown) => GridView.builder(
-        padding: const EdgeInsets.all(12),
-        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(maxCrossAxisExtent: 180, childAspectRatio: 0.6, crossAxisSpacing: 14, mainAxisSpacing: 14),
-        itemCount: shown.length,
-        itemBuilder: (_, i) {
-          final it = shown[i];
-          final t = parsedTitleOf(it);
-          return PosterCard(
-            logo: it.logo,
-            title: t.title,
-            year: t.year,
-            tags: t.tags,
-            onTap: () => _open(it),
-            topRight: DecoratedBox(decoration: const BoxDecoration(color: Colors.black45, shape: BoxShape.circle), child: _heart(it, size: 18)),
-          );
-        },
+    padding: const EdgeInsets.all(12),
+    gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(maxCrossAxisExtent: 180, childAspectRatio: 0.6, crossAxisSpacing: 14, mainAxisSpacing: 14),
+    itemCount: shown.length,
+    itemBuilder: (_, i) {
+      final it = shown[i];
+      final t = parsedTitleOf(it);
+      return PosterCard(
+        logo: it.logo,
+        title: t.title,
+        year: t.year,
+        tags: t.tags,
+        onTap: () => _open(it),
+        topRight: DecoratedBox(
+          decoration: const BoxDecoration(color: Colors.black45, shape: BoxShape.circle),
+          child: _heart(it, size: 18),
+        ),
       );
+    },
+  );
 
   Widget _mixedList(List<Item> items) => ListView.builder(
-        itemCount: items.length,
-        itemBuilder: (_, i) {
-          final it = items[i];
-          final icon = switch (it.kind) { Kind.live => Icons.tv, Kind.movie => Icons.movie, Kind.series => Icons.video_library };
-          return ListTile(
-            leading: Stack(children: [PosterImage(it.logo, size: 44, fit: BoxFit.contain), Positioned(right: 0, bottom: 0, child: Icon(icon, size: 14, color: Colors.white70))]),
-            title: Text(it.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-            subtitle: Text(it.group, maxLines: 1, overflow: TextOverflow.ellipsis),
-            trailing: _heart(it),
-            onTap: () => _open(it),
-          );
-        },
+    itemCount: items.length,
+    itemBuilder: (_, i) {
+      final it = items[i];
+      final icon = switch (it.kind) {
+        Kind.live => Icons.tv,
+        Kind.movie => Icons.movie,
+        Kind.series => Icons.video_library,
+      };
+      return ListTile(
+        leading: Stack(
+          children: [
+            PosterImage(it.logo, size: 44, fit: BoxFit.contain),
+            Positioned(right: 0, bottom: 0, child: Icon(icon, size: 14, color: Colors.white70)),
+          ],
+        ),
+        title: Text(it.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+        subtitle: Text(it.group, maxLines: 1, overflow: TextOverflow.ellipsis),
+        trailing: _heart(it),
+        onTap: () => _open(it),
       );
+    },
+  );
 }
 
 class _View {
