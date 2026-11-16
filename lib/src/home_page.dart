@@ -440,7 +440,7 @@ class _HomePageState extends State<HomePage> {
       final favs = Library.instance.favorites.where(_allowed).where((i) => match(foldedNameOf(i))).toList();
       return _page(
         PageHeader(title: 'Favoriler', actions: [_searchField('Favorilerde ara'), const ClockPill()]),
-        favs.isEmpty ? const Center(child: Text('Henüz favori yok. Bir içeriğin kalp ikonuna dokun.')) : _mixedList(favs),
+        _favoritesView(favs),
       );
     }
 
@@ -917,29 +917,50 @@ class _HomePageState extends State<HomePage> {
         ),
       );
 
-  Widget _mixedList(List<Item> items) => ListView.builder(
-    itemCount: items.length,
-    itemBuilder: (_, i) {
-      final it = items[i];
-      final icon = switch (it.kind) {
-        Kind.live => Icons.tv,
-        Kind.movie => Icons.movie,
-        Kind.series => Icons.video_library,
-      };
-      return ListTile(
-        leading: Stack(
-          children: [
-            PosterImage(it.logo, size: 44, fit: BoxFit.contain),
-            Positioned(right: 0, bottom: 0, child: Icon(icon, size: 14, color: Colors.white70)),
-          ],
+  /// Favorites in three sections: channels as rows, movies and series as posters. Empty sections are left out.
+  Widget _favoritesView(List<Item> favs) {
+    if (favs.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(AppSizes.scrollPad, AppSizes.scrollPad, 26, 24),
+        child: Align(
+          alignment: Alignment.topCenter,
+          child: AppCard(
+            padding: const EdgeInsets.all(48),
+            child: Center(heightFactor: 1, child: Text('Henüz favori yok. Bir içeriğin kalp ikonuna dokun.', textAlign: TextAlign.center, style: AppText.body())),
+          ),
         ),
-        title: Text(it.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-        subtitle: Text(it.group, maxLines: 1, overflow: TextOverflow.ellipsis),
-        trailing: _heart(it),
-        onTap: () => _open(it),
       );
-    },
-  );
+    }
+    final channels = [for (final i in favs) if (i.kind == Kind.live) i];
+    final movies = [for (final i in favs) if (i.kind == Kind.movie) i];
+    final series = [for (final i in favs) if (i.kind == Kind.series) i];
+    return LayoutBuilder(builder: (context, c) {
+      const pad = EdgeInsets.fromLTRB(AppSizes.scrollPad, AppSizes.scrollPad, 26, 24);
+      final inner = c.maxWidth - pad.horizontal;
+      final cols = posterColumns(inner);
+      final tile = (inner - 16 * (cols - 1)) / cols;
+      Widget heading(String t, {bool first = false}) =>
+          SliverToBoxAdapter(child: Padding(padding: EdgeInsets.only(top: first ? 0 : 14, bottom: 12), child: Text(t, style: AppText.title(18))));
+      Widget grid(List<Item> items) => SliverGrid.builder(
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: cols, crossAxisSpacing: 16, mainAxisSpacing: 20, mainAxisExtent: tile * 1.53 + 52),
+            itemCount: items.length,
+            itemBuilder: (_, i) => _posterTile(items[i]),
+          );
+      return CustomScrollView(slivers: [
+        SliverPadding(
+          padding: pad,
+          sliver: SliverMainAxisGroup(slivers: [
+            if (channels.isNotEmpty) ...[
+              heading('Kanallar', first: true),
+              SliverFixedExtentList.builder(itemExtent: 76, itemCount: channels.length, itemBuilder: (_, i) => _channelRow(channels[i], i)),
+            ],
+            if (movies.isNotEmpty) ...[heading('Filmler', first: channels.isEmpty), grid(movies)],
+            if (series.isNotEmpty) ...[heading('Diziler', first: channels.isEmpty && movies.isEmpty), grid(series)],
+          ]),
+        ),
+      ]);
+    });
+  }
 }
 
 class _View {
