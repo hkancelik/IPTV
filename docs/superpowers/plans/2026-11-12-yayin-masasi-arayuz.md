@@ -1,5 +1,7 @@
 # Yayın Masası Arayüzü Implementation Plan
 
+> **REDDEDİLDİ (2026-11-16).** Kullanıcı bu tasarımı beğenmedi. Bu belgeyi uygulama. Geçerli tasarım: `docs/superpowers/specs/2026-11-16-gunduz-arayuz-design.md`, plan: `docs/superpowers/plans/2026-11-16-gunduz-arayuz.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Uygulamanın bütün ekranlarını, işlev kaybı olmadan "Yayın Masası" tasarım diline taşımak.

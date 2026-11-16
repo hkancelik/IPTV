@@ -1,5 +1,7 @@
 # Yayın Masası: arayüz yeniden tasarımı
 
+> **REDDEDİLDİ (2026-11-16).** Kullanıcı bu tasarımı beğenmedi. Bu belgeyi uygulama. Geçerli tasarım: `docs/superpowers/specs/2026-11-16-gunduz-arayuz-design.md`, plan: `docs/superpowers/plans/2026-11-16-gunduz-arayuz.md`.
+
 Tarih: 2026-11-12. Durum: tasarım yönü seçildi, kod yazılmadı.
 
 Bu belge, uygulamanın bütün arayüzünü "Yayın Masası" tasarım diline taşımak için gereken her kararı içerir. Uygulama planı: `docs/superpowers/plans/2026-11-12-yayin-masasi-arayuz.md`.

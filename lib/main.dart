@@ -1,6 +1,7 @@
 import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 
 import 'src/app_nav.dart';
@@ -8,6 +9,7 @@ import 'src/login_page.dart';
 import 'src/phone_remote.dart';
 import 'src/ui_scale.dart';
 import 'src/settings.dart';
+import 'src/ui/app_theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -31,28 +33,16 @@ class IptvApp extends StatelessWidget {
     return ListenableBuilder(
       listenable: AppSettings.instance,
       builder: (context, _) {
-        final tv = AppSettings.instance.tvMode;
-        final scheme = ColorScheme.fromSeed(seedColor: const Color(0xFF6C5CE7), brightness: Brightness.dark);
-        // Material 3 buttons ignore ThemeData.focusColor: give them an explicit, clearly visible focus state.
-        final focusOverlay = WidgetStateProperty.resolveWith<Color?>((s) => s.contains(WidgetState.focused) ? scheme.primary.withValues(alpha: 0.35) : null);
-        final focusSide = WidgetStateProperty.resolveWith<BorderSide?>((s) => s.contains(WidgetState.focused) ? BorderSide(color: Colors.white, width: 3) : null);
-        final focusStyle = ButtonStyle(overlayColor: focusOverlay, side: focusSide);
         return MaterialApp(
           title: 'IPTV',
           navigatorKey: appNavigatorKey,
           debugShowCheckedModeBanner: false,
-          theme: ThemeData(
-            colorScheme: scheme,
-            useMaterial3: true,
-            // Clear focus highlight so the remote's position is always visible
-            focusColor: scheme.primary.withValues(alpha: tv ? 0.45 : 0.25),
-            iconButtonTheme: IconButtonThemeData(style: focusStyle),
-            textButtonTheme: TextButtonThemeData(style: focusStyle),
-            filledButtonTheme: FilledButtonThemeData(style: focusStyle),
-            outlinedButtonTheme: OutlinedButtonThemeData(style: focusStyle),
-            elevatedButtonTheme: ElevatedButtonThemeData(style: focusStyle),
+          theme: buildAppTheme(),
+          // Light ground: dark status bar icons on Android.
+          builder: (context, child) => AnnotatedRegion<SystemUiOverlayStyle>(
+            value: SystemUiOverlayStyle.dark,
+            child: UiScale(scale: AppSettings.instance.uiScale, child: child!),
           ),
-          builder: (context, child) => UiScale(scale: AppSettings.instance.uiScale, child: child!),
           home: const LoginPage(autoLogin: true),
         );
       },

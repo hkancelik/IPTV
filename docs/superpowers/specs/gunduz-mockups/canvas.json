@@ -1,0 +1,31 @@
+{
+  "v": 3,
+  "createdOnFiles": { "v": 1, "at": "2026-11-12T12:00:00Z" },
+  "title": "IPTV arayüz tasarımı",
+  "launch": { "view": "canvas" },
+  "pages": [],
+  "boards": {
+    "Main.dc.html": { "x": 0, "y": 0, "w": 1280, "h": 720, "title": "Ana sayfa" },
+    "G-Canli.dc.html": { "x": 1360, "y": 0, "w": 1280, "h": 720, "title": "Canlı TV" },
+    "G-Filmler.dc.html": { "x": 2720, "y": 0, "w": 1280, "h": 720, "title": "Filmler" },
+    "G-Detay.dc.html": { "x": 0, "y": 840, "w": 1280, "h": 720, "title": "Dizi detayı" },
+    "G-Oynatici.dc.html": { "x": 1360, "y": 840, "w": 1280, "h": 720, "title": "Oynatıcı, film ve dizi" },
+    "G-OynaticiCanli.dc.html": { "x": 2720, "y": 840, "w": 1280, "h": 720, "title": "Oynatıcı, canlı yayın" },
+    "G-Profiller.dc.html": { "x": 0, "y": 1680, "w": 1280, "h": 720, "title": "Profil seçimi" },
+    "G-Ayarlar.dc.html": { "x": 1360, "y": 1680, "w": 1280, "h": 720, "title": "Ayarlar" }
+  },
+  "order": [
+    "Main.dc.html",
+    "G-Canli.dc.html",
+    "G-Filmler.dc.html",
+    "G-Detay.dc.html",
+    "G-Oynatici.dc.html",
+    "G-OynaticiCanli.dc.html",
+    "G-Profiller.dc.html",
+    "G-Ayarlar.dc.html"
+  ],
+  "notes": {
+    "gunduz": { "x": 0, "y": -300, "text": "G: Gündüz", "kind": "title1", "maxW": 4000 }
+  },
+  "designSystems": []
+}
