@@ -24,6 +24,7 @@ class FocusRing extends StatefulWidget {
     this.hoverColor,
     this.tooltip,
     this.semanticLabel,
+    this.selected,
   }) : assert(child != null || builder != null);
 
   final Widget? child;
@@ -47,6 +48,9 @@ class FocusRing extends StatefulWidget {
   final Color? hoverColor;
   final String? tooltip;
   final String? semanticLabel;
+
+  /// Reported to semantics (tabs, segmented choices, list items).
+  final bool? selected;
 
   @override
   State<FocusRing> createState() => _FocusRingState();
@@ -115,7 +119,7 @@ class _FocusRingState extends State<FocusRing> {
         w.onFocusChange?.call(f);
       },
       onShowHoverHighlight: (h) => setState(() => _hovered = h),
-      child: Semantics(button: w.onTap != null, enabled: w.enabled, label: w.semanticLabel, child: result),
+      child: Semantics(button: w.onTap != null, enabled: w.enabled, selected: w.selected, label: w.semanticLabel, child: result),
     );
     if (w.tooltip != null) result = Tooltip(message: w.tooltip!, waitDuration: const Duration(milliseconds: 500), child: result);
     return result;
