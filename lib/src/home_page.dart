@@ -840,9 +840,12 @@ class _HomePageState extends State<HomePage> {
                     cache: _epg,
                     item: it,
                     fallback: groupLabel(it.group),
-                    builder: (context, now) => Row(children: [
-                      SizedBox(width: 28, child: Text('${index + 1}', textAlign: TextAlign.right, style: AppText.title(14, color: AppColors.ink2))),
-                      const SizedBox(width: 14),
+                    // Narrow rows (small window, large UI scale) drop the number, then the time block.
+                    builder: (context, now) => LayoutBuilder(builder: (context, c) => Row(children: [
+                      if (c.maxWidth >= 240) ...[
+                        SizedBox(width: 28, child: Text('${index + 1}', textAlign: TextAlign.right, style: AppText.title(14, color: AppColors.ink2))),
+                        const SizedBox(width: 14),
+                      ],
                       ChannelBadge(name: it.name, logo: it.logo),
                       const SizedBox(width: 14),
                       Expanded(
@@ -851,7 +854,7 @@ class _HomePageState extends State<HomePage> {
                           Text(now?.title ?? groupLabel(it.group), maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.meta(13)),
                         ]),
                       ),
-                      if (now != null) ...[
+                      if (now != null && c.maxWidth >= 440) ...[
                         const SizedBox(width: 14),
                         SizedBox(
                           width: 150,
@@ -862,7 +865,7 @@ class _HomePageState extends State<HomePage> {
                           ]),
                         ),
                       ],
-                    ]),
+                    ])),
                   ),
                 ),
               ),

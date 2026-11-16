@@ -73,9 +73,11 @@ class _SettingsPageState extends State<SettingsPage> {
       listenable: Listenable.merge([s, PhoneRemote.instance]),
       builder: (context, _) {
         final narrow = MediaQuery.sizeOf(context).width < 900;
-        return Padding(
+        return LayoutBuilder(builder: (context, box) => Padding(
           padding: const EdgeInsets.only(left: AppSizes.scrollPad),
           child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            // The section index is only a shortcut: in a narrow area the cards get the room instead.
+            if (box.maxWidth >= 640) ...[
             Padding(
               padding: const EdgeInsets.only(top: AppSizes.scrollPad, bottom: 24),
               child: SizedBox(
@@ -95,6 +97,7 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             ),
             const SizedBox(width: 12),
+            ],
             Expanded(
               // All cards are built at once: the list is short and ensureVisible needs every section laid out.
               child: SingleChildScrollView(
@@ -225,7 +228,7 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             ),
           ]),
-        );
+        ));
       },
     );
   }
@@ -246,12 +249,14 @@ class _SettingsPageState extends State<SettingsPage> {
         Row(mainAxisSize: MainAxisSize.min, children: [
           ChannelBadge(name: widget.account.name, size: 52),
           const SizedBox(width: 14),
-          ConstrainedBox(
+          Flexible(
+            child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 220),
             child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(widget.account.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.title(17)),
               Text(host, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.meta(13)),
             ]),
+          ),
           ),
         ]),
         fact('Abonelik bitişi', Text(date, style: AppText.title(15))),
@@ -394,7 +399,7 @@ class _KeyRow extends StatelessWidget {
   Widget build(BuildContext context) => Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         child: Row(children: [
-          SizedBox(width: 120, child: Align(alignment: Alignment.centerLeft, child: Pill(keys))),
+          SizedBox(width: 100, child: Align(alignment: Alignment.centerLeft, child: Pill(keys))),
           const SizedBox(width: 12),
           Expanded(child: Text(action, style: AppText.meta(14, color: AppColors.ink))),
         ]),
@@ -439,7 +444,7 @@ class _ConnectionTileState extends State<_ConnectionTile> {
     final color = _error != null || i.limitReached ? AppColors.liveText : AppColors.ok;
     return Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
       Row(mainAxisSize: MainAxisSize.min, children: [
-        Text(_error ?? text, style: AppText.title(15, color: color)),
+        Flexible(child: Text(_error ?? text, maxLines: 2, overflow: TextOverflow.ellipsis, style: AppText.title(15, color: color))),
         const SizedBox(width: 8),
         _busy
             ? const SizedBox(width: 44, height: 44, child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator(strokeWidth: 2)))
