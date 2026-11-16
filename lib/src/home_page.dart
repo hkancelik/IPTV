@@ -112,7 +112,7 @@ class _HomePageState extends State<HomePage> {
     }
     PlayerEntry entry(Item i) {
       final id = i.streamId;
-      return PlayerEntry(url: i.url!, title: i.name, logo: i.logo, epg: id == null ? null : () => _epg.get(id));
+      return PlayerEntry(url: i.url!, title: i.name, logo: i.logo, group: groupLabel(i.group), epg: id == null ? null : () => _epg.get(id));
     }
 
     Navigator.of(context).push(

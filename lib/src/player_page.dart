@@ -6,16 +6,23 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
 import 'library.dart';
+import 'player_chrome.dart';
 import 'settings.dart';
+import 'ui/basics.dart';
+import 'ui/controls.dart';
+import 'ui/tokens.dart';
 import 'xtream.dart';
 
 /// One playable thing: a channel, a movie or an episode.
 class PlayerEntry {
-  const PlayerEntry({required this.url, required this.title, this.logo = '', this.epg});
+  const PlayerEntry({required this.url, required this.title, this.logo = '', this.group, this.epg});
 
   final String url;
   final String title;
   final String logo;
+
+  /// Category shown under "Canlı TV" in the title pill (live channels).
+  final String? group;
 
   /// Loads now/next programmes (live channels only).
   final Future<List<Programme>> Function()? epg;
@@ -329,17 +336,17 @@ class _PlayerPageState extends State<PlayerPage> {
 
   Widget _scaffold() {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: AppColors.video,
       body: Stack(children: [
         Positioned.fill(child: _video()),
         Positioned(
-          top: 24,
-          right: 32,
+          top: 92,
+          right: 28,
           child: ValueListenableBuilder<String>(
             valueListenable: _digits,
             builder: (_, d, _) => d.isEmpty
                 ? const SizedBox.shrink()
-                : Text(d, style: const TextStyle(color: Colors.white, fontSize: 48, fontWeight: FontWeight.bold, shadows: [Shadow(blurRadius: 8)])),
+                : PlayerBox(padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 14), child: Text(d, style: AppText.display(40))),
           ),
         ),
       ]),
@@ -355,6 +362,9 @@ class _PlayerPageState extends State<PlayerPage> {
             state: state,
             player: _player,
             title: entry.title,
+            logo: entry.logo,
+            group: entry.group,
+            index: _index,
             live: widget.live,
             error: _error,
             onRetry: _retry,
@@ -364,6 +374,7 @@ class _PlayerPageState extends State<PlayerPage> {
             queued: widget.queue.length > 1,
             countdown: _countdown,
             nextTitle: _hasNext ? widget.queue[_index + 1].title : null,
+            prevTitle: _hasPrev ? widget.queue[_index - 1].title : null,
             onCancelCountdown: _cancelCountdown,
             onDigit: widget.live && widget.queue.length > 1 ? _typeDigit : null,
           ),
@@ -406,6 +417,7 @@ class _Controls extends StatefulWidget {
     required this.state,
     required this.player,
     required this.title,
+    required this.index,
     required this.live,
     required this.error,
     required this.onRetry,
@@ -416,12 +428,18 @@ class _Controls extends StatefulWidget {
     this.onNext,
     this.queued = false,
     this.nextTitle,
+    this.prevTitle,
+    this.logo = '',
+    this.group,
     this.onDigit,
   });
 
   final VideoState state;
   final Player player;
   final String title;
+  final String logo;
+  final String? group;
+  final int index; // position in the queue
   final bool live;
   final ValueNotifier<String?> error;
   final VoidCallback onRetry;
@@ -431,6 +449,7 @@ class _Controls extends StatefulWidget {
   final bool queued; // more than one channel/episode to move between
   final ValueNotifier<int?> countdown;
   final String? nextTitle;
+  final String? prevTitle;
   final void Function(String digit)? onDigit;
   final VoidCallback onCancelCountdown;
 
@@ -700,7 +719,10 @@ class _ControlsState extends State<_Controls> {
           for (final t in options)
             SimpleDialogOption(
               onPressed: () => Navigator.pop(ctx, t),
-              child: Row(children: [SizedBox(width: 28, child: t == current ? const Icon(Icons.check, size: 18) : null), Expanded(child: Text(label(t)))]),
+              child: Row(children: [
+                SizedBox(width: 30, child: t == current ? const Icon(Icons.check_rounded, size: 20, color: AppColors.accent) : null),
+                Expanded(child: Text(label(t), style: AppText.label(15, color: t == current ? AppColors.accentInk : AppColors.ink))),
+              ]),
             ),
         ],
       ),
@@ -729,7 +751,15 @@ class _ControlsState extends State<_Controls> {
             Center(
               child: StreamBuilder<bool>(
                 stream: p.stream.buffering,
-                builder: (_, s) => (s.data ?? false) ? const CircularProgressIndicator() : const SizedBox.shrink(),
+                builder: (_, s) => (s.data ?? false)
+                    ? Container(
+                        width: 64,
+                        height: 64,
+                        padding: const EdgeInsets.all(16),
+                        decoration: const BoxDecoration(color: AppColors.surface, shape: BoxShape.circle, boxShadow: AppShadows.overlay),
+                        child: const CircularProgressIndicator(strokeWidth: 3),
+                      )
+                    : const SizedBox.shrink(),
               ),
             ),
             ValueListenableBuilder<String?>(
@@ -738,15 +768,12 @@ class _ControlsState extends State<_Controls> {
                 if (msg == null) return const SizedBox.shrink();
                 final retrying = _isRetrying(msg);
                 return Center(
-                  child: Container(
-                    constraints: const BoxConstraints(maxWidth: 460),
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(12)),
+                  child: PlayerBox(
                     child: Column(mainAxisSize: MainAxisSize.min, children: [
-                      Text(msg, textAlign: TextAlign.center),
+                      Text(msg, textAlign: TextAlign.center, style: AppText.label(15)),
                       if (!retrying) ...[
-                        const SizedBox(height: 16),
-                        FilledButton(autofocus: true, onPressed: widget.onRetry, child: const Text('Tekrar dene')),
+                        const SizedBox(height: 18),
+                        AppButton(label: 'Tekrar dene', variant: AppButtonVariant.primary, autofocus: true, onPressed: widget.onRetry),
                       ],
                     ]),
                   ),
@@ -755,12 +782,17 @@ class _ControlsState extends State<_Controls> {
             ),
             if (_osd != null)
               Positioned(
-                top: 60,
-                right: 24,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                  decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(8)),
-                  child: Text(_osd!, style: const TextStyle(fontSize: 16)),
+                top: 92,
+                left: 0,
+                right: 0,
+                child: Center(
+                  child: Container(
+                    height: 44,
+                    padding: const EdgeInsets.symmetric(horizontal: 18),
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(22), boxShadow: AppShadows.overlay),
+                    child: Text(_osd!, style: AppText.label(15).copyWith(fontFeatures: const [FontFeature.tabularFigures()])),
+                  ),
                 ),
               ),
             // Not built at all while hidden, so position/volume streams don't rebuild an invisible UI.
@@ -775,19 +807,22 @@ class _ControlsState extends State<_Controls> {
                 return Align(
                   alignment: Alignment.bottomRight,
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 24, 110),
-                    child: Container(
-                      constraints: const BoxConstraints(maxWidth: 340),
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.white24)),
+                    padding: const EdgeInsets.fromLTRB(28, 92, 28, 220),
+                    child: PlayerBox(
+                      maxWidth: 380,
+                      padding: const EdgeInsets.all(22),
                       child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Text('Sıradaki bölüm $left sn içinde başlıyor', style: Theme.of(context).textTheme.titleSmall),
-                        if (widget.nextTitle != null) Padding(padding: const EdgeInsets.only(top: 4), child: Text(widget.nextTitle!, maxLines: 2, overflow: TextOverflow.ellipsis)),
-                        const SizedBox(height: 12),
+                        Text('Sıradaki bölüm $left sn içinde başlıyor', style: AppText.title(15)),
+                        if (widget.nextTitle != null)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Text(widget.nextTitle!, maxLines: 2, overflow: TextOverflow.ellipsis, style: AppText.meta(14)),
+                          ),
+                        const SizedBox(height: 14),
                         Row(mainAxisSize: MainAxisSize.min, children: [
-                          FilledButton(autofocus: true, onPressed: widget.onNext, child: const Text('Şimdi oynat')),
-                          const SizedBox(width: 8),
-                          TextButton(onPressed: widget.onCancelCountdown, child: const Text('İptal')),
+                          AppButton(label: 'Şimdi oynat', variant: AppButtonVariant.primary, autofocus: true, onPressed: widget.onNext),
+                          const SizedBox(width: 10),
+                          AppButton(label: 'İptal', onPressed: widget.onCancelCountdown),
                         ]),
                       ]),
                     ),
@@ -801,120 +836,196 @@ class _ControlsState extends State<_Controls> {
     );
   }
 
+  /// Floating parts over the video: title pill, clock, and the white control card.
   Widget _chrome(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Colors.black54, Colors.transparent, Colors.transparent, Colors.black87], stops: [0, .25, .65, 1]),
+    final (title, sub) = widget.live ? ('Canlı TV', widget.group) : playerTitle(widget.title);
+    return Stack(children: [
+      Positioned(
+        left: 28,
+        top: 24,
+        right: 160,
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: PlayerTitlePill(onBack: () => Navigator.of(context).maybePop(), title: title, subtitle: sub),
+        ),
       ),
-      child: Column(children: [
-        Row(children: [
-          BackButton(onPressed: () => Navigator.of(context).maybePop()),
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(widget.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.titleMedium),
-              if (widget.epg != null)
-                FutureBuilder<List<Programme>>(
-                  future: widget.epg,
-                  builder: (_, snap) {
-                    final list = snap.data ?? const <Programme>[];
-                    if (list.isEmpty) return const SizedBox.shrink();
-                    final now = list.where((p) => p.isNow).firstOrNull;
-                    final next = list.where((p) => p.start.isAfter(DateTime.now())).firstOrNull;
-                    return Text(
-                      [if (now != null) 'Şimdi: ${now.title}', if (next != null) 'Sıradaki: ${next.title}'].join('   ·   '),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall,
-                    );
-                  },
-                ),
-            ]),
-          ),
+      const Positioned(right: 28, top: 30, child: ClockPill()),
+      Positioned(
+        left: 28,
+        right: 28,
+        bottom: 24,
+        child: PlayerCard(children: [
+          if (widget.live)
+            FutureBuilder<List<Programme>>(
+              future: widget.epg,
+              builder: (_, snap) => LiveInfo(
+                index: widget.index,
+                name: widget.title,
+                logo: widget.logo,
+                programmes: snap.data ?? const [],
+                prevName: widget.prevTitle,
+                nextName: widget.nextTitle,
+              ),
+            )
+          else
+            ExcludeFocus(excluding: _tv, child: _seekBar()),
+          if (widget.live) const Padding(padding: EdgeInsets.only(top: 14), child: Divider(height: 1, thickness: 1, color: AppColors.line)),
+          const SizedBox(height: 14),
+          FocusScope(onFocusChange: (focused) => _barFocused = focused && _tv, child: _keys()),
         ]),
-        const Spacer(),
-        if (!widget.live) ExcludeFocus(excluding: _tv, child: _seekBar()),
-        FocusScope(
-          onFocusChange: (focused) => _barFocused = focused && _tv,
-          child: Padding(
-          padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
-          child: Row(children: [
-            if (widget.queued)
-              IconButton(tooltip: widget.live ? 'Önceki kanal' : 'Önceki bölüm', iconSize: 28, icon: const Icon(Icons.skip_previous), onPressed: widget.onPrev),
-            StreamBuilder<bool>(
-              stream: p.stream.playing,
-              builder: (_, s) => IconButton(focusNode: _playNode, iconSize: 32, icon: Icon((s.data ?? p.state.playing) ? Icons.pause : Icons.play_arrow), onPressed: p.playOrPause),
+      ),
+    ]);
+  }
+
+  /// The key row: sound on the left, playback in the middle, options on the right.
+  Widget _keys() {
+    Widget side(Alignment a, List<Widget> children) => Expanded(
+          child: Align(
+            alignment: a,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: a,
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                for (var i = 0; i < children.length; i++) ...[if (i > 0) const SizedBox(width: 8), children[i]],
+              ]),
             ),
-            if (widget.queued)
-              IconButton(tooltip: widget.live ? 'Sonraki kanal' : 'Sonraki bölüm', iconSize: 28, icon: const Icon(Icons.skip_next), onPressed: widget.onNext),
-            if (!widget.live) ...[
-              IconButton(icon: const Icon(Icons.replay_10), onPressed: () => _seekBy(-_skip)),
-              IconButton(icon: const Icon(Icons.forward_10), onPressed: () => _seekBy(_skip)),
-              IconButton(tooltip: 'Zamana git', icon: const Icon(Icons.schedule), onPressed: _goTo),
-            ],
-            StreamBuilder<double>(
-              stream: p.stream.volume,
-              builder: (_, s) {
-                final v = s.data ?? p.state.volume;
-                return Row(children: [
-                  IconButton(icon: Icon(v == 0 ? Icons.volume_off : Icons.volume_up), onPressed: _toggleMute),
-                  // A slider eats the left/right keys, which would trap the remote's focus here. The TV has its own volume.
-                  if (!_tv) SizedBox(width: 110, child: Slider(value: v.clamp(0, 100).toDouble(), max: 100, onChanged: p.setVolume)),
-                ]);
-              },
-            ),
-            const Spacer(),
-            if (!widget.live && widget.queued)
-              ListenableBuilder(
-                listenable: AppSettings.instance,
-                builder: (_, _) {
-                  final on = AppSettings.instance.autoNext;
-                  return IconButton(
-                    tooltip: 'Sonraki bölümü otomatik oynat: ${on ? 'açık' : 'kapalı'}',
-                    icon: Icon(on ? Icons.toggle_on : Icons.toggle_off, size: 34, color: on ? Theme.of(context).colorScheme.primary : null),
-                    onPressed: () {
-                      AppSettings.instance.update(autoNext: !on);
-                      if (on) widget.onCancelCountdown();
-                      _flash('Otomatik sonraki bölüm: ${on ? 'kapalı' : 'açık'}');
-                    },
-                  );
-                },
+          ),
+        );
+
+    final sound = StreamBuilder<double>(
+      stream: p.stream.volume,
+      builder: (_, s) {
+        final v = s.data ?? p.state.volume;
+        return Row(mainAxisSize: MainAxisSize.min, children: [
+          AppButton(icon: v == 0 ? Icons.volume_off_rounded : Icons.volume_up_rounded, tooltip: v == 0 ? 'Sesi aç' : 'Sessiz', onPressed: _toggleMute),
+          // A slider eats the left/right keys, which would trap the remote's focus here. The TV has its own volume.
+          if (!_tv) ...[
+            const SizedBox(width: 8),
+            SizedBox(
+              width: 100,
+              child: SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  trackHeight: 6,
+                  activeTrackColor: AppColors.ink,
+                  inactiveTrackColor: AppColors.line,
+                  thumbShape: SliderComponentShape.noThumb,
+                  overlayShape: SliderComponentShape.noOverlay,
+                  trackShape: const RoundedRectSliderTrackShape(),
+                ),
+                child: Slider(value: v.clamp(0, 100).toDouble(), max: 100, onChanged: p.setVolume),
               ),
-            if (!widget.live)
-              StreamBuilder<double>(
-                stream: p.stream.rate,
-                builder: (_, s) {
-                  final r = s.data ?? p.state.rate;
-                  return TextButton(
-                    onPressed: () => _pick<double>('Oynatma hızı', const [0.5, 0.75, 1.0, 1.25, 1.5, 2.0], r, (v) => v == 1.0 ? 'Normal' : '${v}x', p.setRate),
-                    child: Text(r == 1.0 ? '1x' : '${r}x'),
-                  );
-                },
-              ),
-            StreamBuilder<Tracks>(
-              stream: p.stream.tracks,
-              builder: (_, _) {
-                final t = p.state.tracks;
-                final cur = p.state.track;
-                int real(Iterable<dynamic> l) => l.where((x) => x.id != 'auto' && x.id != 'no').length;
-                return Row(children: [
-                  TextButton.icon(
-                    icon: const Icon(Icons.audiotrack),
-                    label: Text('Ses (${real(t.audio)})'),
-                    onPressed: () => _pick<AudioTrack>('Ses', t.audio, cur.audio, (a) => _trackLabel(a.id, a.title, a.language), p.setAudioTrack),
-                  ),
-                  TextButton.icon(
-                    icon: const Icon(Icons.subtitles),
-                    label: Text('Altyazı (${real(t.subtitle)})'),
-                    onPressed: () => _pick<SubtitleTrack>('Altyazı', t.subtitle, cur.subtitle, (s) => _trackLabel(s.id, s.title, s.language), p.setSubtitleTrack),
-                  ),
-                ]);
-              },
             ),
-            IconButton(icon: const Icon(Icons.fullscreen), onPressed: () => widget.state.toggleFullscreen()),
-          ]),
-        )),
-      ]),
+          ],
+        ]);
+      },
     );
+
+    final play = StreamBuilder<bool>(
+      stream: p.stream.playing,
+      builder: (_, s) => AppButton(
+        focusNode: _playNode,
+        variant: AppButtonVariant.primary,
+        height: 60,
+        icon: (s.data ?? p.state.playing) ? Icons.pause_rounded : Icons.play_arrow_rounded,
+        tooltip: (s.data ?? p.state.playing) ? 'Duraklat' : 'Oynat',
+        onPressed: p.playOrPause,
+      ),
+    );
+
+    final tracks = StreamBuilder<Tracks>(
+      stream: p.stream.tracks,
+      builder: (_, _) {
+        final t = p.state.tracks;
+        final cur = p.state.track;
+        String short(String s) => s.length <= 14 ? s : '${s.substring(0, 13)}…';
+        final sub = cur.subtitle.id == 'no' ? 'Altyazı kapalı' : short(_trackLabel(cur.subtitle.id, cur.subtitle.title, cur.subtitle.language));
+        return Row(mainAxisSize: MainAxisSize.min, children: [
+          AppButton(
+            label: short(_trackLabel(cur.audio.id, cur.audio.title, cur.audio.language)),
+            tooltip: 'Ses parçası',
+            onPressed: () => _pick<AudioTrack>('Ses', t.audio, cur.audio, (a) => _trackLabel(a.id, a.title, a.language), p.setAudioTrack),
+          ),
+          const SizedBox(width: 8),
+          AppButton(
+            label: sub,
+            tooltip: 'Altyazı',
+            onPressed: () => _pick<SubtitleTrack>('Altyazı', t.subtitle, cur.subtitle, (s) => _trackLabel(s.id, s.title, s.language), p.setSubtitleTrack),
+          ),
+        ]);
+      },
+    );
+    final fullscreen = AppButton(icon: Icons.fullscreen_rounded, tooltip: 'Tam ekran', onPressed: () => widget.state.toggleFullscreen());
+
+    if (widget.live) {
+      return Row(children: [
+        side(Alignment.centerLeft, [sound]),
+        const SizedBox(width: 16),
+        Row(mainAxisSize: MainAxisSize.min, children: [
+          if (widget.queued) ...[
+            AppButton(icon: Icons.skip_previous_rounded, label: 'Önceki kanal', height: 48, onPressed: widget.onPrev),
+            const SizedBox(width: 10),
+          ],
+          play,
+          if (widget.queued) ...[
+            const SizedBox(width: 10),
+            AppButton(trailingIcon: Icons.skip_next_rounded, label: 'Sonraki kanal', height: 48, onPressed: widget.onNext),
+          ],
+        ]),
+        const SizedBox(width: 16),
+        side(Alignment.centerRight, [tracks, fullscreen]),
+      ]);
+    }
+
+    final secs = _skip.inSeconds;
+    return Row(children: [
+      side(Alignment.centerLeft, [sound, AppButton(icon: Icons.schedule_rounded, label: 'Zamana git', onPressed: _goTo)]),
+      const SizedBox(width: 16),
+      Row(mainAxisSize: MainAxisSize.min, children: [
+        if (widget.queued) ...[AppButton(icon: Icons.skip_previous_rounded, tooltip: 'Önceki bölüm', onPressed: widget.onPrev), const SizedBox(width: 8)],
+        AppButton(label: '-$secs', width: 56, tooltip: '$secs sn geri', onPressed: () => _seekBy(-_skip)),
+        const SizedBox(width: 10),
+        play,
+        const SizedBox(width: 10),
+        AppButton(label: '+$secs', width: 56, tooltip: '$secs sn ileri', onPressed: () => _seekBy(_skip)),
+        if (widget.queued) ...[const SizedBox(width: 8), AppButton(icon: Icons.skip_next_rounded, tooltip: 'Sonraki bölüm', onPressed: widget.onNext)],
+      ]),
+      const SizedBox(width: 16),
+      side(Alignment.centerRight, [
+        if (widget.queued)
+          ListenableBuilder(
+            listenable: AppSettings.instance,
+            builder: (_, _) {
+              final on = AppSettings.instance.autoNext;
+              return AppButton(
+                tooltip: 'Sonraki bölümü otomatik oynat: ${on ? 'açık' : 'kapalı'}',
+                onPressed: () {
+                  AppSettings.instance.update(autoNext: !on);
+                  if (on) widget.onCancelCountdown();
+                  _flash('Otomatik sonraki bölüm: ${on ? 'kapalı' : 'açık'}');
+                },
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  const Text('Otomatik sonraki'),
+                  const SizedBox(width: 10),
+                  AppSwitch(value: on, small: true, focusable: false, onChanged: null),
+                ]),
+              );
+            },
+          ),
+        StreamBuilder<double>(
+          stream: p.stream.rate,
+          builder: (_, s) {
+            final r = s.data ?? p.state.rate;
+            return AppButton(
+              label: r == 1.0 ? '1x' : '${r}x',
+              tooltip: 'Oynatma hızı',
+              onPressed: () => _pick<double>('Oynatma hızı', const [0.5, 0.75, 1.0, 1.25, 1.5, 2.0], r, (v) => v == 1.0 ? 'Normal' : '${v}x', p.setRate),
+            );
+          },
+        ),
+        tracks,
+        fullscreen,
+      ]),
+    ]);
   }
 
   Widget _seekBar() {
@@ -922,30 +1033,19 @@ class _ControlsState extends State<_Controls> {
       stream: p.stream.position,
       builder: (_, pos) => StreamBuilder<Duration>(
         stream: p.stream.duration,
-        builder: (_, dur) {
-          final total = dur.data ?? p.state.duration;
-          final max = total.inMilliseconds.toDouble();
-          return ValueListenableBuilder<Duration?>(
+        builder: (_, dur) => StreamBuilder<Duration>(
+          stream: p.stream.buffer,
+          builder: (_, buf) => ValueListenableBuilder<Duration?>(
             valueListenable: _pending,
-            builder: (_, pending, _) {
-              final cur = pending ?? pos.data ?? p.state.position;
-              return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Row(children: [
-                  Text(_fmt(cur), style: pending == null ? null : const TextStyle(fontWeight: FontWeight.bold)),
-                  Expanded(
-                    child: Slider(
-                      value: max <= 0 ? 0 : cur.inMilliseconds.clamp(0, total.inMilliseconds).toDouble(),
-                      max: max <= 0 ? 1 : max,
-                      onChanged: max <= 0 ? null : (v) => p.seek(Duration(milliseconds: v.round())),
-                    ),
-                  ),
-                  Text(max <= 0 ? '--:--' : _fmt(total)),
-                ]),
-              );
-            },
-          );
-        },
+            builder: (_, pending, _) => VodTimeline(
+              position: pending ?? pos.data ?? p.state.position,
+              duration: dur.data ?? p.state.duration,
+              buffer: buf.data ?? p.state.buffer,
+              pending: pending != null,
+              onSeek: p.seek,
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -994,20 +1094,25 @@ class _GoToDialogState extends State<_GoToDialog> {
       },
       child: Builder(builder: (context) {
         final focused = Focus.of(context).hasFocus;
-        final scheme = Theme.of(context).colorScheme;
         return Container(
-          width: 92,
-          padding: const EdgeInsets.symmetric(vertical: 10),
+          width: 96,
+          padding: const EdgeInsets.symmetric(vertical: 8),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: focused ? Colors.white : Colors.white24, width: focused ? 3 : 1),
-            color: focused ? scheme.primary.withValues(alpha: 0.25) : null,
+            borderRadius: BorderRadius.circular(AppSizes.tileRadius),
+            border: Border.all(color: focused ? AppColors.ink : AppColors.line, width: focused ? AppSizes.ring : 1),
+            color: focused ? AppColors.accentSoft : AppColors.surfaceAlt,
           ),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            InkWell(onTap: () => setState(() => set(value >= max ? 0 : value + 1)), child: const Icon(Icons.keyboard_arrow_up)),
-            Text(value.toString().padLeft(2, '0'), style: const TextStyle(fontSize: 34, fontWeight: FontWeight.w600)),
-            InkWell(onTap: () => setState(() => set(value <= 0 ? max : value - 1)), child: const Icon(Icons.keyboard_arrow_down)),
-            Text(label, style: const TextStyle(fontSize: 11)),
+            GestureDetector(
+              onTap: () => setState(() => set(value >= max ? 0 : value + 1)),
+              child: const SizedBox(width: 44, height: 36, child: Icon(Icons.keyboard_arrow_up_rounded, color: AppColors.ink2)),
+            ),
+            Text(value.toString().padLeft(2, '0'), style: AppText.display(34).copyWith(fontFeatures: const [FontFeature.tabularFigures()])),
+            GestureDetector(
+              onTap: () => setState(() => set(value <= 0 ? max : value - 1)),
+              child: const SizedBox(width: 44, height: 36, child: Icon(Icons.keyboard_arrow_down_rounded, color: AppColors.ink2)),
+            ),
+            Text(label, style: AppText.meta(12)),
           ]),
         );
       }),
@@ -1023,19 +1128,19 @@ class _GoToDialogState extends State<_GoToDialog> {
       content: Column(mainAxisSize: MainAxisSize.min, children: [
         Row(mainAxisSize: MainAxisSize.min, children: [
           _unit('saat', _h, maxH, (v) => _h = v),
-          const Padding(padding: EdgeInsets.symmetric(horizontal: 6), child: Text(':', style: TextStyle(fontSize: 30))),
+          Padding(padding: const EdgeInsets.symmetric(horizontal: 6), child: Text(':', style: AppText.display(30))),
           _unit('dakika', _m, 59, (v) => _m = v, autofocus: true),
-          const Padding(padding: EdgeInsets.symmetric(horizontal: 6), child: Text(':', style: TextStyle(fontSize: 30))),
+          Padding(padding: const EdgeInsets.symmetric(horizontal: 6), child: Text(':', style: AppText.display(30))),
           _unit('saniye', _s, 59, (v) => _s = v),
         ]),
         const SizedBox(height: 12),
-        Text(total > Duration.zero ? 'Toplam süre: ${_fmt(total)}' : '', style: const TextStyle(fontSize: 12)),
+        if (total > Duration.zero) Text('Toplam süre: ${_fmt(total)}', style: AppText.meta(13)),
         const SizedBox(height: 4),
-        const Text('↑↓ değiştir · ←→ alan seç · OK git', style: TextStyle(fontSize: 12)),
+        Text('↑↓ değiştir · ←→ alan seç · OK git', style: AppText.meta(13)),
       ]),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('İptal')),
-        FilledButton(onPressed: () => Navigator.pop(context, _value), child: const Text('Git')),
+        AppButton(label: 'İptal', onPressed: () => Navigator.pop(context)),
+        AppButton(label: 'Git', variant: AppButtonVariant.primary, onPressed: () => Navigator.pop(context, _value)),
       ],
     );
   }
