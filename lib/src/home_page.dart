@@ -444,9 +444,7 @@ class _HomePageState extends State<HomePage> {
 
     final kind = _kind!;
     final view = _viewOf(kind);
-    final groups = view.groups;
     final shown = view.shown;
-    final totalCount = view.total;
     final ready = !_loading.contains(kind) && _errors[kind] == null;
     final n = groupCount(shown.length);
     final (title, hint, subtitle) = switch (kind) {
@@ -457,66 +455,70 @@ class _HomePageState extends State<HomePage> {
 
     return _page(
       PageHeader(title: title, subtitle: ready ? subtitle : null, actions: [_searchField(hint), if (kind != Kind.live) _sortButton(), const ClockPill()]),
-      Row(
-        children: [
-          SizedBox(
-            width: 260,
-            child: ListView(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 4, 0),
-                  child: Row(
-                    children: [
-                      Expanded(child: Text(widget.account.name, style: Theme.of(context).textTheme.titleSmall)),
-                      IconButton(tooltip: 'Kategorileri düzenle / gizle', icon: const Icon(Icons.tune, size: 20), onPressed: () => _manageGroups(kind)),
-                    ],
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
-                  child: RemoteTextField(
-                    key: ValueKey('groupSearch$_tab'),
-                    onChanged: (v) => setState(() => _groupQuery = v),
-                    decoration: const InputDecoration(
-                      prefixIcon: Icon(Icons.search, size: 18),
-                      hintText: 'Kategori ara',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                    ),
-                  ),
-                ),
-                if (_groupQuery.trim().isEmpty)
-                  ListTile(
-                    dense: true,
-                    selected: _group == null,
-                    title: const Text('Tümü'),
-                    trailing: Text('$totalCount'),
-                    onTap: () => setState(() => _group = null),
-                  ),
-                for (final name in AppSettings.instance.orderedGroups(kind, groups.keys).where((n) => matchesQuery(groupLabel(n), _groupQuery)))
-                  Tooltip(
-                    message: name,
-                    waitDuration: const Duration(milliseconds: 500),
-                    child: GestureDetector(
-                      // right click: quick pin / hide
-                      onSecondaryTapUp: (d) => _groupMenu(kind, name, d.globalPosition),
-                      child: ListTile(
-                        dense: true,
-                        selected: _group == name,
-                        title: Text(groupLabel(name), maxLines: 1, overflow: TextOverflow.ellipsis),
-                        trailing: Text('${groups[name]}'),
-                        onTap: () => setState(() => _group = name),
-                        onLongPress: () => _manageGroups(kind),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
+      Padding(
+        padding: const EdgeInsets.only(left: AppSizes.scrollPad),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Padding(
+            padding: const EdgeInsets.only(top: AppSizes.scrollPad, bottom: 24),
+            child: SizedBox(width: AppSizes.sideWidth, child: _categoryPanel(kind, view)),
           ),
-          const VerticalDivider(width: 1),
+          const SizedBox(width: 12),
           Expanded(child: _body(kind, shown)),
-        ],
+        ]),
       ),
+    );
+  }
+
+  /// Category search, "Tümü" and the categories with their counts, and the key that opens the editor.
+  Widget _categoryPanel(Kind kind, _View view) {
+    final names = AppSettings.instance.orderedGroups(kind, view.groups.keys).where((n) => matchesQuery(groupLabel(n), _groupQuery)).toList();
+    final showAll = _groupQuery.trim().isEmpty;
+    return AppCard(
+      padding: const EdgeInsets.fromLTRB(6, 14, 6, 12),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6),
+          child: SearchField(key: ValueKey('groupSearch$_tab'), hint: 'Kategori ara', onPage: false, onChanged: (v) => setState(() => _groupQuery = v)),
+        ),
+        const SizedBox(height: 2),
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.all(AppSizes.scrollPad),
+            itemExtent: 46,
+            itemCount: names.length + (showAll ? 1 : 0),
+            itemBuilder: (_, i) {
+              if (showAll && i == 0) {
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: SideItem(label: 'Tümü', count: groupCount(view.total), selected: _group == null, onTap: () => setState(() => _group = null)),
+                );
+              }
+              final name = names[i - (showAll ? 1 : 0)];
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: SideItem(
+                  label: groupLabel(name),
+                  count: groupCount(view.groups[name] ?? 0),
+                  selected: _group == name,
+                  tooltip: name,
+                  onTap: () => setState(() => _group = name),
+                  onLongPress: () => _manageGroups(kind),
+                  onSecondaryTapUp: (d) => _groupMenu(kind, name, d.globalPosition), // right click: quick pin / hide
+                ),
+              );
+            },
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6),
+          child: AppButton(
+            icon: Icons.tune_rounded,
+            label: 'Kategorileri düzenle',
+            tooltip: 'Kategorileri düzenle / gizle',
+            onPressed: () => _manageGroups(kind),
+          ),
+        ),
+      ]),
     );
   }
 
@@ -795,27 +797,83 @@ class _HomePageState extends State<HomePage> {
     return kind == Kind.live ? _liveList(shown) : _posterGrid(shown);
   }
 
-  Widget _heart(Item it, {double size = 22}) => IconButton(
-    iconSize: size,
-    visualDensity: VisualDensity.compact,
-    tooltip: Library.instance.isFavorite(it) ? 'Favorilerden çıkar' : 'Favorilere ekle',
-    icon: Icon(Library.instance.isFavorite(it) ? Icons.favorite : Icons.favorite_border, color: Library.instance.isFavorite(it) ? Colors.redAccent : null),
-    onPressed: () => Library.instance.toggleFavorite(it),
-  );
+  Widget _heart(Item it, {double size = 22}) {
+    final fav = Library.instance.isFavorite(it);
+    return FocusRing(
+      radius: 22,
+      lift: false,
+      tooltip: fav ? 'Favorilerden çıkar' : 'Favorilere ekle',
+      hoverColor: AppColors.surfaceAlt,
+      onTap: () => Library.instance.toggleFavorite(it),
+      child: SizedBox(
+        width: 44,
+        height: 44,
+        child: Icon(fav ? Icons.favorite_rounded : Icons.favorite_border_rounded, size: size, color: fav ? AppColors.live : AppColors.ink3),
+      ),
+    );
+  }
 
   Widget _liveList(List<Item> shown) => ListView.builder(
-    itemCount: shown.length,
-    itemBuilder: (_, i) {
-      final it = shown[i];
-      return ListTile(
-        leading: PosterImage(it.logo, size: 40, fit: BoxFit.contain),
-        title: Text(it.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-        subtitle: NowPlaying(cache: _epg, item: it, fallback: it.group),
-        trailing: _heart(it),
-        onTap: () => _open(it),
+        key: const ValueKey('channel-list'),
+        padding: const EdgeInsets.fromLTRB(AppSizes.scrollPad, AppSizes.scrollPad, 26, 24),
+        itemExtent: 76,
+        itemCount: shown.length,
+        itemBuilder: (_, i) => _channelRow(shown[i], i),
       );
-    },
-  );
+
+  /// A channel on its own white row: number, badge, name, programme now, time range and bar, heart.
+  /// The heart sits beside the row's focus area (not inside it) so each has its own ring.
+  Widget _channelRow(Item it, int index) => Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: RepaintBoundary(
+          child: Stack(children: [
+            Positioned.fill(
+              child: FocusRing(
+                radius: AppSizes.tileRadius,
+                onTap: () => _open(it),
+                child: Container(
+                  padding: const EdgeInsets.fromLTRB(10, 0, 12 + 44 + 8, 0),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(AppSizes.tileRadius),
+                    boxShadow: AppShadows.forRepeated(),
+                    border: AppShadows.repeatedBorder(),
+                  ),
+                  child: NowPlaying(
+                    cache: _epg,
+                    item: it,
+                    fallback: groupLabel(it.group),
+                    builder: (context, now) => Row(children: [
+                      SizedBox(width: 28, child: Text('${index + 1}', textAlign: TextAlign.right, style: AppText.title(14, color: AppColors.ink2))),
+                      const SizedBox(width: 14),
+                      ChannelBadge(name: it.name, logo: it.logo),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text(it.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.title(16)),
+                          Text(now?.title ?? groupLabel(it.group), maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.meta(13)),
+                        ]),
+                      ),
+                      if (now != null) ...[
+                        const SizedBox(width: 14),
+                        SizedBox(
+                          width: 150,
+                          child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.end, children: [
+                            Text('${hhmm(now.start)} – ${hhmm(now.end)}', maxLines: 1, style: AppText.meta(13)),
+                            const SizedBox(height: 7),
+                            ProgressBar(value: now.progress),
+                          ]),
+                        ),
+                      ],
+                    ]),
+                  ),
+                ),
+              ),
+            ),
+            Positioned(right: 12, top: 12, child: _heart(it)),
+          ]),
+        ),
+      );
 
   Widget _posterGrid(List<Item> shown) => GridView.builder(
     padding: const EdgeInsets.all(12),
