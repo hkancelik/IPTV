@@ -4,9 +4,15 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import 'phone_remote.dart';
 import 'settings.dart';
+import 'ui/basics.dart';
+import 'ui/controls.dart';
+import 'ui/focus_ring.dart';
+import 'ui/tokens.dart';
 import 'xtream.dart';
 
-class SettingsPage extends StatelessWidget {
+const _sections = ['Hesap', 'Oynatıcı', 'İçerik', 'Telefonu kumanda yap', 'Görünüm', 'Kısayollar'];
+
+class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key, required this.info, required this.account, required this.client, required this.onLogout});
 
   final XtreamClient client;
@@ -15,144 +21,249 @@ class SettingsPage extends StatelessWidget {
   final VoidCallback onLogout;
 
   @override
+  State<SettingsPage> createState() => _SettingsPageState();
+}
+
+class _SettingsPageState extends State<SettingsPage> {
+  int _selected = 0;
+  final _keys = [for (final _ in _sections) GlobalKey()];
+  final _scroll = ScrollController();
+  bool _jumping = false; // a section key is scrolling: don't let the listener pick another section meanwhile
+
+  @override
+  void initState() {
+    super.initState();
+    _scroll.addListener(_follow);
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  /// Marks the section whose card is at the top of the scroll area.
+  void _follow() {
+    if (_jumping) return;
+    final view = context.findRenderObject() as RenderBox?;
+    if (view == null) return;
+    final top = view.localToGlobal(Offset.zero).dy + 40;
+    var pick = 0;
+    for (var i = 0; i < _keys.length; i++) {
+      final box = _keys[i].currentContext?.findRenderObject() as RenderBox?;
+      if (box != null && box.localToGlobal(Offset.zero).dy <= top) pick = i;
+    }
+    if (_scroll.position.pixels >= _scroll.position.maxScrollExtent - 1) pick = _keys.length - 1;
+    if (pick != _selected) setState(() => _selected = pick);
+  }
+
+  Future<void> _go(int i) async {
+    setState(() => _selected = i);
+    final c = _keys[i].currentContext;
+    if (c == null) return;
+    _jumping = true;
+    await Scrollable.ensureVisible(c, duration: const Duration(milliseconds: 200), alignment: 0);
+    _jumping = false;
+  }
+
+  @override
   Widget build(BuildContext context) {
     final s = AppSettings.instance;
     return ListenableBuilder(
       listenable: Listenable.merge([s, PhoneRemote.instance]),
       builder: (context, _) {
-        final exp = info.expiry;
-        return ListView(
-          padding: const EdgeInsets.all(20),
-          children: [
-            _Section('Hesap', [
-              ListTile(leading: const Icon(Icons.person), title: Text(account.name), subtitle: Text(account.host)),
-              ListTile(
-                leading: const Icon(Icons.event),
-                title: const Text('Abonelik bitiş tarihi'),
-                subtitle: Text(exp == null ? 'Bilinmiyor' : '${exp.day.toString().padLeft(2, '0')}.${exp.month.toString().padLeft(2, '0')}.${exp.year}'),
+        final narrow = MediaQuery.sizeOf(context).width < 900;
+        return Padding(
+          padding: const EdgeInsets.only(left: AppSizes.scrollPad),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Padding(
+              padding: const EdgeInsets.only(top: AppSizes.scrollPad, bottom: 24),
+              child: SizedBox(
+                width: AppSizes.sideWidth,
+                child: AppCard(
+                  padding: const EdgeInsets.fromLTRB(6, 6, 6, 6),
+                  child: ListView.builder(
+                    padding: const EdgeInsets.all(AppSizes.scrollPad),
+                    itemExtent: 46,
+                    itemCount: _sections.length,
+                    itemBuilder: (_, i) => Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: SideItem(label: _sections[i], selected: i == _selected, onTap: () => _go(i)),
+                    ),
+                  ),
+                ),
               ),
-              _ConnectionTile(client: client, initial: info),
-              ListTile(leading: const Icon(Icons.logout), title: const Text('Kullanıcı değiştir'), onTap: onLogout),
-            ]),
-            _Section('Oynatıcı', [
-              _Choice<String>(
-                icon: Icons.audiotrack,
-                title: 'Tercih edilen ses dili',
-                value: s.audioLang,
-                options: const {'auto': 'Dosya varsayılanı', 'tr': 'Türkçe', 'en': 'İngilizce'},
-                onChanged: (v) => s.update(audioLang: v),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              // All cards are built at once: the list is short and ensureVisible needs every section laid out.
+              child: SingleChildScrollView(
+                controller: _scroll,
+                padding: const EdgeInsets.fromLTRB(AppSizes.scrollPad, AppSizes.scrollPad, 26, 24),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  KeyedSubtree(key: _keys[0], child: _accountCard()),
+                  const SizedBox(height: 18),
+                  _Section(key: _keys[1], title: 'Oynatıcı', children: [
+                    _ChoiceRow(
+                      title: 'Tercih edilen ses dili',
+                      narrow: narrow,
+                      control: Segmented<String>(
+                        key: const ValueKey('setting-audioLang'),
+                        value: s.audioLang,
+                        options: const {'auto': 'Dosya varsayılanı', 'tr': 'Türkçe', 'en': 'İngilizce'},
+                        onChanged: (v) => s.update(audioLang: v),
+                      ),
+                    ),
+                    _ChoiceRow(
+                      title: 'Tercih edilen altyazı',
+                      narrow: narrow,
+                      control: Segmented<String>(
+                        key: const ValueKey('setting-subLang'),
+                        value: s.subLang,
+                        options: const {'off': 'Kapalı', 'tr': 'Türkçe', 'en': 'İngilizce'},
+                        onChanged: (v) => s.update(subLang: v),
+                      ),
+                    ),
+                    _ChoiceRow(
+                      title: 'İleri/geri sarma süresi',
+                      narrow: narrow,
+                      control: Segmented<int>(
+                        key: const ValueKey('setting-skipSecs'),
+                        value: s.skipSecs,
+                        options: const {5: '5 sn', 10: '10 sn', 30: '30 sn'},
+                        onChanged: (v) => s.update(skipSecs: v),
+                      ),
+                    ),
+                    _ChoiceRow(
+                      title: 'Ön bellek (tampon)',
+                      narrow: narrow,
+                      control: _MenuChoice<int>(
+                        key: const ValueKey('setting-cacheSecs'),
+                        value: s.cacheSecs,
+                        options: const {10: '10 sn', 15: '15 sn', 30: '30 sn', 60: '60 sn', 120: '120 sn'},
+                        onChanged: (v) => s.update(cacheSecs: v),
+                      ),
+                    ),
+                    _SwitchRow(
+                      title: 'Donanım hızlandırma',
+                      desc: 'Video takılıyor ya da bozuk görünüyorsa kapatmayı dene',
+                      value: s.hwdec,
+                      onChanged: (v) => s.update(hwdec: v),
+                    ),
+                    _SwitchRow(
+                      title: 'Kaldığım yerden devam et',
+                      desc: 'Film ve dizilerde son konumu hatırla',
+                      value: s.resume,
+                      onChanged: (v) => s.update(resume: v),
+                    ),
+                    _SwitchRow(
+                      title: 'Sonraki bölümü otomatik oynat',
+                      desc: 'Bölüm bitince 10 saniye sayar, sonra sıradaki bölüme geçer',
+                      value: s.autoNext,
+                      onChanged: (v) => s.update(autoNext: v),
+                    ),
+                  ]),
+                  _Section(key: _keys[2], title: 'İçerik', children: [
+                    _SwitchRow(
+                      title: 'Yetişkin içeriği gizle',
+                      desc: 'Adı veya kategorisi "adult, xxx, 18+" içerenleri listelerden çıkarır',
+                      value: s.hideAdult,
+                      onChanged: (v) => s.update(hideAdult: v),
+                    ),
+                    _SwitchRow(
+                      title: 'Yinelenen filmleri/dizileri gizle',
+                      desc: '"Tümü" görünümünde aynı adı taşıyan kayıtlardan yalnızca biri gösterilir',
+                      value: s.dedupe,
+                      onChanged: (v) => s.update(dedupe: v),
+                    ),
+                    _ChoiceRow(
+                      title: 'Gizlenen kategoriler',
+                      desc: s.hiddenGroups.isEmpty ? 'Yok. Bir kategoriyi gizlemek için listenin üstündeki ayar ikonunu kullan.' : '${s.hiddenGroups.length} kategori gizli',
+                      narrow: false,
+                      control: s.hiddenGroups.isEmpty ? null : AppButton(label: 'Hepsini göster', onPressed: () => s.update(hiddenGroups: <String>{})),
+                    ),
+                  ]),
+                  _Section(key: _keys[3], title: 'Telefonu kumanda yap', children: [
+                    _SwitchRow(
+                      title: 'Telefonla kumanda et',
+                      desc: 'Telefonun tarayıcısından yön tuşları, oynat/duraklat, sarma ve yazı yazma. Yalnızca aynı Wi-Fi/ağda çalışır.',
+                      value: s.phoneRemote,
+                      onChanged: (v) {
+                        s.update(phoneRemote: v);
+                        PhoneRemote.instance.setEnabled(v);
+                      },
+                    ),
+                    if (s.phoneRemote) _PhoneRemoteInfo(remote: PhoneRemote.instance),
+                  ]),
+                  _Section(key: _keys[4], title: 'Görünüm', children: [
+                    _ChoiceRow(
+                      title: 'Arayüz ölçeği',
+                      narrow: narrow,
+                      control: _MenuChoice<double>(
+                        key: const ValueKey('setting-uiScale'),
+                        value: s.uiScale,
+                        options: {0.5: '%50', 0.6: '%60', 0.7: '%70', 0.8: '%80', 0.9: '%90', 1.0: '%100', 1.2: '%120', 1.4: '%140'},
+                        onChanged: (v) => s.update(uiScale: v),
+                      ),
+                    ),
+                    _SwitchRow(
+                      title: 'Kumanda (TV) modu',
+                      desc: 'Büyük yazı, belirgin odak çerçevesi ve kumanda ile gezinme. Android TV / Fire Stick\'te otomatik açık',
+                      value: s.tvMode,
+                      onChanged: (v) => s.update(tvMode: v),
+                    ),
+                  ]),
+                  _Section(key: _keys[5], title: 'Kısayollar', children: const [
+                    _KeyRow('Boşluk', 'Oynat / duraklat'),
+                    _KeyRow('← / →', 'Geri / ileri sar'),
+                    _KeyRow('↑ / ↓', 'Ses aç / kıs'),
+                    _KeyRow('M', 'Sessiz'),
+                    _KeyRow('F', 'Tam ekran'),
+                    _KeyRow('Esc', 'Tam ekrandan çık / geri'),
+                  ]),
+                ]),
               ),
-              _Choice<String>(
-                icon: Icons.subtitles,
-                title: 'Tercih edilen altyazı',
-                value: s.subLang,
-                options: const {'off': 'Kapalı', 'tr': 'Türkçe', 'en': 'İngilizce'},
-                onChanged: (v) => s.update(subLang: v),
-              ),
-              _Choice<int>(
-                icon: Icons.fast_forward,
-                title: 'İleri/geri sarma süresi',
-                value: s.skipSecs,
-                options: const {5: '5 sn', 10: '10 sn', 30: '30 sn'},
-                onChanged: (v) => s.update(skipSecs: v),
-              ),
-              _Choice<int>(
-                icon: Icons.storage,
-                title: 'Ön bellek (tampon)',
-                value: s.cacheSecs,
-                options: const {10: '10 sn', 15: '15 sn', 30: '30 sn', 60: '60 sn', 120: '120 sn'},
-                onChanged: (v) => s.update(cacheSecs: v),
-              ),
-              SwitchListTile(
-                secondary: const Icon(Icons.memory),
-                title: const Text('Donanım hızlandırma'),
-                subtitle: const Text('Video takılıyor ya da bozuk görünüyorsa kapatmayı dene'),
-                value: s.hwdec,
-                onChanged: (v) => s.update(hwdec: v),
-              ),
-              SwitchListTile(
-                secondary: const Icon(Icons.history),
-                title: const Text('Kaldığım yerden devam et'),
-                subtitle: const Text('Film ve dizilerde son konumu hatırla'),
-                value: s.resume,
-                onChanged: (v) => s.update(resume: v),
-              ),
-              SwitchListTile(
-                secondary: const Icon(Icons.skip_next),
-                title: const Text('Sonraki bölümü otomatik oynat'),
-                subtitle: const Text('Bölüm bitince 10 saniye sayar, sonra sıradaki bölüme geçer'),
-                value: s.autoNext,
-                onChanged: (v) => s.update(autoNext: v),
-              ),
-            ]),
-            _Section('İçerik', [
-              SwitchListTile(
-                secondary: const Icon(Icons.shield_outlined),
-                title: const Text('Yetişkin içeriği gizle'),
-                subtitle: const Text('Adı veya kategorisi "adult, xxx, 18+" içerenleri listelerden çıkarır'),
-                value: s.hideAdult,
-                onChanged: (v) => s.update(hideAdult: v),
-              ),
-              SwitchListTile(
-                secondary: const Icon(Icons.content_copy),
-                title: const Text('Yinelenen filmleri/dizileri gizle'),
-                subtitle: const Text('"Tümü" görünümünde aynı adı taşıyan kayıtlardan yalnızca biri gösterilir'),
-                value: s.dedupe,
-                onChanged: (v) => s.update(dedupe: v),
-              ),
-              ListTile(
-                leading: const Icon(Icons.visibility_off),
-                title: const Text('Gizlenen kategoriler'),
-                subtitle: Text(s.hiddenGroups.isEmpty ? 'Yok. Bir kategoriyi gizlemek için listenin üstündeki ayar ikonunu kullan.' : '${s.hiddenGroups.length} kategori gizli'),
-                trailing: s.hiddenGroups.isEmpty ? null : TextButton(onPressed: () => s.update(hiddenGroups: <String>{}), child: const Text('Hepsini göster')),
-              ),
-            ]),
-            _Section('Telefonu kumanda yap', [
-              SwitchListTile(
-                secondary: const Icon(Icons.phone_android),
-                title: const Text('Telefonla kumanda et'),
-                subtitle: const Text('Telefonun tarayıcısından yön tuşları, oynat/duraklat, sarma ve yazı yazma. Yalnızca aynı Wi-Fi/ağda çalışır.'),
-                value: s.phoneRemote,
-                onChanged: (v) {
-                  s.update(phoneRemote: v);
-                  PhoneRemote.instance.setEnabled(v);
-                },
-              ),
-              if (s.phoneRemote) _PhoneRemoteInfo(remote: PhoneRemote.instance),
-            ]),
-            _Section('Görünüm', [
-              _Choice<double>(
-                icon: Icons.zoom_in,
-                title: 'Arayüz ölçeği',
-                value: const [0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.2, 1.4].contains(s.uiScale) ? s.uiScale : 1.0,
-                options: {0.5: '%50', 0.6: '%60', 0.7: '%70', 0.8: '%80', 0.9: '%90', 1.0: '%100', 1.2: '%120', 1.4: '%140'},
-                onChanged: (v) => s.update(uiScale: v),
-              ),
-              SwitchListTile(
-                secondary: const Icon(Icons.settings_remote),
-                title: const Text('Kumanda (TV) modu'),
-                subtitle: const Text('Büyük yazı, belirgin odak çerçevesi ve kumanda ile gezinme. Android TV / Fire Stick\'te otomatik açık'),
-                value: s.tvMode,
-                onChanged: (v) => s.update(tvMode: v),
-              ),
-            ]),
-            _Section('Kısayollar', const [
-              ListTile(dense: true, title: Text('Boşluk'), trailing: Text('Oynat / duraklat')),
-              ListTile(dense: true, title: Text('← / →'), trailing: Text('Geri / ileri sar')),
-              ListTile(dense: true, title: Text('↑ / ↓'), trailing: Text('Ses aç / kıs')),
-              ListTile(dense: true, title: Text('M'), trailing: Text('Sessiz')),
-              ListTile(dense: true, title: Text('F'), trailing: Text('Tam ekran')),
-              ListTile(dense: true, title: Text('Esc'), trailing: Text('Tam ekrandan çık / geri')),
-            ]),
-          ],
+            ),
+          ]),
         );
       },
+    );
+  }
+
+  Widget _accountCard() {
+    final exp = widget.info.expiry;
+    final date = exp == null ? 'Bilinmiyor' : '${exp.day.toString().padLeft(2, '0')}.${exp.month.toString().padLeft(2, '0')}.${exp.year}';
+    final host = Uri.tryParse(widget.account.host)?.host ?? widget.account.host;
+    Widget fact(String label, Widget value) => Container(
+          padding: const EdgeInsets.only(left: 16),
+          decoration: const BoxDecoration(border: Border(left: BorderSide(color: AppColors.line))),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [Text(label, style: AppText.meta(13)), value]),
+        );
+    return AppCard(
+      radius: AppSizes.cardRadius,
+      padding: const EdgeInsets.fromLTRB(18, 14, 14, 14),
+      child: Wrap(spacing: 18, runSpacing: 12, crossAxisAlignment: WrapCrossAlignment.center, children: [
+        Row(mainAxisSize: MainAxisSize.min, children: [
+          ChannelBadge(name: widget.account.name, size: 52),
+          const SizedBox(width: 14),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 220),
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(widget.account.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.title(17)),
+              Text(host, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.meta(13)),
+            ]),
+          ),
+        ]),
+        fact('Abonelik bitişi', Text(date, style: AppText.title(15))),
+        fact('Eşzamanlı bağlantılar', _ConnectionTile(client: widget.client, initial: widget.info)),
+        AppButton(label: 'Kullanıcı değiştir', icon: Icons.logout_rounded, onPressed: widget.onLogout),
+      ]),
     );
   }
 }
 
 class _Section extends StatelessWidget {
-  const _Section(this.title, this.children);
+  const _Section({super.key, required this.title, required this.children});
 
   final String title;
   final List<Widget> children;
@@ -160,43 +271,134 @@ class _Section extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(padding: const EdgeInsets.only(left: 4, bottom: 8), child: Text(title, style: Theme.of(context).textTheme.titleSmall?.copyWith(color: Theme.of(context).colorScheme.primary))),
-          Card(margin: EdgeInsets.zero, child: Column(children: children)),
-        ],
+      padding: const EdgeInsets.only(bottom: 18),
+      child: AppCard(
+        radius: AppSizes.cardRadius,
+        shadows: AppShadows.card,
+        padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Padding(padding: const EdgeInsets.fromLTRB(10, 10, 10, 6), child: Text(title, style: AppText.title(18))),
+          ...children,
+        ]),
       ),
     );
   }
 }
 
-class _Choice<T> extends StatelessWidget {
-  const _Choice({required this.icon, required this.title, required this.value, required this.options, required this.onChanged});
+Widget _texts(String title, String? desc) => Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(title, style: AppText.title(15)),
+      if (desc != null) ...[const SizedBox(height: 2), Text(desc, maxLines: 2, overflow: TextOverflow.ellipsis, style: AppText.meta(13))],
+    ]);
 
-  final IconData icon;
+/// A row with a switch: the whole row takes focus and toggles.
+class _SwitchRow extends StatelessWidget {
+  const _SwitchRow({required this.title, this.desc, required this.value, required this.onChanged});
+
   final String title;
+  final String? desc;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+        toggled: value,
+        child: FocusRing(
+          inside: true,
+          radius: 18,
+          onTap: () => onChanged(!value),
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 64),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(children: [
+              Expanded(child: _texts(title, desc)),
+              const SizedBox(width: 16),
+              AppSwitch(value: value, focusable: false, onChanged: onChanged),
+            ]),
+          ),
+        ),
+      );
+}
+
+/// A row with a choice control; the focus goes into the control, not the row.
+class _ChoiceRow extends StatelessWidget {
+  const _ChoiceRow({required this.title, this.desc, required this.control, required this.narrow});
+
+  final String title;
+  final String? desc;
+  final Widget? control;
+  final bool narrow; // the control goes under the title
+
+  @override
+  Widget build(BuildContext context) => Container(
+        constraints: const BoxConstraints(minHeight: 64),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        alignment: Alignment.centerLeft,
+        child: narrow && control != null
+            ? Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                _texts(title, desc),
+                const SizedBox(height: 10),
+                SingleChildScrollView(scrollDirection: Axis.horizontal, clipBehavior: Clip.none, child: control),
+              ])
+            : Row(children: [
+                Expanded(child: _texts(title, desc)),
+                if (control != null) ...[const SizedBox(width: 16), control!],
+              ]),
+      );
+}
+
+/// A choice with many options: a key with the current value that opens a menu. "Özel" when the stored value
+/// is none of the options.
+class _MenuChoice<T> extends StatelessWidget {
+  const _MenuChoice({super.key, required this.value, required this.options, required this.onChanged});
+
   final T value;
   final Map<T, String> options;
   final ValueChanged<T> onChanged;
 
   @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      leading: Icon(icon),
-      title: Text(title),
-      trailing: DropdownButton<T>(
-        // A stored value that is not (or no longer) offered: show no selection rather than fail.
-        value: options.containsKey(value) ? value : null,
-        underline: const SizedBox.shrink(),
-        items: [for (final e in options.entries) DropdownMenuItem(value: e.key, child: Text(e.value))],
-        onChanged: (v) {
-          if (v != null) onChanged(v);
-        },
-      ),
-    );
-  }
+  Widget build(BuildContext context) => Builder(
+        builder: (context) => AppButton(
+          label: options[value] ?? 'Özel',
+          trailingIcon: Icons.expand_more_rounded,
+          onPressed: () async {
+            final box = context.findRenderObject()! as RenderBox;
+            final overlay = Overlay.of(context).context.findRenderObject()! as RenderBox;
+            final at = box.localToGlobal(Offset(0, box.size.height + 6), ancestor: overlay);
+            final picked = await showMenu<T>(
+              context: context,
+              position: RelativeRect.fromLTRB(at.dx, at.dy, overlay.size.width - at.dx - box.size.width, 0),
+              items: [
+                for (final e in options.entries)
+                  PopupMenuItem(
+                    value: e.key,
+                    child: Row(children: [
+                      SizedBox(width: 28, child: e.key == value ? const Icon(Icons.check_rounded, size: 18, color: AppColors.accent) : null),
+                      Text(e.value),
+                    ]),
+                  ),
+              ],
+            );
+            if (picked != null) onChanged(picked);
+          },
+        ),
+      );
+}
+
+class _KeyRow extends StatelessWidget {
+  const _KeyRow(this.keys, this.action);
+
+  final String keys;
+  final String action;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        child: Row(children: [
+          SizedBox(width: 120, child: Align(alignment: Alignment.centerLeft, child: Pill(keys))),
+          const SizedBox(width: 12),
+          Expanded(child: Text(action, style: AppText.meta(14, color: AppColors.ink))),
+        ]),
+      );
 }
 
 /// "Active connections: 1/2" with a refresh button, so it is easy to see whether another device is streaming.
@@ -234,12 +436,21 @@ class _ConnectionTileState extends State<_ConnectionTile> {
   Widget build(BuildContext context) {
     final i = _info;
     final text = i.maxConnections > 0 ? '${i.activeConnections} / ${i.maxConnections} kullanımda' : 'Sınır bilinmiyor';
-    return ListTile(
-      leading: Icon(Icons.devices, color: i.limitReached ? Theme.of(context).colorScheme.error : null),
-      title: const Text('Eşzamanlı bağlantılar'),
-      subtitle: Text(_error ?? (i.limitReached ? '$text. Sınır dolu: başka bir cihazda izleme açık olabilir.' : text)),
-      trailing: _busy ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)) : IconButton(tooltip: 'Yenile', icon: const Icon(Icons.refresh), onPressed: _refresh),
-    );
+    final color = _error != null || i.limitReached ? AppColors.liveText : AppColors.ok;
+    return Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(mainAxisSize: MainAxisSize.min, children: [
+        Text(_error ?? text, style: AppText.title(15, color: color)),
+        const SizedBox(width: 8),
+        _busy
+            ? const SizedBox(width: 44, height: 44, child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator(strokeWidth: 2)))
+            : AppButton(icon: Icons.refresh_rounded, tooltip: 'Yenile', onPressed: _refresh),
+      ]),
+      if (i.limitReached && _error == null)
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 260),
+          child: Text('Sınır dolu: başka bir cihazda izleme açık olabilir.', style: AppText.meta(13, color: AppColors.liveText)),
+        ),
+    ]);
   }
 }
 
@@ -253,20 +464,30 @@ class _PhoneRemoteInfo extends StatelessWidget {
   Widget build(BuildContext context) {
     final url = remote.url;
     if (url == null) {
-      return ListTile(leading: const Icon(Icons.error_outline), title: Text(remote.error ?? 'Başlatılıyor...'));
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+        child: Text(remote.error ?? 'Başlatılıyor...', style: AppText.label(14, color: remote.error == null ? AppColors.ink2 : AppColors.liveText)),
+      );
     }
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
       child: Row(children: [
-        Container(color: Colors.white, padding: const EdgeInsets.all(8), child: QrImageView(data: url.toString(), size: 150, backgroundColor: Colors.white)),
-        const SizedBox(width: 16),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(AppSizes.itemRadius),
+          child: Container(
+            color: AppColors.qrGround,
+            padding: const EdgeInsets.all(10),
+            child: QrImageView(data: url.toString(), size: 150, backgroundColor: AppColors.qrGround),
+          ),
+        ),
+        const SizedBox(width: 18),
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text('Telefonun kamerasıyla okut'),
+            Text('Telefonun kamerasıyla okut', style: AppText.title(15)),
             const SizedBox(height: 6),
-            SelectableText(url.toString(), style: const TextStyle(fontSize: 12)),
+            SelectableText(url.toString(), style: AppText.label(14, color: AppColors.accentInk)),
             const SizedBox(height: 6),
-            const Text('Bu adres uygulama her açıldığında değişir. Kumandayı açık bırakmak istemezsen anahtarı kapat.', style: TextStyle(fontSize: 11)),
+            Text('Bu adres uygulama her açıldığında değişir. Kumandayı açık bırakmak istemezsen anahtarı kapat.', style: AppText.meta(13)),
           ]),
         ),
       ]),
