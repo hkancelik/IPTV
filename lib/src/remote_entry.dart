@@ -5,6 +5,9 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
+import 'ui/basics.dart';
+import 'ui/tokens.dart';
+
 /// Tiny one-shot web server on the local network. The TV shows a QR code; the user opens the page
 /// on a phone/PC, types the login there and it is sent back, so nothing has to be typed with a remote.
 class RemoteEntryServer {
@@ -131,25 +134,28 @@ class _RemoteEntryDialogState extends State<RemoteEntryDialog> {
       content: SizedBox(
         width: 340,
         child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
-          if (_error != null) Text(_error!),
+          if (_error != null) Text(_error!, textAlign: TextAlign.center, style: AppText.label(15, color: AppColors.liveText)),
           if (_url == null && _error == null) const Padding(padding: EdgeInsets.all(24), child: CircularProgressIndicator()),
           if (_url != null) ...[
-            const Text('Telefonun kamerasıyla okut (telefon ve bu cihaz aynı Wi-Fi/ağda olmalı):', textAlign: TextAlign.center),
-            const SizedBox(height: 12),
-            Container(
-              color: Colors.white,
-              padding: const EdgeInsets.all(10),
-              child: QrImageView(data: _url.toString(), size: 190, backgroundColor: Colors.white),
+            Text('Telefonun kamerasıyla okut (telefon ve bu cihaz aynı Wi-Fi/ağda olmalı):', textAlign: TextAlign.center, style: AppText.body()),
+            const SizedBox(height: 14),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(AppSizes.itemRadius),
+              child: Container(
+                color: AppColors.qrGround,
+                padding: const EdgeInsets.all(12),
+                child: QrImageView(data: _url.toString(), size: 190, backgroundColor: AppColors.qrGround),
+              ),
             ),
             const SizedBox(height: 12),
-            SelectableText(_url.toString(), textAlign: TextAlign.center),
+            SelectableText(_url.toString(), textAlign: TextAlign.center, style: AppText.label(14)),
             const SizedBox(height: 8),
-            const Text('Bilgiler yalnızca yerel ağda iletilir.', textAlign: TextAlign.center, style: TextStyle(fontSize: 12)),
+            Text('Bilgiler yalnızca yerel ağda iletilir.', textAlign: TextAlign.center, style: AppText.meta(13)),
             const SizedBox(height: 8),
           ],
         ])),
       ),
-      actions: [TextButton(autofocus: true, onPressed: () => Navigator.of(context).pop(), child: const Text('İptal'))],
+      actions: [AppButton(label: 'İptal', autofocus: true, onPressed: () => Navigator.of(context).pop())],
     );
   }
 }

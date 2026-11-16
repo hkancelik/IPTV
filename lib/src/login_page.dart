@@ -1,12 +1,17 @@
 import 'package:flutter/material.dart';
 
 import 'accounts.dart';
-import 'focus_frame.dart';
 import 'home_page.dart';
 import 'library.dart';
 import 'remote_entry.dart';
 import 'settings.dart';
 import 'tv_text_field.dart';
+import 'ui/basics.dart';
+import 'ui/controls.dart';
+import 'ui/focus_ring.dart';
+import 'ui/format.dart';
+import 'ui/shell.dart';
+import 'ui/tokens.dart';
 import 'xtream.dart';
 
 typedef ClientFactory = XtreamClient Function(Account account);
@@ -42,6 +47,7 @@ class _LoginPageState extends State<LoginPage> {
   bool _showForm = false;
   bool _editing = false; // profile edit mode (tap a card to delete it)
   Account? _auto; // account being signed in automatically (shows the splash)
+  String? _confirming; // account whose deletion is being confirmed
 
   @override
   void initState() {
@@ -117,17 +123,20 @@ class _LoginPageState extends State<LoginPage> {
   void _cancelAuto() => setState(() => _auto = null);
 
   Future<void> _confirmDelete(Account a) async {
+    // The cards' "Sil" tags step aside while the dialog asks, so the dialog's key is the only "Sil".
+    setState(() => _confirming = a.key);
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Kullanıcı silinsin mi?'),
         content: Text('"${a.name}" kayıtlı kullanıcılardan kaldırılacak. Tekrar girmek için bilgilerini yeniden yazman gerekir.'),
         actions: [
-          TextButton(autofocus: true, onPressed: () => Navigator.pop(ctx, false), child: const Text('İptal')),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Sil')),
+          AppButton(label: 'İptal', autofocus: true, onPressed: () => Navigator.pop(ctx, false)),
+          AppButton(label: 'Sil', variant: AppButtonVariant.danger, onPressed: () => Navigator.pop(ctx, true)),
         ],
       ),
     );
+    if (mounted) setState(() => _confirming = null);
     if (ok != true || !mounted) return;
     setState(() {
       _accounts = _accounts.where((x) => x.key != a.key).toList();
@@ -169,139 +178,170 @@ class _LoginPageState extends State<LoginPage> {
 
   // ─── UI ─────────────────────────────────────────────────────────────────
 
-  Widget _brand({double size = 40}) {
-    final scheme = Theme.of(context).colorScheme;
-    return Row(mainAxisSize: MainAxisSize.min, children: [
-      Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(color: scheme.primary, borderRadius: BorderRadius.circular(size / 4)),
-        child: Icon(Icons.play_arrow_rounded, size: size * 0.7, color: scheme.onPrimary),
-      ),
-      const SizedBox(width: 10),
-      Text('IPTV', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700, letterSpacing: 1)),
-    ]);
-  }
-
   @override
   Widget build(BuildContext context) {
     if (!_loaded) return const Scaffold();
     return Scaffold(
-      body: Center(
-        child: _auto != null ? _splash(_auto!) : SingleChildScrollView(padding: const EdgeInsets.all(20), child: _showForm ? _form() : _profiles()),
-      ),
+      body: Stack(children: [
+        Center(
+          child: _auto != null
+              ? _splash(_auto!)
+              : SingleChildScrollView(padding: const EdgeInsets.fromLTRB(20, 90, 20, 30), child: _showForm ? _form() : _profiles()),
+        ),
+        const Positioned(left: 28, top: 26, child: BrandMark()),
+        const Positioned(right: 28, top: 26, child: ClockPill()),
+      ]),
     );
   }
 
-  Widget _splash(Account a) => Column(mainAxisSize: MainAxisSize.min, children: [
-        _brand(size: 56),
-        const SizedBox(height: 28),
-        const SizedBox(width: 30, height: 30, child: CircularProgressIndicator(strokeWidth: 3)),
-        const SizedBox(height: 18),
-        Text('${a.name} olarak giriş yapılıyor...'),
-        const SizedBox(height: 14),
-        TextButton(autofocus: AppSettings.instance.tvMode, onPressed: _cancelAuto, child: const Text('Vazgeç / kullanıcı değiştir')),
-      ]);
+  Widget _splash(Account a) => AppCard(
+        padding: const EdgeInsets.all(36),
+        child: SizedBox(
+          width: 340,
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const BrandMark(),
+            const SizedBox(height: 24),
+            Text('${a.name} olarak giriş yapılıyor...', textAlign: TextAlign.center, style: AppText.title(16)),
+            const SizedBox(height: 18),
+            SizedBox(width: 220, child: ClipRRect(borderRadius: BorderRadius.circular(3), child: const LinearProgressIndicator(minHeight: 6))),
+            const SizedBox(height: 24),
+            AppButton(label: 'Vazgeç / kullanıcı değiştir', autofocus: AppSettings.instance.tvMode, onPressed: _cancelAuto),
+          ]),
+        ),
+      );
 
   Widget _profiles() {
-    final scheme = Theme.of(context).colorScheme;
     final ordered = _ordered;
     return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 720),
+      constraints: const BoxConstraints(maxWidth: 980),
       child: Column(mainAxisSize: MainAxisSize.min, children: [
-        _brand(),
-        const SizedBox(height: 26),
-        Text(_editing ? 'Silinecek kullanıcıyı seç' : 'Kullanıcı seç', style: Theme.of(context).textTheme.titleLarge),
-        const SizedBox(height: 22),
+        Text(_editing ? 'Silinecek kullanıcıyı seç' : 'Kullanıcı seç', textAlign: TextAlign.center, style: AppText.display(40)),
+        const SizedBox(height: 10),
+        Text('Açılışta son kullanılan hesapla otomatik giriş yapılır.', textAlign: TextAlign.center, style: AppText.meta(16)),
+        const SizedBox(height: 34),
         Wrap(spacing: 22, runSpacing: 22, alignment: WrapAlignment.center, children: [
           for (var i = 0; i < ordered.length; i++)
             _ProfileCard(
               account: ordered[i],
               isLast: ordered[i].key == _lastKey,
-              editing: _editing,
+              editing: _editing && _confirming == null,
               autofocus: AppSettings.instance.tvMode && i == 0,
               onTap: _busy ? null : () => _editing ? _confirmDelete(ordered[i]) : _signIn(ordered[i]),
             ),
-          if (!_editing) _AddCard(onTap: () => setState(() {
+          if (!_editing)
+            _AddCard(
+              onTap: () => setState(() {
                 _showForm = true;
                 _error = null;
-              })),
+              }),
+            ),
         ]),
-        const SizedBox(height: 24),
-        if (_error != null) Padding(padding: const EdgeInsets.only(bottom: 12), child: Text(_error!, textAlign: TextAlign.center, style: TextStyle(color: scheme.error))),
-        if (_busy) const Padding(padding: EdgeInsets.only(bottom: 12), child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))),
-        TextButton.icon(
+        const SizedBox(height: 28),
+        if (_error != null)
+          Padding(padding: const EdgeInsets.only(bottom: 14), child: Text(_error!, textAlign: TextAlign.center, style: AppText.label(15, color: AppColors.liveText))),
+        if (_busy) const Padding(padding: EdgeInsets.only(bottom: 14), child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.5))),
+        AppButton(
+          variant: AppButtonVariant.onPage,
+          icon: _editing ? Icons.check_rounded : Icons.edit_rounded,
+          label: _editing ? 'Bitti' : 'Kullanıcıları düzenle',
           onPressed: () => setState(() => _editing = !_editing),
-          icon: Icon(_editing ? Icons.check : Icons.edit_outlined, size: 18),
-          label: Text(_editing ? 'Bitti' : 'Kullanıcıları düzenle'),
         ),
       ]),
     );
   }
+
+  InputDecoration _field(String label, {Widget? suffix}) => InputDecoration(
+        labelText: label,
+        labelStyle: AppText.meta(15),
+        floatingLabelStyle: AppText.label(13, color: AppColors.ink2),
+        filled: true,
+        fillColor: AppColors.surfaceAlt,
+        isDense: true,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(22), borderSide: BorderSide.none),
+        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(22), borderSide: BorderSide.none),
+        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(22), borderSide: const BorderSide(color: AppColors.ink, width: AppSizes.ring)),
+        suffixIcon: suffix,
+      );
 
   Widget _form() {
-    final scheme = Theme.of(context).colorScheme;
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 340),
-      child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Center(child: _brand()),
-        const SizedBox(height: 18),
-        Text(_accounts.isEmpty ? 'Giriş bilgilerinizi girin' : 'Yeni kullanıcı ekle', textAlign: TextAlign.center, style: Theme.of(context).textTheme.titleMedium),
-        const SizedBox(height: 14),
-        // Typing with a TV remote is painful: offer entering the login on a phone first.
-        OutlinedButton.icon(
-          autofocus: AppSettings.instance.tvMode,
-          onPressed: _busy ? null : _fromPhone,
-          icon: const Icon(Icons.qr_code_2),
-          label: const Text('Telefondan gir (QR)'),
+    return Column(mainAxisSize: MainAxisSize.min, children: [
+      AppCard(
+        padding: const EdgeInsets.all(28),
+        child: SizedBox(
+          width: 364,
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            const Center(child: BrandMark()),
+            const SizedBox(height: 18),
+            Text(_accounts.isEmpty ? 'Giriş bilgilerinizi girin' : 'Yeni kullanıcı ekle', textAlign: TextAlign.center, style: AppText.title(20)),
+            const SizedBox(height: 16),
+            // Typing with a TV remote is painful: offer entering the login on a phone first.
+            AppButton(
+              autofocus: AppSettings.instance.tvMode,
+              onPressed: _busy ? null : _fromPhone,
+              icon: Icons.qr_code_2_rounded,
+              label: 'Telefondan gir (QR)',
+            ),
+            Padding(padding: const EdgeInsets.symmetric(vertical: 10), child: Text('veya elle girin', textAlign: TextAlign.center, style: AppText.meta(13))),
+            RemoteTextField(controller: _name, decoration: _field('Ad (isteğe bağlı)')),
+            const SizedBox(height: 10),
+            RemoteTextField(controller: _host, decoration: _field('Sunucu (http://example.com:8080)')),
+            const SizedBox(height: 10),
+            RemoteTextField(controller: _user, decoration: _field('Kullanıcı adı')),
+            const SizedBox(height: 10),
+            RemoteTextField(
+              controller: _pass,
+              obscureText: !_showPass,
+              onSubmitted: (_) => _busy ? null : _add(),
+              decoration: _field(
+                'Parola',
+                suffix: Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: AppButton(
+                    icon: _showPass ? Icons.visibility_off_rounded : Icons.visibility_rounded,
+                    tooltip: _showPass ? 'Parolayı gizle' : 'Parolayı göster',
+                    variant: AppButtonVariant.onPage,
+                    height: 40,
+                    onPressed: () => setState(() => _showPass = !_showPass),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            if (_error != null) Padding(padding: const EdgeInsets.only(bottom: 12), child: Text(_error!, style: AppText.label(14, color: AppColors.liveText))),
+            if (AppSettings.instance.tvMode)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Text('Bir alana OK ile girip yazın; yukarı/aşağı ile alanlar arasında gezin.', textAlign: TextAlign.center, style: AppText.meta(12)),
+              ),
+            AppButton(
+              variant: AppButtonVariant.primary,
+              height: AppSizes.primaryHeight,
+              onPressed: _busy ? null : _add,
+              label: _busy ? null : 'Kullanıcı Ekle',
+              child: _busy ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.onAccent)) : null,
+            ),
+          ]),
         ),
-        const Padding(padding: EdgeInsets.symmetric(vertical: 8), child: Text('veya elle girin', textAlign: TextAlign.center, style: TextStyle(fontSize: 12))),
-        RemoteTextField(controller: _name, decoration: const InputDecoration(labelText: 'Ad (isteğe bağlı)', border: OutlineInputBorder(), isDense: true)),
-        const SizedBox(height: 10),
-        RemoteTextField(controller: _host, decoration: const InputDecoration(labelText: 'Sunucu (http://example.com:8080)', border: OutlineInputBorder(), isDense: true)),
-        const SizedBox(height: 10),
-        RemoteTextField(controller: _user, decoration: const InputDecoration(labelText: 'Kullanıcı adı', border: OutlineInputBorder(), isDense: true)),
-        const SizedBox(height: 10),
-        RemoteTextField(
-          controller: _pass,
-          obscureText: !_showPass,
-          onSubmitted: (_) => _busy ? null : _add(),
-          decoration: InputDecoration(
-            labelText: 'Parola',
-            border: const OutlineInputBorder(),
-            isDense: true,
-            suffixIcon: IconButton(icon: Icon(_showPass ? Icons.visibility_off : Icons.visibility), onPressed: () => setState(() => _showPass = !_showPass)),
-          ),
+      ),
+      if (_accounts.isNotEmpty) ...[
+        const SizedBox(height: 20),
+        AppButton(
+          variant: AppButtonVariant.onPage,
+          icon: Icons.arrow_back_rounded,
+          label: 'Kayıtlı kullanıcılara dön',
+          onPressed: () => setState(() {
+            _showForm = false;
+            _error = null;
+          }),
         ),
-        const SizedBox(height: 16),
-        if (_error != null) Padding(padding: const EdgeInsets.only(bottom: 12), child: Text(_error!, style: TextStyle(color: scheme.error))),
-        if (AppSettings.instance.tvMode)
-          const Padding(padding: EdgeInsets.only(bottom: 8), child: Text('Bir alana OK ile girip yazın; yukarı/aşağı ile alanlar arasında gezin.', textAlign: TextAlign.center, style: TextStyle(fontSize: 11))),
-        FilledButton(
-          onPressed: _busy ? null : _add,
-          child: _busy ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Kullanıcı Ekle'),
-        ),
-        if (_accounts.isNotEmpty)
-          TextButton.icon(
-            onPressed: () => setState(() {
-              _showForm = false;
-              _error = null;
-            }),
-            icon: const Icon(Icons.arrow_back, size: 18),
-            label: const Text('Kayıtlı kullanıcılara dön'),
-          ),
-      ]),
-    );
+      ],
+    ]);
   }
-}
-
-Color _avatarColor(String seed) {
-  final h = (seed.codeUnits.fold<int>(7, (a, b) => (a * 31 + b) & 0xFFFF)) % 360;
-  return HSLColor.fromAHSL(1, h.toDouble(), 0.45, 0.42).toColor();
 }
 
 /// A saved account as a large, focusable card (profile-picker style).
-class _ProfileCard extends StatefulWidget {
+class _ProfileCard extends StatelessWidget {
   const _ProfileCard({required this.account, required this.isLast, required this.editing, required this.onTap, this.autofocus = false});
 
   final Account account;
@@ -311,108 +351,99 @@ class _ProfileCard extends StatefulWidget {
   final VoidCallback? onTap;
 
   @override
-  State<_ProfileCard> createState() => _ProfileCardState();
-}
-
-class _ProfileCardState extends State<_ProfileCard> {
-  bool _hover = false;
-
-  @override
   Widget build(BuildContext context) {
-    final a = widget.account;
+    final a = account;
     final initial = a.name.trim().isEmpty ? '?' : a.name.trim().characters.first.toUpperCase();
     final host = Uri.tryParse(a.host)?.host ?? a.host;
-    final scheme = Theme.of(context).colorScheme;
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: AnimatedScale(
-        scale: _hover ? 1.05 : 1.0,
-        duration: const Duration(milliseconds: 120),
-        child: FocusFrame(
-          radius: 14,
-          child: InkWell(
-            autofocus: widget.autofocus,
-            borderRadius: BorderRadius.circular(14),
-            onTap: widget.onTap,
-            child: SizedBox(
-              width: 140,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
-                child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  Stack(clipBehavior: Clip.none, children: [
-                    CircleAvatar(radius: 40, backgroundColor: _avatarColor(a.key), child: Text(initial, style: const TextStyle(fontSize: 34, fontWeight: FontWeight.w700, color: Colors.white))),
-                    if (widget.editing)
-                      Positioned(
-                        right: -4,
-                        top: -4,
-                        child: CircleAvatar(radius: 13, backgroundColor: scheme.error, child: Icon(Icons.delete_outline, size: 16, color: scheme.onError)),
-                      ),
-                  ]),
-                  const SizedBox(height: 12),
-                  Text(a.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.titleSmall),
-                  const SizedBox(height: 2),
-                  Text(host, maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).hintColor)),
-                  if (widget.isLast && !widget.editing)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                        decoration: BoxDecoration(color: scheme.primary.withValues(alpha: 0.25), borderRadius: BorderRadius.circular(8)),
-                        child: const Text('Son kullanılan', style: TextStyle(fontSize: 10.5)),
-                      ),
-                    ),
-                ]),
-              ),
+    final (bg, fg) = tintFor(a.key);
+    return FocusRing(
+      radius: AppSizes.panelRadius,
+      autofocus: autofocus,
+      onTap: onTap,
+      enabled: onTap != null,
+      child: AppCard(
+        child: SizedBox(
+          width: 210,
+          child: Stack(children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 26, 16, 22),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Container(
+                  width: 96,
+                  height: 96,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
+                  child: Text(initial, style: AppText.display(40, color: fg)),
+                ),
+                const SizedBox(height: 14),
+                Text(a.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.title(18)),
+                const SizedBox(height: 2),
+                Text(host, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.meta(13)),
+                const SizedBox(height: 12),
+                SizedBox(height: 28, child: isLast && !editing ? const Pill('Son kullanılan', tone: PillTone.accent) : null),
+              ]),
             ),
-          ),
+            if (editing) const Positioned(right: 14, top: 14, child: Pill('Sil', tone: PillTone.live, icon: Icons.delete_outline_rounded)),
+          ]),
         ),
       ),
     );
   }
 }
 
-class _AddCard extends StatefulWidget {
+/// "Kullanıcı ekle" card with a dashed outline.
+class _AddCard extends StatelessWidget {
   const _AddCard({required this.onTap});
 
   final VoidCallback onTap;
 
   @override
-  State<_AddCard> createState() => _AddCardState();
-}
-
-class _AddCardState extends State<_AddCard> {
-  bool _hover = false;
-
-  @override
   Widget build(BuildContext context) {
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: AnimatedScale(
-        scale: _hover ? 1.05 : 1.0,
-        duration: const Duration(milliseconds: 120),
-        child: FocusFrame(
-          radius: 14,
-          child: InkWell(
-            borderRadius: BorderRadius.circular(14),
-            onTap: widget.onTap,
-            child: SizedBox(
-              width: 140,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
-                child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  CircleAvatar(radius: 40, backgroundColor: Colors.white10, child: const Icon(Icons.add, size: 36)),
-                  const SizedBox(height: 12),
-                  Text('Kullanıcı ekle', style: Theme.of(context).textTheme.titleSmall),
-                  const SizedBox(height: 2),
-                  Text(' ', style: Theme.of(context).textTheme.bodySmall),
-                ]),
+    return FocusRing(
+      radius: AppSizes.panelRadius,
+      lift: false,
+      onTap: onTap,
+      child: CustomPaint(
+        painter: _DashedBorder(),
+        child: SizedBox(
+          width: 210,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 26, 16, 22),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Container(
+                width: 96,
+                height: 96,
+                decoration: const BoxDecoration(color: AppColors.surface, shape: BoxShape.circle, boxShadow: AppShadows.chip),
+                child: const Icon(Icons.add_rounded, size: 40, color: AppColors.accent),
               ),
-            ),
+              const SizedBox(height: 14),
+              Text('Kullanıcı ekle', style: AppText.title(18)),
+              const SizedBox(height: 2),
+              Text('Telefondan QR ya da elle', maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.meta(13)),
+              const SizedBox(height: 40),
+            ]),
           ),
         ),
       ),
     );
   }
+}
+
+class _DashedBorder extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rrect = RRect.fromRectAndRadius((Offset.zero & size).deflate(1), const Radius.circular(AppSizes.panelRadius));
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2
+      ..color = AppColors.dashed;
+    for (final metric in (Path()..addRRect(rrect)).computeMetrics()) {
+      for (double d = 0; d < metric.length; d += 14) {
+        canvas.drawPath(metric.extractPath(d, d + 8), paint);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_DashedBorder old) => false;
 }

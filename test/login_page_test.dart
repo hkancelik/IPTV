@@ -148,4 +148,21 @@ void main() {
     expect(find.text('HOME Ofis'), findsOneWidget);
     expect(Library.instance.favorites.map((i) => i.name), ['Kanal 7']);
   });
+
+  testWidgets('a profile card shows the initial, the name and no Material avatar', (tester) async {
+    await _pump(tester, auto: false, saved: [_a, _b], last: _a.key);
+    expect(find.text(_a.name.characters.first.toUpperCase()), findsWidgets);
+    expect(find.byType(CircleAvatar), findsNothing);
+    expect(find.text('Telefondan QR ya da elle'), findsOneWidget);
+    expect(find.text('Açılışta son kullanılan hesapla otomatik giriş yapılır.'), findsOneWidget);
+  });
+
+  testWidgets('edit mode marks every profile for deletion', (tester) async {
+    await _pump(tester, auto: false, saved: [_a, _b], last: _a.key);
+    await tester.tap(find.text('Kullanıcıları düzenle'));
+    await _settle(tester);
+    expect(find.text('Sil'), findsNWidgets(2));
+    expect(find.text('Silinecek kullanıcıyı seç'), findsOneWidget);
+    expect(find.text('Bitti'), findsOneWidget);
+  });
 }
