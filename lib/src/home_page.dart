@@ -11,7 +11,6 @@ import 'poster_card.dart';
 import 'settings.dart';
 import 'settings_page.dart';
 import 'title_utils.dart';
-import 'tv_text_field.dart';
 import 'ui/basics.dart';
 import 'ui/controls.dart';
 import 'ui/focus_ring.dart';
@@ -272,103 +271,84 @@ class _HomePageState extends State<HomePage> {
 
           Widget tile(int index, String n) {
             final key = AppSettings.groupKey(kind, n);
-            return ListTile(
+            return Container(
               key: ValueKey(n),
-              dense: true,
-              contentPadding: const EdgeInsets.only(left: 0, right: 4),
-              leading: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (canReorder)
-                    ReorderableDragStartListener(
-                      index: index,
-                      child: const Padding(padding: EdgeInsets.symmetric(horizontal: 6), child: Icon(Icons.drag_indicator, size: 20)),
-                    ),
-                  Checkbox(
-                    value: !s.hiddenGroups.contains(key),
-                    onChanged: (v) {
-                      final next = {...s.hiddenGroups};
-                      (v ?? true) ? next.remove(key) : next.add(key);
-                      s.update(hiddenGroups: next);
-                      setLocal(() {});
-                    },
+              height: 56,
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+              child: Row(children: [
+                if (canReorder)
+                  ReorderableDragStartListener(
+                    index: index,
+                    child: const Padding(padding: EdgeInsets.symmetric(horizontal: 6), child: Icon(Icons.drag_indicator_rounded, size: 20, color: AppColors.ink3)),
                   ),
+                Checkbox(
+                  value: !s.hiddenGroups.contains(key),
+                  onChanged: (v) {
+                    final next = {...s.hiddenGroups};
+                    (v ?? true) ? next.remove(key) : next.add(key);
+                    s.update(hiddenGroups: next);
+                    setLocal(() {});
+                  },
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(groupLabel(n), maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.title(15)),
+                    Text('${counts[n]} öğe', style: AppText.meta(13)),
+                  ]),
+                ),
+                if (canReorder) ...[
+                  AppButton(icon: Icons.vertical_align_top_rounded, tooltip: 'En üste al', onPressed: index == 0 ? null : () => move(index, 0)),
+                  const SizedBox(width: 4),
+                  AppButton(icon: Icons.keyboard_arrow_up_rounded, tooltip: 'Yukarı', onPressed: index == 0 ? null : () => move(index, index - 1)),
+                  const SizedBox(width: 4),
+                  AppButton(icon: Icons.keyboard_arrow_down_rounded, tooltip: 'Aşağı', onPressed: index >= ordered.length - 1 ? null : () => move(index, index + 1)),
                 ],
-              ),
-              title: Text(groupLabel(n), maxLines: 1, overflow: TextOverflow.ellipsis),
-              subtitle: Text('${counts[n]} öğe', style: const TextStyle(fontSize: 11)),
-              trailing: canReorder
-                  ? Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          tooltip: 'En üste al',
-                          visualDensity: VisualDensity.compact,
-                          icon: const Icon(Icons.vertical_align_top, size: 18),
-                          onPressed: index == 0 ? null : () => move(index, 0),
-                        ),
-                        IconButton(
-                          tooltip: 'Yukarı',
-                          visualDensity: VisualDensity.compact,
-                          icon: const Icon(Icons.keyboard_arrow_up, size: 20),
-                          onPressed: index == 0 ? null : () => move(index, index - 1),
-                        ),
-                        IconButton(
-                          tooltip: 'Aşağı',
-                          visualDensity: VisualDensity.compact,
-                          icon: const Icon(Icons.keyboard_arrow_down, size: 20),
-                          onPressed: index >= ordered.length - 1 ? null : () => move(index, index + 1),
-                        ),
-                      ],
-                    )
-                  : null,
+              ]),
             );
           }
 
           return AlertDialog(
             title: const Text('Kategorileri düzenle'),
             content: SizedBox(
-              width: 520,
+              width: 560,
               height: 520,
-              child: Column(
-                children: [
-                  const Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text('Sürükleyerek ya da oklarla sırayı değiştir. Kutuyu kaldırarak kategoriyi gizle.', style: TextStyle(fontSize: 12)),
-                  ),
-                  const SizedBox(height: 8),
-                  RemoteTextField(
-                    onChanged: (v) => setLocal(() => filter = v),
-                    decoration: const InputDecoration(
-                      prefixIcon: Icon(Icons.search),
-                      hintText: 'Kategori ara (arama sırasında sıralama kapalı)',
-                      isDense: true,
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Expanded(
-                    child: canReorder
-                        ? ReorderableListView.builder(
-                            buildDefaultDragHandles: false,
-                            itemCount: visible.length,
-                            onReorderItem: (from, to) => move(from, to),
-                            itemBuilder: (_, i) => tile(i, visible[i]),
-                          )
-                        : ListView(children: [for (var i = 0; i < visible.length; i++) tile(i, visible[i])]),
-                  ),
-                ],
-              ),
+              child: Column(children: [
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text('Sürükleyerek ya da oklarla sırayı değiştir. Kutuyu kaldırarak kategoriyi gizle.', style: AppText.meta(13)),
+                ),
+                const SizedBox(height: 12),
+                SearchField(hint: 'Kategori ara (arama sırasında sıralama kapalı)', onPage: false, onChanged: (v) => setLocal(() => filter = v)),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: canReorder
+                      ? ReorderableListView.builder(
+                          buildDefaultDragHandles: false,
+                          padding: const EdgeInsets.symmetric(vertical: AppSizes.scrollPad),
+                          itemCount: visible.length,
+                          itemExtent: 56,
+                          onReorderItem: (from, to) => move(from, to),
+                          itemBuilder: (_, i) => tile(i, visible[i]),
+                        )
+                      : ListView.builder(
+                          padding: const EdgeInsets.symmetric(vertical: AppSizes.scrollPad),
+                          itemExtent: 56,
+                          itemCount: visible.length,
+                          itemBuilder: (_, i) => tile(i, visible[i]),
+                        ),
+                ),
+              ]),
             ),
             actions: [
-              TextButton(
+              AppButton(
+                label: 'Sırayı sıfırla',
                 onPressed: () {
                   s.update(groupOrder: {...s.groupOrder}..remove(kind.name));
                   setLocal(() {});
                 },
-                child: const Text('Sırayı sıfırla'),
               ),
-              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Tamam')),
+              AppButton(label: 'Tamam', variant: AppButtonVariant.primary, onPressed: () => Navigator.pop(ctx)),
             ],
           );
         },

@@ -37,10 +37,10 @@ Xtream Codes tabanlı, **Flutter** ile yazılmış bir IPTV oynatıcı. Bilgisay
 - **Eşzamanlı bağlantı sayacı** (Ayarlar → Hesap): "1 / 2 kullanımda".
 
 ### İçerik
-- **Canlı TV, Filmler, Diziler, Favoriler, Ana Sayfa** sekmeleri.
-- **Ana Sayfa:** "Kaldığın yerden devam et", "Son izlenenler", "Son eklenen filmler / diziler".
-- **Film / dizi detay sayfası:** afiş, puan, yıl, süre, tür, özet, oyuncular, yönetmen; dizilerde sezon ve bölüm listesi (bölüm görseli, süre, özet, "devam ediliyor").
-- **Canlı TV'de program rehberi (EPG):** her kanalda şu anki program ve ilerleme çubuğu, oynatıcıda "Şimdi / Sıradaki". Çağrılar sınırlı ve önbellekli.
+- **Ana sayfa, Canlı TV, Filmler, Diziler, Favoriler, Ayarlar** bölümleri, soldaki beyaz menü kartından seçilir.
+- **Ana sayfa:** günün saatine göre selam, "Kaldığın yerden" kartı (kalan süreyle), "Son izlediklerin", favori filmler ve diziler, favori kanallar paneli.
+- **Film / dizi detay sayfası:** afiş, puan, yıl, süre, tür, özet, oyuncular, yönetmen; dizilerde sezon düğmeleri ve bölüm kartları (bölüm görseli, süre, kalan süre).
+- **Canlı TV'de program rehberi (EPG):** her kanal satırında şu anki program, saat aralığı ve ilerleme çubuğu; oynatıcıda şimdiki ve sıradaki program. Çağrılar sınırlı ve önbellekli.
 - **Favoriler** (kalp ikonu) ve **izleme geçmişi**, kaldığın yerden devam.
 - **Kategori yönetimi:** gizleme, **sürükleyerek / oklarla sıralama**, "en üste al", sağ tık menüsü. Sıra canlı, film ve dizi için ayrı tutulur.
 - **Yinelenenleri gizleme** ("Tümü" görünümünde aynı adlı kayıtları birleştirir), yetişkin içeriği filtresi.
@@ -59,11 +59,12 @@ Xtream Codes tabanlı, **Flutter** ile yazılmış bir IPTV oynatıcı. Bilgisay
 - **Telefonu kumanda yapma** (Ayarlar → Telefonu kumanda yap): QR'ı telefonla okutursun, tarayıcıda yön tuşları, OK, geri, oynat/duraklat, sarma, sessiz, tam ekran ve **yazı yazma** (seçili kutuya, arama dahil) çıkar. Yalnızca yerel ağda, rastgele adres, varsayılan kapalı.
 - **Arayüz ölçeği** (%50–%140), TV'de varsayılan %70.
 - **Kumanda (TV) modu:** belirgin odak çerçevesi, kumandayla gezinme, metin alanlarına **OK ile giriş** (ekran klavyesi odak gelince kendiliğinden açılmaz), oynatıcıda "video modu / çubuk modu".
-- Fare üstüne gelince büyüyen kartlar, ortak afiş bileşeni.
+- **Açık "Gündüz" görünümü:** açık gri-mavi zemin, büyük köşeli beyaz kartlar, tek mavi vurgu rengi, gömülü Manrope yazı tipi. Odakta koyu çerçeve ve kalkık gölge; kumanda modunda tekrarlanan öğeler gölgesiz çizilir.
+- Oynatıcıda video tam ekran, denetimler yüzen beyaz bir kartta.
 - 1 GB'lık cihazlar için **bellek optimizasyonları:** küçük mpv ön belleği, hızlı (anahtar kareye) sarma, küçük çözünürlüklü afişler.
 
 ### Ayarlar
-Hesap · Oynatıcı (dil, sarma süresi, ön bellek, donanım hızlandırma, devam et) · İçerik (yetişkin, yinelenen, gizli kategoriler) · Görünüm (kumanda modu, ölçek) · Kısayollar.
+Solda bölüm listesi, sağda kartlar: Hesap · Oynatıcı (dil, sarma süresi, ön bellek, donanım hızlandırma, devam et) · İçerik (yetişkin, yinelenen, gizli kategoriler) · Telefonu kumanda yap · Görünüm (kumanda modu, ölçek) · Kısayollar.
 
 ---
 
@@ -103,7 +104,7 @@ adb install -r build/app/outputs/flutter-apk/app-release.apk
 
 ```bash
 flutter analyze
-flutter test      # 48 test
+flutter test
 ```
 
 ---
@@ -125,7 +126,10 @@ lib/
     library.dart             favoriler, geçmiş, devam konumu
     epg_widgets.dart         program rehberi önbelleği
     title_utils.dart         başlık/kategori temizleme
-    poster_card.dart, focus_frame.dart, tv_text_field.dart, ui_scale.dart
+    player_chrome.dart       oynatıcının başlık hapı, denetim kartı, zaman çubuğu, kanal bilgisi
+    poster_card.dart, tv_text_field.dart, ui_scale.dart
+    ui/                      tasarım belirteçleri, tema, odak halkası, düğme, kart, menü ve diğer ortak parçalar
+assets/fonts/                Manrope (OFL)
 test/                        birim ve widget testleri
 linux/packaging/             install.sh, uygulama ikonu
 ```
