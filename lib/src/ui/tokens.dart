@@ -35,6 +35,9 @@ abstract final class AppColors {
   /// Scrim over a picture under a light label (progress track on an image).
   static const onImageTrack = Color(0x730F1728); // ink, 45 %
   static const transparent = Color(0x00000000);
+
+  /// White at zero opacity: the far end of the scene-to-card fade.
+  static const surfaceClear = Color(0x00FFFFFF);
 }
 
 /// Soft (background, text) pairs for channel badges and profile circles.

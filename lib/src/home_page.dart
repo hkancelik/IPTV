@@ -10,7 +10,9 @@ import 'settings.dart';
 import 'settings_page.dart';
 import 'title_utils.dart';
 import 'tv_text_field.dart';
+import 'ui/basics.dart';
 import 'ui/controls.dart';
+import 'ui/focus_ring.dart';
 import 'ui/format.dart';
 import 'ui/shell.dart';
 import 'ui/tokens.dart';
@@ -522,84 +524,241 @@ class _HomePageState extends State<HomePage> {
 
   Widget _homeView() {
     final lib = Library.instance;
-    final continueList = lib.continueWatching.take(20).toList();
+    final continueList = lib.continueWatching.take(7).toList();
     final favs = lib.favorites.where(_allowed).toList();
     List<Item> of(Kind k) => favs.where((i) => i.kind == k).toList();
     final channels = of(Kind.live);
     final movies = of(Kind.movie);
     final series = of(Kind.series);
+    final recents = continueList.skip(1).toList();
+
+    final left = Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      if (recents.isNotEmpty) ...[_sectionTitle('Son izlediklerin'), _recents(recents), const SizedBox(height: 18)],
+      if (movies.isNotEmpty) ...[_sectionTitle('Filmlerim'), _posterStrip(movies), const SizedBox(height: 10)],
+      if (series.isNotEmpty) ...[_sectionTitle('Dizilerim'), _posterStrip(series)],
+    ]);
+    final hasLeft = recents.isNotEmpty || movies.isNotEmpty || series.isNotEmpty;
 
     return ListView(
-      padding: const EdgeInsets.symmetric(vertical: 16),
+      padding: const EdgeInsets.fromLTRB(AppSizes.scrollPad, AppSizes.scrollPad, 26, 24),
       children: [
-        if (continueList.isNotEmpty) _row('Kaldığın yerden devam et', [for (final e in continueList) _historyCard(e, showProgress: true)]),
-        if (channels.isNotEmpty) _row('Kanallarım', [for (final i in channels) _itemCard(i)]),
-        if (movies.isNotEmpty) _row('Filmlerim', [for (final i in movies) _itemCard(i)]),
-        if (series.isNotEmpty) _row('Dizilerim', [for (final i in series) _itemCard(i)]),
+        if (continueList.isNotEmpty) ...[_continueCard(continueList.first), const SizedBox(height: 22)],
+        if (hasLeft || channels.isNotEmpty)
+          LayoutBuilder(builder: (context, c) {
+            if (channels.isEmpty) return left;
+            if (!hasLeft) return _channelPanel(channels);
+            if (c.maxWidth < 900) return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [left, const SizedBox(height: 20), _channelPanel(channels)]);
+            return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Expanded(child: left),
+              const SizedBox(width: 20),
+              SizedBox(width: 326, child: _channelPanel(channels)),
+            ]);
+          }),
         if (continueList.isEmpty && favs.isEmpty)
-          const Padding(
-            padding: EdgeInsets.all(48),
-            child: Center(
-              child: Text('Burası senin sayfan.\nBeğendiğin kanal, film ve dizilerin kalp ikonuna dokun, burada görünsün.', textAlign: TextAlign.center),
+          AppCard(
+            padding: const EdgeInsets.all(48),
+            child: Text(
+              'Burası senin sayfan.\nBeğendiğin kanal, film ve dizilerin kalp ikonuna dokun, burada görünsün.',
+              textAlign: TextAlign.center,
+              style: AppText.body(),
             ),
           ),
       ],
     );
   }
 
-  Widget _row(String title, List<Widget> cards) => Padding(
-    padding: const EdgeInsets.only(bottom: 20),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
-          child: Text(title, style: Theme.of(context).textTheme.titleMedium),
-        ),
-        SizedBox(
-          height: 230,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            itemCount: cards.length,
-            separatorBuilder: (_, _) => const SizedBox(width: 12),
-            itemBuilder: (_, i) => cards[i],
-          ),
-        ),
-      ],
-    ),
-  );
+  Widget _sectionTitle(String text) => Padding(padding: const EdgeInsets.only(bottom: 6), child: Text(text, style: AppText.title(18)));
 
-  Widget _card({
-    required String logo,
-    required String title,
-    required VoidCallback onTap,
-    String? year,
-    List<String> tags = const [],
-    double? progress,
-    IconData? badge,
-  }) => SizedBox(
-    width: 125,
-    child: PosterCard(logo: logo, title: title, year: year, tags: tags, progress: progress, badge: badge, onTap: onTap),
-  );
+  /// Time left of a history entry, or null when its duration is unknown.
+  String? _left(HistoryEntry e) => e.durationMs > 0 ? remainingText(Duration(milliseconds: e.durationMs - e.positionMs)) : null;
 
-  Widget _itemCard(Item i) {
-    final t = parsedTitleOf(i);
-    return _card(logo: i.logo, title: t.title, year: t.year, tags: t.tags, onTap: () => _open(i));
-  }
-
-  Widget _historyCard(HistoryEntry e, {bool showProgress = false}) {
-    final t = parseTitle(e.title);
-    return _card(
-      logo: e.logo,
-      title: t.title,
-      year: t.year,
-      tags: t.tags,
-      progress: showProgress ? e.progress : null,
-      badge: e.kind == Kind.live ? Icons.tv : null,
-      onTap: () => _openHistory(e),
+  Widget _continueCard(HistoryEntry e) {
+    final title = parseTitle(e.title).title;
+    final left = _left(e);
+    return SizedBox(
+      height: 246,
+      child: AppCard(
+        child: LayoutBuilder(builder: (context, c) {
+          final art = c.maxWidth < 900 ? c.maxWidth * 0.45 : 560.0;
+          return Stack(children: [
+            Positioned(
+              right: 0,
+              top: 0,
+              bottom: 0,
+              width: art,
+              child: ClipRRect(
+                borderRadius: const BorderRadius.horizontal(right: Radius.circular(AppSizes.panelRadius)),
+                child: Stack(fit: StackFit.expand, children: [
+                  PosterImage(e.logo, cacheWidth: 640),
+                  // the only gradient allowed: the scene fades into the white card
+                  const Positioned(
+                    left: 0,
+                    top: 0,
+                    bottom: 0,
+                    width: 200,
+                    child: DecoratedBox(decoration: BoxDecoration(gradient: LinearGradient(colors: [AppColors.surface, AppColors.surfaceClear]))),
+                  ),
+                ]),
+              ),
+            ),
+            Positioned(
+              left: 32,
+              top: 0,
+              bottom: 0,
+              right: art - 40,
+              child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Pill('Kaldığın yerden', tone: PillTone.accent),
+                const SizedBox(height: 12),
+                Text(title, maxLines: 2, overflow: TextOverflow.ellipsis, style: AppText.display(32)),
+                if (left != null) ...[
+                  const SizedBox(height: 14),
+                  Row(children: [
+                    SizedBox(width: 220, child: ProgressBar(value: e.progress, height: 8)),
+                    const SizedBox(width: 14),
+                    Flexible(child: Text(left, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.meta(14))),
+                  ]),
+                ],
+                const SizedBox(height: 18),
+                AppButton(
+                  label: 'Devam et',
+                  icon: Icons.play_arrow_rounded,
+                  variant: AppButtonVariant.primary,
+                  height: AppSizes.primaryHeight,
+                  autofocus: AppSettings.instance.tvMode,
+                  onPressed: () => _openHistory(e),
+                ),
+              ]),
+            ),
+          ]);
+        }),
+      ),
     );
   }
+
+  Widget _recents(List<HistoryEntry> list) => LayoutBuilder(builder: (context, c) {
+        final cols = c.maxWidth < 420 ? 2 : 3;
+        final w = (c.maxWidth - 16 - 18 * (cols - 1)) / cols;
+        return Padding(
+          padding: const EdgeInsets.all(AppSizes.scrollPad),
+          child: Wrap(spacing: 18, runSpacing: 18, children: [
+            for (final e in list.take(cols * 2)) SizedBox(width: w, child: RepaintBoundary(child: _recentCard(e))),
+          ]),
+        );
+      });
+
+  Widget _recentCard(HistoryEntry e) {
+    final sub = [?episodeLabel(e.title), ?_left(e)].join(', ');
+    return FocusRing(
+      radius: AppSizes.cardRadius,
+      onTap: () => _openHistory(e),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(8, 8, 8, 12),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(AppSizes.cardRadius),
+          boxShadow: AppShadows.forRepeated(),
+          border: AppShadows.repeatedBorder(),
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(18),
+            child: SizedBox(
+              height: 104,
+              child: Stack(fit: StackFit.expand, children: [
+                PosterImage(e.logo),
+                if (e.durationMs > 0) Positioned(left: 12, right: 12, bottom: 10, child: ProgressBar(value: e.progress, height: 4, onImage: true)),
+              ]),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(parseTitle(e.title).title, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.title(15)),
+              if (sub.isNotEmpty) Text(sub, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.meta(13)),
+            ]),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  Widget _posterStrip(List<Item> items) => SizedBox(
+        height: 132 + 2 * AppSizes.scrollPad,
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.all(AppSizes.scrollPad),
+          itemCount: items.length,
+          separatorBuilder: (_, _) => const SizedBox(width: 14),
+          itemBuilder: (_, i) {
+            final it = items[i];
+            return FocusRing(
+              radius: AppSizes.itemRadius,
+              onTap: () => _open(it),
+              tooltip: parsedTitleOf(it).title,
+              child: Container(
+                width: 92,
+                height: 132,
+                decoration: BoxDecoration(borderRadius: BorderRadius.circular(AppSizes.itemRadius), boxShadow: AppShadows.forRepeated(), border: AppShadows.repeatedBorder()),
+                child: ClipRRect(borderRadius: BorderRadius.circular(AppSizes.itemRadius), child: PosterImage(it.logo)),
+              ),
+            );
+          },
+        ),
+      );
+
+  Widget _channelPanel(List<Item> channels) => AppCard(
+        padding: const EdgeInsets.fromLTRB(8, 20, 8, 8),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 0, 14, 6),
+            child: Row(children: [
+              Expanded(child: Text('Kanallarım', style: AppText.title(18))),
+              const LiveDot(),
+              const SizedBox(width: 7),
+              Text('Canlı', style: AppText.label(13, color: AppColors.liveText)),
+            ]),
+          ),
+          SizedBox(
+            height: (channels.length * 60.0 + 2 * AppSizes.scrollPad).clamp(0, 420),
+            child: ListView.builder(
+              padding: const EdgeInsets.all(AppSizes.scrollPad),
+              itemExtent: 60,
+              itemCount: channels.length,
+              itemBuilder: (_, i) => _panelChannel(channels[i]),
+            ),
+          ),
+        ]),
+      );
+
+  Widget _panelChannel(Item it) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: FocusRing(
+          radius: AppSizes.itemRadius,
+          lift: false,
+          hoverColor: AppColors.surfaceAlt,
+          onTap: () => _open(it),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: NowPlaying(
+              cache: _epg,
+              item: it,
+              fallback: groupLabel(it.group),
+              builder: (context, now) => Row(children: [
+                ChannelBadge(name: it.name, logo: it.logo, size: 40),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(it.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.title(15)),
+                    Text(now?.title ?? groupLabel(it.group), maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.meta(13)),
+                  ]),
+                ),
+                if (now != null) ...[const SizedBox(width: 10), SizedBox(width: 54, child: ProgressBar(value: now.progress))],
+              ]),
+            ),
+          ),
+        ),
+      );
 
   Widget _sortButton() => DropdownButton<_Sort>(
     value: _sort,

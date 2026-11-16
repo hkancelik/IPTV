@@ -46,4 +46,9 @@ void main() {
     expect(tintFor('TRT 1'), tintFor('TRT 1'));
     expect(badgeTints, contains(tintFor('Herhangi bir ad')));
   });
+  test('episodeLabel', () {
+    expect(episodeLabel('Breaking Bad S01E03'), '1. sezon 3. bölüm');
+    expect(episodeLabel('Dark s2e10 - Başlık'), '2. sezon 10. bölüm');
+    expect(episodeLabel('Dune'), isNull);
+  });
 }

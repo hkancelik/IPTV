@@ -63,3 +63,12 @@ String badgeText(String name) {
 
 /// A stable soft colour pair for a name.
 (Color, Color) tintFor(String seed) => badgeTints[seed.codeUnits.fold<int>(7, (a, b) => (a * 31 + b) & 0xFFFF) % badgeTints.length];
+
+final _episode = RegExp(r'S(\d+)\s*E(\d+)', caseSensitive: false);
+
+/// "1. sezon 3. bölüm" from an "S01E03" mark in a title, or null.
+String? episodeLabel(String title) {
+  final m = _episode.firstMatch(title);
+  if (m == null) return null;
+  return '${int.parse(m.group(1)!)}. sezon ${int.parse(m.group(2)!)}. bölüm';
+}

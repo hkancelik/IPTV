@@ -3,6 +3,8 @@ import 'dart:collection';
 
 import 'package:flutter/material.dart';
 
+import 'ui/basics.dart';
+import 'ui/tokens.dart';
 import 'xtream.dart';
 
 /// Short-EPG cache with at most [_maxParallel] requests in flight. Every row of the channel list asks for its
@@ -59,34 +61,38 @@ class EpgCache {
   }
 }
 
-/// "Now playing" line with a progress bar for a live channel.
+/// "Now playing" line with a progress bar for a live channel. With [builder] the caller lays out the
+/// programme (or null: no programme data) itself.
 class NowPlaying extends StatelessWidget {
-  const NowPlaying({super.key, required this.cache, required this.item, required this.fallback});
+  const NowPlaying({super.key, required this.cache, required this.item, required this.fallback, this.builder});
 
   final EpgCache cache;
   final Item item;
   final String fallback;
+  final Widget Function(BuildContext context, Programme? now)? builder;
+
+  Widget _build(BuildContext context, Programme? now) {
+    if (builder != null) return builder!(context, now);
+    if (now == null) return Text(fallback, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.meta(13));
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(now.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.meta(13)),
+        const SizedBox(height: 4),
+        ProgressBar(value: now.progress, height: 4),
+      ],
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final id = item.streamId;
-    if (id == null) return Text(fallback, maxLines: 1, overflow: TextOverflow.ellipsis);
+    if (id == null) return _build(context, null);
     return FutureBuilder<List<Programme>>(
       future: cache.get(id),
       initialData: cache.cached(id),
-      builder: (context, snap) {
-        final now = snap.data?.where((p) => p.isNow).firstOrNull;
-        if (now == null) return Text(fallback, maxLines: 1, overflow: TextOverflow.ellipsis);
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(now.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-            const SizedBox(height: 3),
-            LinearProgressIndicator(value: now.progress, minHeight: 2),
-          ],
-        );
-      },
+      builder: (context, snap) => _build(context, snap.data?.where((p) => p.isNow).firstOrNull),
     );
   }
 }
