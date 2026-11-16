@@ -294,7 +294,7 @@ class _HomePageState extends State<HomePage> {
                 const SizedBox(width: 6),
                 Expanded(
                   child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(groupLabel(n), maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.title(15)),
+                    Text(groupLabel(n), maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.label(14)),
                     Text('${counts[n]} öğe', style: AppText.meta(13)),
                   ]),
                 ),
@@ -379,7 +379,7 @@ class _HomePageState extends State<HomePage> {
           body: Row(
             children: [
               SideMenu(selected: _tab, onSelect: _select, accountName: widget.account.name, onAccount: () => Navigator.of(context).pop()),
-              const SizedBox(width: 26),
+              const SizedBox(width: 8),
               Expanded(child: _content()),
             ],
           ),
@@ -392,7 +392,7 @@ class _HomePageState extends State<HomePage> {
   Widget _page(PageHeader header, Widget body) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      Padding(padding: const EdgeInsets.fromLTRB(AppSizes.scrollPad, 26, 26, 0), child: header),
+      Padding(padding: const EdgeInsets.fromLTRB(AppSizes.scrollPad, 16, 16, 0), child: header),
       const SizedBox(height: 14),
       Expanded(child: body),
     ],
@@ -442,10 +442,10 @@ class _HomePageState extends State<HomePage> {
         padding: const EdgeInsets.only(left: AppSizes.scrollPad),
         child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Padding(
-            padding: const EdgeInsets.only(top: AppSizes.scrollPad, bottom: 24),
+            padding: const EdgeInsets.only(top: AppSizes.scrollPad, bottom: 16),
             child: SizedBox(width: AppSizes.sideWidth, child: _categoryPanel(kind, view)),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 8),
           Expanded(child: _body(kind, shown)),
         ]),
       ),
@@ -523,7 +523,7 @@ class _HomePageState extends State<HomePage> {
     final hasLeft = recents.isNotEmpty || movies.isNotEmpty || series.isNotEmpty;
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(AppSizes.scrollPad, AppSizes.scrollPad, 26, 24),
+      padding: const EdgeInsets.fromLTRB(AppSizes.scrollPad, AppSizes.scrollPad, 16, 16),
       children: [
         if (continueList.isNotEmpty) ...[_continueCard(continueList.first), const SizedBox(height: 22)],
         if (hasLeft || channels.isNotEmpty)
@@ -562,33 +562,24 @@ class _HomePageState extends State<HomePage> {
       height: 246,
       child: AppCard(
         child: LayoutBuilder(builder: (context, c) {
-          final art = c.maxWidth < 900 ? c.maxWidth * 0.45 : 560.0;
+          // the cover keeps its own 2:3 shape: never stretched or cropped into a wide strip
+          final art = c.maxWidth < 560 ? 104.0 : 150.0;
           return Stack(children: [
             Positioned(
-              right: 0,
-              top: 0,
-              bottom: 0,
+              right: 20,
+              top: 16,
+              bottom: 16,
               width: art,
               child: ClipRRect(
-                borderRadius: const BorderRadius.horizontal(right: Radius.circular(AppSizes.panelRadius)),
-                child: Stack(fit: StackFit.expand, children: [
-                  PosterImage(e.logo, cacheWidth: 640),
-                  // the only gradient allowed: the scene fades into the white card
-                  const Positioned(
-                    left: 0,
-                    top: 0,
-                    bottom: 0,
-                    width: 200,
-                    child: DecoratedBox(decoration: BoxDecoration(gradient: LinearGradient(colors: [AppColors.surface, AppColors.surfaceClear]))),
-                  ),
-                ]),
+                borderRadius: BorderRadius.circular(AppSizes.tileRadius),
+                child: ColoredBox(color: AppColors.surfaceAlt, child: PosterImage(e.logo, cacheWidth: 400)),
               ),
             ),
             Positioned(
               left: 32,
               top: 0,
               bottom: 0,
-              right: art - 40,
+              right: art + 44,
               child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
                 const Pill('Kaldığın yerden', tone: PillTone.accent),
                 const SizedBox(height: 12),
@@ -596,7 +587,7 @@ class _HomePageState extends State<HomePage> {
                 if (left != null) ...[
                   const SizedBox(height: 14),
                   Row(children: [
-                    SizedBox(width: 220, child: ProgressBar(value: e.progress, height: 8)),
+                    Flexible(flex: 3, child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 220), child: ProgressBar(value: e.progress, height: 8))),
                     const SizedBox(width: 14),
                     Flexible(child: Text(left, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.meta(14))),
                   ]),
@@ -642,23 +633,17 @@ class _HomePageState extends State<HomePage> {
           boxShadow: AppShadows.forRepeated(),
           border: AppShadows.repeatedBorder(),
         ),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
           ClipRRect(
-            borderRadius: BorderRadius.circular(18),
-            child: SizedBox(
-              height: 104,
-              child: Stack(fit: StackFit.expand, children: [
-                PosterImage(e.logo),
-                if (e.durationMs > 0) Positioned(left: 12, right: 12, bottom: 10, child: ProgressBar(value: e.progress, height: 4, onImage: true)),
-              ]),
-            ),
+            borderRadius: BorderRadius.circular(AppSizes.smallRadius),
+            child: SizedBox(width: 72, height: 108, child: ColoredBox(color: AppColors.surfaceAlt, child: PosterImage(e.logo))),
           ),
-          const SizedBox(height: 10),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 6),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(playerTitle(e.title).$1, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.title(15)),
-              if (sub.isNotEmpty) Text(sub, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.meta(13)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+              Text(playerTitle(e.title).$1, maxLines: 2, overflow: TextOverflow.ellipsis, style: AppText.title(15)),
+              if (sub.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 2), child: Text(sub, maxLines: 2, overflow: TextOverflow.ellipsis, style: AppText.meta(13))),
+              if (e.durationMs > 0) Padding(padding: const EdgeInsets.only(top: 10, right: 6), child: ProgressBar(value: e.progress, height: 4)),
             ]),
           ),
         ]),
@@ -733,7 +718,7 @@ class _HomePageState extends State<HomePage> {
                 Expanded(
                   child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Text(it.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.title(15)),
-                    Text(now?.title ?? groupLabel(it.group), maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.meta(13)),
+                    Text(now?.title ?? groupLabel(it.group), maxLines: 1, overflow: TextOverflow.ellipsis, style: now == null ? AppText.meta(13) : AppText.note(13)),
                   ]),
                 ),
                 if (now != null) ...[const SizedBox(width: 10), SizedBox(width: 54, child: ProgressBar(value: now.progress))],
@@ -812,7 +797,7 @@ class _HomePageState extends State<HomePage> {
 
   Widget _liveList(List<Item> shown) => ListView.builder(
         key: const ValueKey('channel-list'),
-        padding: const EdgeInsets.fromLTRB(AppSizes.scrollPad, AppSizes.scrollPad, 26, 24),
+        padding: const EdgeInsets.fromLTRB(AppSizes.scrollPad, AppSizes.scrollPad, 16, 16),
         itemExtent: 76,
         itemCount: shown.length,
         itemBuilder: (_, i) => _channelRow(shown[i], i),
@@ -843,7 +828,7 @@ class _HomePageState extends State<HomePage> {
                     // Narrow rows (small window, large UI scale) drop the number, then the time block.
                     builder: (context, now) => LayoutBuilder(builder: (context, c) => Row(children: [
                       if (c.maxWidth >= 240) ...[
-                        SizedBox(width: 28, child: Text('${index + 1}', textAlign: TextAlign.right, style: AppText.title(14, color: AppColors.ink2))),
+                        SizedBox(width: 28, child: Text('${index + 1}', textAlign: TextAlign.right, style: AppText.meta(14))),
                         const SizedBox(width: 14),
                       ],
                       ChannelBadge(name: it.name, logo: it.logo),
@@ -851,7 +836,7 @@ class _HomePageState extends State<HomePage> {
                       Expanded(
                         child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
                           Text(it.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.title(16)),
-                          Text(now?.title ?? groupLabel(it.group), maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.meta(13)),
+                          Text(now?.title ?? groupLabel(it.group), maxLines: 1, overflow: TextOverflow.ellipsis, style: now == null ? AppText.meta(13) : AppText.note(13)),
                         ]),
                       ),
                       if (now != null && c.maxWidth >= 440) ...[
@@ -876,7 +861,7 @@ class _HomePageState extends State<HomePage> {
       );
 
   Widget _posterGrid(List<Item> shown) => LayoutBuilder(builder: (context, c) {
-        const pad = EdgeInsets.fromLTRB(AppSizes.scrollPad, AppSizes.scrollPad, 26, 24);
+        const pad = EdgeInsets.fromLTRB(AppSizes.scrollPad, AppSizes.scrollPad, 16, 16);
         final inner = c.maxWidth - pad.horizontal;
         final cols = posterColumns(inner);
         final tile = (inner - 16 * (cols - 1)) / cols;
@@ -903,7 +888,7 @@ class _HomePageState extends State<HomePage> {
   Widget _favoritesView(List<Item> favs) {
     if (favs.isEmpty) {
       return Padding(
-        padding: const EdgeInsets.fromLTRB(AppSizes.scrollPad, AppSizes.scrollPad, 26, 24),
+        padding: const EdgeInsets.fromLTRB(AppSizes.scrollPad, AppSizes.scrollPad, 16, 16),
         child: Align(
           alignment: Alignment.topCenter,
           child: AppCard(
@@ -917,7 +902,7 @@ class _HomePageState extends State<HomePage> {
     final movies = [for (final i in favs) if (i.kind == Kind.movie) i];
     final series = [for (final i in favs) if (i.kind == Kind.series) i];
     return LayoutBuilder(builder: (context, c) {
-      const pad = EdgeInsets.fromLTRB(AppSizes.scrollPad, AppSizes.scrollPad, 26, 24);
+      const pad = EdgeInsets.fromLTRB(AppSizes.scrollPad, AppSizes.scrollPad, 16, 16);
       final inner = c.maxWidth - pad.horizontal;
       final cols = posterColumns(inner);
       final tile = (inner - 16 * (cols - 1)) / cols;

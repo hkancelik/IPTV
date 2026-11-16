@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Canlı TV – boşluk ve tipografi</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Instrument+Sans:wght@400..700&family=Fraunces:ital,opsz,wght@0,9..144,500..800;1,9..144,400..600&family=Hanken+Grotesk:wght@400..800&family=Unbounded:wght@500..700&family=Schibsted+Grotesk:wght@400..800&display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0B0B0D;--surface:#151517;--alt:#1E1E22;--line:#2A2A2E;--ink:#F4F4F5;--ink2:#A1A1AA;--body:#D4D4D8;--accent:#A78BFA;--onacc:#120A2A;--soft:#2A2342;--g:16px}
+*{box-sizing:border-box;margin:0}
+body{background:#050506;color:var(--ink);font-family:system-ui;padding:20px}
+.bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center}
+.bar b{font:600 13px system-ui;color:#888;margin:0 6px 0 14px}
+.bar button{background:#18181b;color:#ddd;border:1px solid #333;border-radius:999px;padding:8px 14px;font:600 13px system-ui;cursor:pointer}
+.bar button.on{background:var(--accent);color:var(--onacc);border-color:var(--accent)}
+.note{font:13px/1.5 system-ui;color:#9a9aa3;max-width:1100px;margin-bottom:14px}
+.frame{width:1280px;height:720px;background:var(--ground);border-radius:14px;position:relative;overflow:hidden;display:flex;padding:var(--g);gap:var(--g);--fd:'Bricolage Grotesque';--fu:'Instrument Sans'}
+.t-b{--fd:'Fraunces';--fu:'Hanken Grotesk'}
+.t-c{--fd:'Unbounded';--fu:'Schibsted Grotesk'}
+.frame *{font-family:var(--fu)}
+.menu{width:176px;background:var(--surface);border-radius:28px;padding:18px 12px;display:flex;flex-direction:column;gap:4px;flex:none}
+.logo{display:flex;gap:10px;align-items:center;padding:4px 8px 16px;font:700 17px var(--fd)}
+.logo i{width:28px;height:28px;border-radius:9px;background:var(--accent)}
+.mi{padding:11px 12px;border-radius:14px;font:600 13.5px var(--fu);color:var(--ink2)}
+.mi.on{background:var(--accent);color:var(--onacc)}
+.who{margin-top:auto;background:var(--alt);border-radius:16px;padding:10px;font:700 13px var(--fu)}
+.cats{width:216px;background:var(--surface);border-radius:28px;padding:12px;display:flex;flex-direction:column;gap:2px;flex:none;overflow:hidden}
+.search{background:var(--alt);border-radius:14px;padding:11px 14px;font:500 12.5px var(--fu);color:var(--ink2);margin-bottom:8px}
+.cat{display:flex;justify-content:space-between;padding:8px 12px;border-radius:12px;font:600 12.5px var(--fu);color:var(--body)}
+.cat span{font:500 11.5px var(--fu);color:var(--ink2);font-variant-numeric:tabular-nums}
+.cat.on{background:var(--soft);color:var(--ink)}
+.cat.on span{color:var(--accent)}
+.edit{margin-top:auto;background:var(--alt);border-radius:14px;padding:10px 12px;font:700 12px var(--fu)}
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+.head{display:flex;align-items:baseline;gap:14px;height:56px;padding:0 4px}
+.head h1{font:var(--hw,800) 30px/1 var(--fd);letter-spacing:var(--hl,-.02em)}
+.head .cnt{font:500 12.5px var(--fu);color:var(--ink2);font-variant-numeric:tabular-nums}
+.head .sp{flex:1}
+.head .s{background:var(--surface);border-radius:999px;padding:9px 16px;font:500 12.5px var(--fu);color:var(--ink2);align-self:center;width:190px}
+.head .clk{background:var(--surface);border-radius:999px;padding:9px 14px;font:700 12.5px var(--fu);align-self:center;font-variant-numeric:tabular-nums}
+.list{display:flex;flex-direction:column;gap:8px;overflow:hidden;flex:1}
+.row{display:flex;align-items:center;gap:14px;background:var(--surface);border-radius:18px;height:52px;padding:0 18px 0 16px;flex:none}
+.row .n{width:22px;text-align:right;font:500 12px var(--fu);color:var(--ink2);font-variant-numeric:tabular-nums}
+.row .lg{width:34px;height:34px;border-radius:10px;background:var(--alt);flex:none;display:grid;place-items:center;font:800 9px var(--fd);color:var(--accent)}
+.row .nm{font:var(--rw,700) 14px/1.2 var(--fd)}
+.row .pg{font:italic 400 12px var(--fu);color:var(--ink2);margin-top:2px}
+.row .pg.raw{font-style:normal;opacity:.7}
+.tm{margin-left:auto;text-align:right;font:600 11.5px var(--fu);color:var(--ink2);font-variant-numeric:tabular-nums}
+.tm i{display:block;height:4px;border-radius:2px;background:var(--line);margin-top:6px;width:120px;position:relative}
+.tm i::after{content:"";position:absolute;inset:0 var(--r,40%) 0 0;background:var(--accent);border-radius:2px}
+.heart{width:16px;height:16px;border:1.6px solid var(--ink2);border-radius:50% 50% 40% 40%;opacity:.7;flex:none}
+.ov .menu::after,.ov .cats::after{content:"";position:absolute}
+.gut{display:none;position:absolute;top:0;bottom:0;background:rgba(255,92,108,.28);color:#fff;font:700 11px system-ui;align-items:center;justify-content:center}
+.gut b{writing-mode:vertical-rl}
+.ov .gut{display:flex}
+/* eski ölçü: 27px / 16px */
+.old{--g:16px}
+.old .menu{margin-right:11px}
+.old .cats{margin-right:0}
+.old .main{padding-left:0}
+.cap{font:12px/1.5 system-ui;color:#9a9aa3;margin-top:12px;max-width:1280px}
+.cap code{color:#c9b8ff}
+</style></head>
+<body>
+<div class="bar">
+  <b>Boşluk</b>
+  <button id="bo" onclick="setGap('old')">Şimdiki (27 / 16)</button>
+  <button id="bn" class="on" onclick="setGap('new')">Önerilen (16 / 16 / 16)</button>
+  <button id="bm" onclick="toggleOv()">Ölçüleri göster</button>
+  <b>Yazı</b>
+  <button id="ta" class="on" onclick="setType('a')">A · Bricolage + Instrument</button>
+  <button id="tb" onclick="setType('b')">B · Fraunces + Hanken</button>
+  <button id="tc" onclick="setType('c')">C · Unbounded + Schibsted</button>
+</div>
+<div class="note">Üstteki düğmelerle şimdiki boşluk (27 / 16) ile önerilen boşluk (16 / 16 / 16) arasında geçiş yap; “Ölçüleri göster” kırmızı şeritlerle boşlukları gösterir. Pencere kenarı, menü, kategori paneli ve liste arasında aynı 16 px kullanılır.</div>
+<div class="frame" id="f">
+  <div class="menu">
+    <div class="logo"><i></i>IPTV</div>
+    <div class="mi">Ana sayfa</div><div class="mi on">Canlı TV</div><div class="mi">Filmler</div><div class="mi">Diziler</div><div class="mi">Favoriler</div><div class="mi">Ayarlar</div>
+    <div class="who">mycelik</div>
+  </div>
+  <div class="cats">
+    <div class="search">Kategori ara</div>
+    <div class="cat on">Tümü<span>2.555</span></div>
+    <div class="cat">beIN Sports<span>32</span></div><div class="cat">S Sport<span>21</span></div><div class="cat">Ulusal [ RAW ]<span>28</span></div><div class="cat">Ulusal [ FHD - HD ]<span>44</span></div><div class="cat">Sinema RealBox<span>14</span></div><div class="cat">Sinema Protürk<span>20</span></div><div class="cat">7/24 Diziler<span>205</span></div><div class="cat">Premium Netflix<span>50</span></div><div class="cat">Haber<span>34</span></div><div class="cat">Belgesel<span>29</span></div><div class="cat">Tabii Spor<span>21</span></div><div class="cat">Çocuk<span>28</span></div>
+    <div class="edit">Kategorileri düzenle</div>
+  </div>
+  <div class="main">
+    <div class="head"><h1>Canlı TV</h1><span class="cnt">Tümü · 2.555 kanal</span><span class="sp"></span><span class="s">Kanal ara</span><span class="clk">00:49</span></div>
+    <div class="list">
+      <div class="row"><span class="n">1</span><span class="lg">TRT</span><div><div class="nm">TRT 1</div><div class="pg raw">Ulusal [ RAW ]</div></div><span class="heart" style="margin-left:auto"></span></div>
+      <div class="row"><span class="n">2</span><span class="lg">ATV</span><div><div class="nm">ATV</div><div class="pg">Altı Üstü İstanbul</div></div><span class="tm" style="--r:32%">20:00 – 03:00<i></i></span><span class="heart"></span></div>
+      <div class="row"><span class="n">3</span><span class="lg">KD</span><div><div class="nm">Kanal D</div><div class="pg">Kanal D Ana Haber</div></div><span class="tm" style="--r:18%">19:00 – 02:00<i></i></span><span class="heart"></span></div>
+      <div class="row"><span class="n">4</span><span class="lg">SH</span><div><div class="nm">Show TV</div><div class="pg raw">Ulusal [ RAW ]</div></div><span class="heart" style="margin-left:auto"></span></div>
+      <div class="row"><span class="n">5</span><span class="lg">ST</span><div><div class="nm">Star TV</div><div class="pg raw">Ulusal [ RAW ]</div></div><span class="heart" style="margin-left:auto"></span></div>
+      <div class="row"><span class="n">6</span><span class="lg">NOW</span><div><div class="nm">NOW</div><div class="pg">Ozan Gündoğdu ile NOW Ana Haber</div></div><span class="tm" style="--r:50%">19:00 – 04:15<i></i></span><span class="heart"></span></div>
+      <div class="row"><span class="n">7</span><span class="lg">TV8</span><div><div class="nm">TV 8</div><div class="pg raw">Ulusal [ RAW ]</div></div><span class="heart" style="margin-left:auto"></span></div>
+      <div class="row"><span class="n">8</span><span class="lg">K7</span><div><div class="nm">Kanal 7</div><div class="pg">30 Saniye</div></div><span class="tm" style="--r:22%">23:15 – 01:15<i></i></span><span class="heart"></span></div>
+      <div class="row"><span class="n">9</span><span class="lg">T2</span><div><div class="nm">Teve 2</div><div class="pg">Kanıt</div></div><span class="tm" style="--r:60%">23:45 – 01:30<i></i></span><span class="heart"></span></div>
+      <div class="row"><span class="n">10</span><span class="lg">A2</span><div><div class="nm">A2</div><div class="pg">Kuruluş Osman</div></div><span class="tm" style="--r:8%">22:45 – 01:00<i></i></span><span class="heart"></span></div>
+    </div>
+  </div>
+  <div class="gut" id="g1"><b>16</b></div><div class="gut" id="g2"><b>16</b></div><div class="gut" id="g3"><b>16</b></div>
+</div>
+<div class="cap" id="cap"></div>
+<script>
+const f=document.getElementById('f');
+function pos(){
+  const m=f.querySelector('.menu').getBoundingClientRect(),c=f.querySelector('.cats').getBoundingClientRect(),l=f.querySelector('.list').getBoundingClientRect(),fr=f.getBoundingClientRect();
+  const set=(id,x,w,t)=>{const e=document.getElementById(id);e.style.left=(x-fr.left)+'px';e.style.width=w+'px';e.firstChild.textContent=Math.round(w)};
+  set('g1',fr.left,m.left-fr.left);
+  set('g2',m.right,c.left-m.right);
+  set('g3',c.right,l.left-c.right);
+}
+function setGap(k){f.classList.toggle('old',k==='old');bo.classList.toggle('on',k==='old');bn.classList.toggle('on',k==='new');requestAnimationFrame(pos)}
+function toggleOv(){f.classList.toggle('ov');bm.classList.toggle('on');pos()}
+const caps={
+ a:'<b>A · Bricolage Grotesque + Instrument Sans</b> — başlıklar ve kanal adları karakterli, hafif sıkıştırılmış bir grotesk; program adı italik, saatler ve sayılar düz tabular. “Canlı TV” ile “2.555 kanal” artık ayrı roller.',
+ b:'<b>B · Fraunces + Hanken Grotesk</b> — başlık ve kanal adları yumuşak, sıcak bir serif; arayüz yazıları temiz grotesk. En çok kişilik, en az “teknik panel” hissi.',
+ c:'<b>C · Unbounded + Schibsted Grotesk</b> — geniş, yuvarlak, yayın kuşağı jeneriği gibi bir başlık yazısı; gövde sakin bir grotesk. En cesur seçenek.'};
+function setType(k){f.className='frame t-'+k+(f.classList.contains('old')?' old':'')+(f.classList.contains('ov')?' ov':'');
+ ['a','b','c'].forEach(x=>document.getElementById('t'+x).classList.toggle('on',x===k));
+ f.style.setProperty('--hw',k==='a'?800:k==='b'?650:600);f.style.setProperty('--rw',k==='a'?700:k==='b'?600:500);
+ f.style.setProperty('--hl',k==='c'?'-.04em':'-.02em');
+ document.getElementById('cap').innerHTML=caps[k];requestAnimationFrame(pos)}
+setType('a');
+document.fonts.ready.then(pos);
+</script>
+</body></html>

@@ -2,29 +2,29 @@ import 'package:flutter/painting.dart';
 
 import '../settings.dart';
 
-/// Colours of the light "Gündüz" look. Screens use these names only, never raw colour values.
+/// Colours of the dark "Kömür" look: neutral charcoal with one lavender accent. Screens use these names only, never raw colour values.
 abstract final class AppColors {
-  static const ground = Color(0xFFE9EDF4);
-  static const surface = Color(0xFFFFFFFF);
-  static const surfaceAlt = Color(0xFFF2F4F9);
-  static const line = Color(0xFFE3E7F0);
-  static const dashed = Color(0xFFC5CCDB);
-  static const ink = Color(0xFF0F1728);
-  static const ink2 = Color(0xFF55607A);
-  static const ink3 = Color(0xFF8A93A8); // icons and disabled items only, never readable text
-  static const body = Color(0xFF3A4560);
-  static const accent = Color(0xFF2F5BFF);
-  static const onAccent = Color(0xFFFFFFFF);
-  static const accentSoft = Color(0xFFE7ECFF);
-  static const accentInk = Color(0xFF2447D6);
-  static const buffered = Color(0xFFC9D2EA);
-  static const live = Color(0xFFFF4D5E);
-  static const liveSoft = Color(0xFFFFE3E6);
-  static const liveInk = Color(0xFF8A1226);
-  static const liveText = Color(0xFFC81E3A);
-  static const ok = Color(0xFF0F5A2E);
-  static const warnSoft = Color(0xFFFFF0D6);
-  static const warnInk = Color(0xFF7A4A00);
+  static const ground = Color(0xFF0B0B0D);
+  static const surface = Color(0xFF151517);
+  static const surfaceAlt = Color(0xFF1E1E22);
+  static const line = Color(0xFF2A2A2E);
+  static const dashed = Color(0xFF3F3F46);
+  static const ink = Color(0xFFF4F4F5);
+  static const ink2 = Color(0xFFA1A1AA);
+  static const ink3 = Color(0xFF71717A); // icons and disabled items only, never readable text
+  static const body = Color(0xFFD4D4D8);
+  static const accent = Color(0xFFA78BFA);
+  static const onAccent = Color(0xFF120A2A);
+  static const accentSoft = Color(0xFF2A2342);
+  static const accentInk = Color(0xFFC4B5FD);
+  static const buffered = Color(0xFF4A4A52);
+  static const live = Color(0xFFFF5C6C);
+  static const liveSoft = Color(0xFF3A1E24);
+  static const liveInk = Color(0xFFFFB3BC);
+  static const liveText = Color(0xFFFF8A96);
+  static const ok = Color(0xFF7DD3A8);
+  static const warnSoft = Color(0xFF3A2E14);
+  static const warnInk = Color(0xFFF2C879);
 
   /// Background of the video itself (the only dark surface).
   static const video = Color(0xFF000000);
@@ -33,29 +33,29 @@ abstract final class AppColors {
   static const qrGround = Color(0xFFFFFFFF);
 
   /// Scrim over a picture under a light label (progress track on an image).
-  static const onImageTrack = Color(0x730F1728); // ink, 45 %
+  static const onImageTrack = Color(0x73000000); // black, 45 %
   static const transparent = Color(0x00000000);
 
-  /// White at zero opacity: the far end of the scene-to-card fade.
-  static const surfaceClear = Color(0x00FFFFFF);
+  /// The surface colour at zero opacity: the far end of the scene-to-card fade.
+  static const surfaceClear = Color(0x00151517);
 }
 
 /// Soft (background, text) pairs for channel badges and profile circles.
 const List<(Color bg, Color ink)> badgeTints = [
-  (Color(0xFFFFE3E6), Color(0xFF8A1226)),
-  (Color(0xFFE7ECFF), Color(0xFF1E3BB8)),
-  (Color(0xFFFFF0D6), Color(0xFF7A4A00)),
-  (Color(0xFFDDF5E6), Color(0xFF0F5A2E)),
-  (Color(0xFFEFE6FF), Color(0xFF4B1FA8)),
-  (Color(0xFFDDF3F7), Color(0xFF0B5566)),
+  (Color(0xFF3A1E24), Color(0xFFFFB3BC)),
+  (Color(0xFF2A2342), Color(0xFFC4B5FD)),
+  (Color(0xFF3A2E14), Color(0xFFF2C879)),
+  (Color(0xFF14301F), Color(0xFF7DD3A8)),
+  (Color(0xFF2E2140), Color(0xFFD8B4FE)),
+  (Color(0xFF12303A), Color(0xFF7DD3E8)),
 ];
 
 abstract final class AppShadows {
-  static const panel = [BoxShadow(offset: Offset(0, 14), blurRadius: 40, color: Color.fromRGBO(20, 30, 70, 0.09))];
-  static const card = [BoxShadow(offset: Offset(0, 10), blurRadius: 30, color: Color.fromRGBO(20, 30, 70, 0.07))];
-  static const chip = [BoxShadow(offset: Offset(0, 8), blurRadius: 24, color: Color.fromRGBO(20, 30, 70, 0.07))];
-  static const lift = [BoxShadow(offset: Offset(0, 18), blurRadius: 40, color: Color.fromRGBO(20, 30, 70, 0.18))];
-  static const overlay = [BoxShadow(offset: Offset(0, 20), blurRadius: 50, color: Color.fromRGBO(0, 0, 0, 0.30))];
+  static const panel = [BoxShadow(offset: Offset(0, 14), blurRadius: 40, color: Color.fromRGBO(0, 0, 0, 0.35))];
+  static const card = [BoxShadow(offset: Offset(0, 10), blurRadius: 30, color: Color.fromRGBO(0, 0, 0, 0.28))];
+  static const chip = [BoxShadow(offset: Offset(0, 8), blurRadius: 24, color: Color.fromRGBO(0, 0, 0, 0.28))];
+  static const lift = [BoxShadow(offset: Offset(0, 18), blurRadius: 40, color: Color.fromRGBO(0, 0, 0, 0.5))];
+  static const overlay = [BoxShadow(offset: Offset(0, 20), blurRadius: 50, color: Color.fromRGBO(0, 0, 0, 0.55))];
 
   /// Shadow of a repeated item (row, poster, card in a list). Remote mode runs on weak TV sticks: no shadow there.
   static List<BoxShadow> forRepeated() => AppSettings.instance.tvMode ? const [] : card;
@@ -81,13 +81,17 @@ abstract final class AppSizes {
   static const primaryHeight = 48.0;
 }
 
+/// Two voices: Fraunces (soft serif) names things; Hanken Grotesk (sans) does the interface work.
 abstract final class AppText {
-  static const family = 'Manrope';
+  /// The interface family (also the theme default).
+  static const family = 'HankenGrotesk';
+  static const serif = 'Fraunces';
 
-  static TextStyle _style(double size, int weight, Color color, {double? spacing, double? height, bool tabular = false}) => TextStyle(
+  static TextStyle _sans(double size, int weight, Color color, {double? spacing, double? height, bool tabular = false, bool italic = false}) => TextStyle(
         fontFamily: family,
         fontSize: size,
         fontWeight: FontWeight.values[(weight ~/ 100) - 1],
+        fontStyle: italic ? FontStyle.italic : FontStyle.normal,
         fontVariations: [FontVariation('wght', weight.toDouble())],
         fontFeatures: tabular ? const [FontFeature.tabularFigures()] : null,
         letterSpacing: spacing,
@@ -95,18 +99,32 @@ abstract final class AppText {
         color: color,
       );
 
+  static TextStyle _serif(double size, int weight, Color color, {double? spacing, double? height}) => TextStyle(
+        fontFamily: serif,
+        fontSize: size,
+        fontWeight: FontWeight.values[(weight ~/ 100) - 1],
+        // opsz follows the size so big titles get the fine display cut and small names the sturdy text cut; SOFT rounds the corners.
+        fontVariations: [FontVariation('wght', weight.toDouble()), FontVariation('opsz', size.clamp(9.0, 144.0)), const FontVariation('SOFT', 60), const FontVariation('WONK', 0)],
+        letterSpacing: spacing,
+        height: height,
+        color: color,
+      );
+
   /// Page titles and big card titles.
-  static TextStyle display(double size, {Color color = AppColors.ink}) => _style(size, 800, color, spacing: size * -0.02, height: 1.12);
+  static TextStyle display(double size, {Color color = AppColors.ink}) => _serif(size, 650, color, spacing: size * -0.015, height: 1.12);
 
   /// Section headings, card and row names.
-  static TextStyle title(double size, {Color color = AppColors.ink}) => _style(size, 800, color);
+  static TextStyle title(double size, {Color color = AppColors.ink}) => _serif(size, 600, color, height: 1.2);
 
   /// Buttons and tags.
-  static TextStyle label(double size, {Color color = AppColors.ink}) => _style(size, 700, color);
+  static TextStyle label(double size, {Color color = AppColors.ink}) => _sans(size, 700, color);
 
   /// Secondary lines, counts, time ranges (tabular figures).
-  static TextStyle meta(double size, {Color color = AppColors.ink2}) => _style(size, 600, color, tabular: true);
+  static TextStyle meta(double size, {Color color = AppColors.ink2}) => _sans(size, 600, color, tabular: true);
+
+  /// What is on air: programme names, quieter and slanted so they never read as a channel name.
+  static TextStyle note(double size, {Color color = AppColors.ink2}) => _sans(size, 400, color, italic: true);
 
   /// Description paragraphs.
-  static TextStyle body({double size = 15, Color color = AppColors.body}) => _style(size, 500, color, height: 1.55);
+  static TextStyle body({double size = 15, Color color = AppColors.body}) => _sans(size, 500, color, height: 1.55);
 }

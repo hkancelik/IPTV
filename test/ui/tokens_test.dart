@@ -7,31 +7,31 @@ import 'package:iptv_app/src/ui/app_theme.dart';
 import 'package:iptv_app/src/ui/tokens.dart';
 
 void main() {
-  test('display style is extra-bold Manrope with tight tracking', () {
+  test('display style is semi-bold Fraunces with tight tracking', () {
     final s = AppText.display(40);
-    expect(s.fontFamily, 'Manrope');
-    expect(s.fontWeight, FontWeight.w800);
-    expect(s.fontVariations, contains(const FontVariation('wght', 800)));
-    expect(s.letterSpacing, closeTo(-0.8, 0.001));
+    expect(s.fontFamily, 'Fraunces');
+    expect(s.fontWeight, FontWeight.w600);
+    expect(s.fontVariations, contains(const FontVariation('wght', 650)));
+    expect(s.letterSpacing, closeTo(-0.6, 0.001));
   });
   test('meta style is secondary ink with tabular figures', () {
     final s = AppText.meta(14);
     expect(s.color, AppColors.ink2);
     expect(s.fontFeatures, contains(const FontFeature.tabularFigures()));
   });
-  test('the theme is light and uses the single accent', () {
+  test('the theme is dark and uses the single accent', () {
     final t = buildAppTheme();
-    expect(t.brightness, Brightness.light);
+    expect(t.brightness, Brightness.dark);
     expect(t.scaffoldBackgroundColor, AppColors.ground);
     expect(t.colorScheme.primary, AppColors.accent);
     expect(t.colorScheme.surface, AppColors.surface);
     expect(t.colorScheme.error, AppColors.live);
   });
   test('palette values match the spec', () {
-    expect(AppColors.ground, const Color(0xFFE9EDF4));
-    expect(AppColors.ink, const Color(0xFF0F1728));
-    expect(AppColors.accent, const Color(0xFF2F5BFF));
-    expect(AppColors.live, const Color(0xFFFF4D5E));
+    expect(AppColors.ground, const Color(0xFF0B0B0D));
+    expect(AppColors.ink, const Color(0xFFF4F4F5));
+    expect(AppColors.accent, const Color(0xFFA78BFA));
+    expect(AppColors.live, const Color(0xFFFF5C6C));
     expect(badgeTints, hasLength(6));
   });
   test('repeated items lose their shadow in remote mode', () {

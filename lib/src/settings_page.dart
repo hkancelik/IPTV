@@ -79,7 +79,7 @@ class _SettingsPageState extends State<SettingsPage> {
             // The section index is only a shortcut: in a narrow area the cards get the room instead.
             if (box.maxWidth >= 640) ...[
             Padding(
-              padding: const EdgeInsets.only(top: AppSizes.scrollPad, bottom: 24),
+              padding: const EdgeInsets.only(top: AppSizes.scrollPad, bottom: 16),
               child: SizedBox(
                 width: AppSizes.sideWidth,
                 child: AppCard(
@@ -96,13 +96,13 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
               ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 8),
             ],
             Expanded(
               // All cards are built at once: the list is short and ensureVisible needs every section laid out.
               child: SingleChildScrollView(
                 controller: _scroll,
-                padding: const EdgeInsets.fromLTRB(AppSizes.scrollPad, AppSizes.scrollPad, 26, 24),
+                padding: const EdgeInsets.fromLTRB(AppSizes.scrollPad, AppSizes.scrollPad, 16, 16),
                 child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                   KeyedSubtree(key: _keys[0], child: _accountCard()),
                   const SizedBox(height: 18),

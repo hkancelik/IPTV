@@ -50,7 +50,7 @@ class SideMenu extends StatelessWidget {
     final narrow = compact ?? MediaQuery.sizeOf(context).width < 1000;
     final initial = accountName.trim().isEmpty ? '?' : String.fromCharCode(accountName.trim().runes.first).toUpperCase();
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 24, 0, 24),
+      padding: const EdgeInsets.fromLTRB(16, 16, 0, 16),
       child: SizedBox(
         width: narrow ? AppSizes.menuCompact : AppSizes.menuWidth,
         child: AppCard(

@@ -65,9 +65,16 @@ flutter:
   uses-material-design: true
 
   fonts:
-    - family: Manrope
+    - family: Fraunces
       fonts:
-        - asset: assets/fonts/Manrope-Variable.ttf
+        - asset: assets/fonts/Fraunces-Variable.ttf
+        - asset: assets/fonts/Fraunces-Italic-Variable.ttf
+          style: italic
+    - family: HankenGrotesk
+      fonts:
+        - asset: assets/fonts/HankenGrotesk-Variable.ttf
+        - asset: assets/fonts/HankenGrotesk-Italic-Variable.ttf
+          style: italic
 
   # To add assets to your application, add an assets section, like this:
   # assets:

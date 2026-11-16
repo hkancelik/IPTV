@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 
 import 'tokens.dart';
 
-/// The light "Gündüz" theme. Focus is drawn by FocusRing, so Material's own focus and hover tints are off.
+/// The dark "Kömür" theme. Focus is drawn by FocusRing, so Material's own focus and hover tints are off.
 ThemeData buildAppTheme() {
-  const scheme = ColorScheme.light(
+  const scheme = ColorScheme.dark(
     primary: AppColors.accent,
     onPrimary: AppColors.onAccent,
     secondary: AppColors.ink,
@@ -14,7 +14,7 @@ ThemeData buildAppTheme() {
     error: AppColors.live,
     onError: AppColors.onAccent,
   );
-  final base = ThemeData(brightness: Brightness.light, useMaterial3: true, colorScheme: scheme, fontFamily: AppText.family);
+  final base = ThemeData(brightness: Brightness.dark, useMaterial3: true, colorScheme: scheme, fontFamily: AppText.family);
   return base.copyWith(
     scaffoldBackgroundColor: AppColors.ground,
     splashFactory: NoSplash.splashFactory,
