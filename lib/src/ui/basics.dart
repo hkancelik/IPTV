@@ -23,6 +23,7 @@ class AppButton extends StatelessWidget {
     this.focusNode,
     this.tooltip,
     this.child,
+    this.dense = false,
   });
 
   final String? label;
@@ -42,40 +43,56 @@ class AppButton extends StatelessWidget {
   /// Used instead of [label] (e.g. a label with a switch inside).
   final Widget? child;
 
+  /// Tighter padding and a 14 px label, for narrow panels.
+  final bool dense;
+
   (Color, Color) get _colors => switch (variant) {
-        AppButtonVariant.primary => (AppColors.accent, AppColors.onAccent),
-        AppButtonVariant.secondary => (AppColors.surfaceAlt, AppColors.ink),
-        AppButtonVariant.onPage => (AppColors.surface, AppColors.ink),
-        AppButtonVariant.danger => (AppColors.liveSoft, AppColors.liveInk),
-      };
+    AppButtonVariant.primary => (AppColors.accent, AppColors.onAccent),
+    AppButtonVariant.secondary => (AppColors.surfaceAlt, AppColors.ink),
+    AppButtonVariant.onPage => (AppColors.surface, AppColors.ink),
+    AppButtonVariant.danger => (AppColors.liveSoft, AppColors.liveInk),
+  };
 
   @override
   Widget build(BuildContext context) {
     final (bg, fg) = _colors;
     final enabled = onPressed != null;
     final iconOnly = label == null && child == null && prefix == null && icon != null;
-    final small = height < AppSizes.buttonHeight;
+    final small = dense || height < AppSizes.buttonHeight;
     final iconSize = small ? 18.0 : 20.0;
     final text = AppText.label(small ? 14 : 15, color: fg);
+    final pad = dense ? 12.0 : (height >= AppSizes.primaryHeight ? 22.0 : (small ? 14.0 : 18.0));
     final box = Container(
       height: height,
       width: iconOnly ? (width ?? height) : width,
-      padding: iconOnly ? EdgeInsets.zero : EdgeInsets.symmetric(horizontal: height >= AppSizes.primaryHeight ? 22 : (small ? 14 : 18)),
+      padding: iconOnly ? EdgeInsets.zero : EdgeInsets.symmetric(horizontal: pad),
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(height / 2),
         boxShadow: variant == AppButtonVariant.onPage ? AppShadows.chip : null,
       ),
-      alignment: Alignment.center,
-      child: iconOnly
-          ? Icon(icon, size: iconSize, color: fg)
-          : Row(mainAxisSize: MainAxisSize.min, children: [
-              if (icon != null) ...[Icon(icon, size: iconSize, color: fg), const SizedBox(width: 8)],
-              if (prefix != null) ...[Text(prefix!, style: AppText.meta(small ? 14 : 15)), const SizedBox(width: 6)],
-              if (label != null) Flexible(child: Text(label!, maxLines: 1, overflow: TextOverflow.ellipsis, style: text)),
-              if (child != null) Flexible(child: DefaultTextStyle(style: text, child: child!)),
-              if (trailingIcon != null) ...[const SizedBox(width: 6), Icon(trailingIcon, size: iconSize, color: fg)],
-            ]),
+      // Shrink-wraps its content unless the parent forces a width (Container + alignment would fill any space).
+      child: Center(
+        widthFactor: 1,
+        child: iconOnly
+            ? Icon(icon, size: iconSize, color: fg)
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (icon != null) ...[Icon(icon, size: iconSize, color: fg), SizedBox(width: dense ? 6 : 8)],
+                  if (prefix != null) ...[Text(prefix!, style: AppText.meta(small ? 14 : 15)), const SizedBox(width: 6)],
+                  if (label != null)
+                    Flexible(
+                      child: Text(label!, maxLines: 1, overflow: TextOverflow.ellipsis, style: text),
+                    ),
+                  if (child != null)
+                    Flexible(
+                      child: DefaultTextStyle(style: text, child: child!),
+                    ),
+                  if (trailingIcon != null) ...[const SizedBox(width: 6), Icon(trailingIcon, size: iconSize, color: fg)],
+                ],
+              ),
+      ),
     );
     return Opacity(
       opacity: enabled ? 1 : 0.5,
@@ -114,10 +131,10 @@ class AppCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        padding: padding,
-        decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(radius), boxShadow: shadows, border: border),
-        child: child,
-      );
+    padding: padding,
+    decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(radius), boxShadow: shadows, border: border),
+    child: child,
+  );
 }
 
 enum PillTone { accent, live, warn, neutral, onImage }
@@ -145,11 +162,21 @@ class Pill extends StatelessWidget {
       height: height,
       padding: const EdgeInsets.symmetric(horizontal: 10),
       decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(AppSizes.tagRadius)),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        if (leading != null) ...[leading!, const SizedBox(width: 6)],
-        if (icon != null) ...[Icon(icon, size: 14, color: fg), const SizedBox(width: 5)],
-        Flexible(child: Text(text, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.label(height >= 28 ? 13 : 12, color: fg))),
-      ]),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (leading != null) ...[leading!, const SizedBox(width: 6)],
+          if (icon != null) ...[Icon(icon, size: 14, color: fg), const SizedBox(width: 5)],
+          Flexible(
+            child: Text(
+              text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppText.label(height >= 28 ? 13 : 12, color: fg),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -161,8 +188,11 @@ class LiveDot extends StatelessWidget {
   final double size;
 
   @override
-  Widget build(BuildContext context) =>
-      Container(width: size, height: size, decoration: const BoxDecoration(color: AppColors.live, shape: BoxShape.circle));
+  Widget build(BuildContext context) => Container(
+    width: size,
+    height: size,
+    decoration: const BoxDecoration(color: AppColors.live, shape: BoxShape.circle),
+  );
 }
 
 /// Square channel badge: the logo on white, or a two-letter abbreviation on a soft tint.
@@ -189,8 +219,19 @@ class ChannelBadge extends StatelessWidget {
       width: size,
       height: size,
       padding: const EdgeInsets.all(6),
-      decoration: BoxDecoration(color: AppColors.surface, borderRadius: radius, border: Border.all(color: AppColors.line)),
-      child: PosterImage(logo, fit: BoxFit.contain, cacheWidth: 160, placeholder: Center(child: Text(badgeText(name), maxLines: 1, style: AppText.title(size * 0.28 < 12 ? 12 : size * 0.28, color: fg)))),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: radius,
+        border: Border.all(color: AppColors.line),
+      ),
+      child: PosterImage(
+        logo,
+        fit: BoxFit.contain,
+        cacheWidth: 160,
+        placeholder: Center(
+          child: Text(badgeText(name), maxLines: 1, style: AppText.title(size * 0.28 < 12 ? 12 : size * 0.28, color: fg)),
+        ),
+      ),
     );
   }
 }
@@ -214,7 +255,9 @@ class ProgressBar extends StatelessWidget {
       child: FractionallySizedBox(
         widthFactor: v,
         heightFactor: 1,
-        child: DecoratedBox(decoration: BoxDecoration(color: onImage ? AppColors.surface : AppColors.accent, borderRadius: r)),
+        child: DecoratedBox(
+          decoration: BoxDecoration(color: onImage ? AppColors.surface : AppColors.accent, borderRadius: r),
+        ),
       ),
     );
   }

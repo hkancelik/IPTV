@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'detail_page.dart';
 import 'epg_widgets.dart';
 import 'library.dart';
+import 'player_chrome.dart';
 import 'player_page.dart';
 import 'poster_card.dart';
 import 'settings.dart';
@@ -491,14 +492,12 @@ class _HomePageState extends State<HomePage> {
             },
           ),
         ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 6),
-          child: AppButton(
-            icon: Icons.tune_rounded,
-            label: 'Kategorileri düzenle',
-            tooltip: 'Kategorileri düzenle / gizle',
-            onPressed: () => _manageGroups(kind),
-          ),
+        AppButton(
+          icon: Icons.tune_rounded,
+          label: 'Kategorileri düzenle',
+          tooltip: 'Kategorileri düzenle / gizle',
+          dense: true,
+          onPressed: () => _manageGroups(kind),
         ),
       ]),
     );
@@ -557,7 +556,7 @@ class _HomePageState extends State<HomePage> {
   String? _left(HistoryEntry e) => e.durationMs > 0 ? remainingText(Duration(milliseconds: e.durationMs - e.positionMs)) : null;
 
   Widget _continueCard(HistoryEntry e) {
-    final title = parseTitle(e.title).title;
+    final title = playerTitle(e.title).$1;
     final left = _left(e);
     return SizedBox(
       height: 246,
@@ -658,7 +657,7 @@ class _HomePageState extends State<HomePage> {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 6),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(parseTitle(e.title).title, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.title(15)),
+              Text(playerTitle(e.title).$1, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.title(15)),
               if (sub.isNotEmpty) Text(sub, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.meta(13)),
             ]),
           ),

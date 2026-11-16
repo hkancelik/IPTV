@@ -364,7 +364,7 @@ class _ProfileCard extends StatelessWidget {
       child: AppCard(
         child: SizedBox(
           width: 210,
-          child: Stack(children: [
+          child: Stack(alignment: Alignment.topCenter, children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 26, 16, 22),
               child: Column(mainAxisSize: MainAxisSize.min, children: [
