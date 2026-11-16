@@ -1,3 +1,5 @@
+import 'dart:math' show max;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -762,38 +764,54 @@ class _HomePageState extends State<HomePage> {
         ),
       );
 
-  Widget _sortButton() => DropdownButton<_Sort>(
-    value: _sort,
-    underline: const SizedBox.shrink(),
-    onChanged: (v) => setState(() => _sort = v ?? _sort),
-    items: const [
-      DropdownMenuItem(value: _Sort.provider, child: Text('Varsayılan')),
-      DropdownMenuItem(value: _Sort.added, child: Text('Yeni eklenen')),
-      DropdownMenuItem(value: _Sort.name, child: Text('A – Z')),
-      DropdownMenuItem(value: _Sort.year, child: Text('Yıl, yeniden eskiye')),
-    ],
-  );
+  static const _sortLabels = {
+    _Sort.provider: 'Varsayılan',
+    _Sort.added: 'Yeni eklenen',
+    _Sort.name: 'A – Z',
+    _Sort.year: 'Yıl, yeniden eskiye',
+  };
+
+  Widget _sortButton() => Builder(
+        builder: (context) => AppButton(
+          variant: AppButtonVariant.onPage,
+          prefix: 'Sırala:',
+          label: _sortLabels[_sort],
+          trailingIcon: Icons.expand_more_rounded,
+          onPressed: () async {
+            final box = context.findRenderObject()! as RenderBox;
+            final overlay = Overlay.of(context).context.findRenderObject()! as RenderBox;
+            final at = box.localToGlobal(Offset(0, box.size.height + 6), ancestor: overlay);
+            final picked = await showMenu<_Sort>(
+              context: context,
+              position: RelativeRect.fromLTRB(at.dx, at.dy, overlay.size.width - at.dx - box.size.width, 0),
+              items: [for (final e in _sortLabels.entries) PopupMenuItem(value: e.key, child: Text(e.value))],
+            );
+            if (picked != null && mounted) setState(() => _sort = picked);
+          },
+        ),
+      );
 
   Widget _body(Kind kind, List<Item> shown) {
     if (_loading.contains(kind)) {
-      return const Center(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [CircularProgressIndicator(), SizedBox(height: 12), Text('Yükleniyor...')]),
+      return Center(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          SizedBox(width: 220, child: ClipRRect(borderRadius: BorderRadius.circular(3), child: const LinearProgressIndicator(minHeight: 6))),
+          const SizedBox(height: 14),
+          Text('Yükleniyor...', style: AppText.meta(15)),
+        ]),
       );
     }
     final err = _errors[kind];
     if (err != null) {
       return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(err),
-            const SizedBox(height: 12),
-            FilledButton(onPressed: () => _ensureLoaded(kind), child: const Text('Tekrar dene')),
-          ],
-        ),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text(err, textAlign: TextAlign.center, style: AppText.label(15, color: AppColors.liveText)),
+          const SizedBox(height: 14),
+          AppButton(label: 'Tekrar dene', variant: AppButtonVariant.primary, onPressed: () => _ensureLoaded(kind)),
+        ]),
       );
     }
-    if (shown.isEmpty) return const Center(child: Text('Sonuç yok'));
+    if (shown.isEmpty) return Center(child: Text('Sonuç yok', style: AppText.meta(15)));
     return kind == Kind.live ? _liveList(shown) : _posterGrid(shown);
   }
 
@@ -875,26 +893,29 @@ class _HomePageState extends State<HomePage> {
         ),
       );
 
-  Widget _posterGrid(List<Item> shown) => GridView.builder(
-    padding: const EdgeInsets.all(12),
-    gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(maxCrossAxisExtent: 180, childAspectRatio: 0.6, crossAxisSpacing: 14, mainAxisSpacing: 14),
-    itemCount: shown.length,
-    itemBuilder: (_, i) {
-      final it = shown[i];
-      final t = parsedTitleOf(it);
-      return PosterCard(
-        logo: it.logo,
-        title: t.title,
-        year: t.year,
-        tags: t.tags,
-        onTap: () => _open(it),
-        topRight: DecoratedBox(
-          decoration: const BoxDecoration(color: Colors.black45, shape: BoxShape.circle),
-          child: _heart(it, size: 18),
+  Widget _posterGrid(List<Item> shown) => LayoutBuilder(builder: (context, c) {
+        const pad = EdgeInsets.fromLTRB(AppSizes.scrollPad, AppSizes.scrollPad, 26, 24);
+        final inner = c.maxWidth - pad.horizontal;
+        final cols = posterColumns(inner);
+        final tile = (inner - 16 * (cols - 1)) / cols;
+        return GridView.builder(
+          key: const ValueKey('poster-grid'),
+          padding: pad,
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: cols, crossAxisSpacing: 16, mainAxisSpacing: 20, mainAxisExtent: tile * 1.53 + 52),
+          itemCount: shown.length,
+          itemBuilder: (_, i) => _posterTile(shown[i]),
+        );
+      });
+
+  Widget _posterTile(Item it) => RepaintBoundary(
+        child: _PosterTile(
+          key: ValueKey(it.id),
+          item: it,
+          favorite: Library.instance.isFavorite(it),
+          onOpen: () => _open(it),
+          onToggleFavorite: () => Library.instance.toggleFavorite(it),
         ),
       );
-    },
-  );
 
   Widget _mixedList(List<Item> items) => ListView.builder(
     itemCount: items.length,
@@ -928,4 +949,93 @@ class _View {
   final List<Item> shown;
   final Map<String, int> groups; // category -> item count
   final int total; // count shown next to "Tümü"
+}
+
+/// Number of poster columns that fit [width]: 118 px posters with 16 px gaps, at least two.
+int posterColumns(double width) => max(2, ((width + 16) / 134).floor());
+
+/// A poster with its title and "year, language" below and a favorite heart in its top right corner. The heart
+/// is its own focus stop; when the item is not a favorite it only shows while the poster or the heart has focus
+/// or the mouse.
+class _PosterTile extends StatefulWidget {
+  const _PosterTile({super.key, required this.item, required this.favorite, required this.onOpen, required this.onToggleFavorite});
+
+  final Item item;
+  final bool favorite;
+  final VoidCallback onOpen;
+  final VoidCallback onToggleFavorite;
+
+  @override
+  State<_PosterTile> createState() => _PosterTileState();
+}
+
+class _PosterTileState extends State<_PosterTile> {
+  bool _tileFocus = false, _tileHover = false, _heartFocus = false, _heartHover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = parsedTitleOf(widget.item);
+    final sub = [?t.year, if (t.tags.isNotEmpty) t.tags.first].join(', ');
+    final showHeart = widget.favorite || _tileFocus || _tileHover || _heartFocus || _heartHover;
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Expanded(
+        child: Stack(children: [
+          Positioned.fill(
+            child: FocusRing(
+              radius: AppSizes.tileRadius,
+              onTap: widget.onOpen,
+              onFocusChange: (f) => setState(() => _tileFocus = f),
+              onHoverChange: (h) => setState(() => _tileHover = h),
+              builder: (context, focused, hovered) {
+                return Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(AppSizes.tileRadius),
+                    boxShadow: hovered && !focused ? AppShadows.lift : AppShadows.forRepeated(),
+                    border: AppShadows.repeatedBorder(),
+                  ),
+                  child: ClipRRect(borderRadius: BorderRadius.circular(AppSizes.tileRadius), child: PosterImage(widget.item.logo)),
+                );
+              },
+            ),
+          ),
+          Positioned(
+            top: 1,
+            right: 1,
+            child: Opacity(
+              opacity: showHeart ? 1 : 0,
+              child: FocusRing(
+                radius: 22,
+                lift: false,
+                tooltip: widget.favorite ? 'Favorilerden çıkar' : 'Favorilere ekle',
+                onTap: widget.onToggleFavorite,
+                onFocusChange: (f) => setState(() => _heartFocus = f),
+                onHoverChange: (h) => setState(() => _heartHover = h),
+                builder: (context, focused, hovered) {
+                  return SizedBox(
+                    width: 44,
+                    height: 44,
+                    child: Center(
+                      child: Container(
+                        width: 30,
+                        height: 30,
+                        decoration: const BoxDecoration(color: AppColors.surface, shape: BoxShape.circle, boxShadow: AppShadows.chip),
+                        child: Icon(
+                          widget.favorite ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                          size: 16,
+                          color: widget.favorite ? AppColors.live : AppColors.ink2,
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ]),
+      ),
+      const SizedBox(height: 8),
+      Text(t.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.title(15)),
+      SizedBox(height: 20, child: sub.isEmpty ? null : Text(sub, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.meta(13))),
+    ]);
+  }
 }

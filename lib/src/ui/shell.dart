@@ -140,14 +140,33 @@ class PageHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) => SizedBox(
         height: 44,
-        child: Row(children: [
-          Flexible(child: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.display(28))),
-          if (subtitle != null) ...[
-            const SizedBox(width: 14),
-            Flexible(child: Text(subtitle!, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.meta(15))),
-          ],
-          const Spacer(),
-          for (var i = 0; i < actions.length; i++) ...[if (i > 0) const SizedBox(width: 12), actions[i]],
-        ]),
+        child: LayoutBuilder(
+          builder: (context, c) => Row(children: [
+            Expanded(
+              child: Row(children: [
+                Flexible(child: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.display(28))),
+                if (subtitle != null) ...[
+                  const SizedBox(width: 14),
+                  Flexible(child: Text(subtitle!, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.meta(15))),
+                ],
+              ]),
+            ),
+            if (actions.isNotEmpty) ...[
+              const SizedBox(width: 16),
+              // The actions keep their size and the title gives way; in a very narrow window they shrink as a whole
+              // rather than overflow.
+              ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: c.maxWidth * 0.75),
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerRight,
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    for (var i = 0; i < actions.length; i++) ...[if (i > 0) const SizedBox(width: 12), actions[i]],
+                  ]),
+                ),
+              ),
+            ],
+          ]),
+        ),
       );
 }

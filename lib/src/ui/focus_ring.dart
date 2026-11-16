@@ -15,6 +15,7 @@ class FocusRing extends StatefulWidget {
     this.onLongPress,
     this.onSecondaryTapUp,
     this.onFocusChange,
+    this.onHoverChange,
     this.focusNode,
     this.autofocus = false,
     this.enabled = true,
@@ -33,6 +34,7 @@ class FocusRing extends StatefulWidget {
   final VoidCallback? onLongPress;
   final GestureTapUpCallback? onSecondaryTapUp;
   final ValueChanged<bool>? onFocusChange;
+  final ValueChanged<bool>? onHoverChange;
   final FocusNode? focusNode;
   final bool autofocus;
 
@@ -118,7 +120,10 @@ class _FocusRingState extends State<FocusRing> {
         setState(() => _focused = f);
         w.onFocusChange?.call(f);
       },
-      onShowHoverHighlight: (h) => setState(() => _hovered = h),
+      onShowHoverHighlight: (h) {
+        setState(() => _hovered = h);
+        w.onHoverChange?.call(h);
+      },
       child: Semantics(button: w.onTap != null, enabled: w.enabled, selected: w.selected, label: w.semanticLabel, child: result),
     );
     if (w.tooltip != null) result = Tooltip(message: w.tooltip!, waitDuration: const Duration(milliseconds: 500), child: result);
