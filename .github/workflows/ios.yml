@@ -2,7 +2,7 @@ name: iOS build
 
 on:
   push:
-    branches: [master]
+    branches: [master, feat/gunduz-ui]
   workflow_dispatch:
 
 jobs:
