@@ -1,9 +1,10 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
-import 'package:uikit_tab_bar/uikit_tab_bar.dart';
 
 import 'layout.dart';
 import 'tokens.dart';
@@ -13,10 +14,24 @@ import 'tokens.dart';
 @visibleForTesting
 bool? debugUseNativeLiquidGlass;
 
+int? _cachedIosMajorVersion;
+
+int _iosMajorVersion() {
+  if (_cachedIosMajorVersion != null) return _cachedIosMajorVersion!;
+  if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS || !Platform.isIOS) {
+    return _cachedIosMajorVersion = 0;
+  }
+  final match = RegExp(r'(\d+)\.\d+').firstMatch(Platform.operatingSystemVersion);
+  return _cachedIosMajorVersion = match == null ? 0 : (int.tryParse(match.group(1)!) ?? 0);
+}
+
 /// Whether this device natively supports Apple's iOS 26+ Liquid Glass UIKit
-/// APIs (`UIGlassEffect`, `UIButton.Configuration.glass()`, `UIMenu`).
-bool get isNativeLiquidGlassSupported =>
-    debugUseNativeLiquidGlass ?? UIKitTabBar.isNativeSupported;
+/// APIs (`UIGlassEffect`, `UIButton.Configuration.glass()`, `UIMenu`, `UITabBarController`).
+bool get isNativeLiquidGlassSupported {
+  final forced = debugUseNativeLiquidGlass;
+  if (forced != null) return forced;
+  return !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS && _iosMajorVersion() >= 26;
+}
 
 /// Maps our Flutter icons to authentic Apple SF Symbols for native iOS 26 buttons.
 String? sfSymbolForIcon(IconData icon) {
@@ -585,5 +600,114 @@ class _NativeGlassMenuButtonState extends State<NativeGlassMenuButton> {
       ),
     );
     return trigger;
+  }
+}
+
+/// One tab definition inside [NativeGlassTabBar].
+@immutable
+class NativeGlassTab {
+  const NativeGlassTab({
+    required this.id,
+    required this.label,
+    required this.sfSymbol,
+  });
+
+  final String id;
+  final String label;
+  final String sfSymbol;
+
+  Map<String, Object?> toMap() => <String, Object?>{
+        'id': id,
+        'label': label,
+        'sfSymbol': sfSymbol,
+      };
+}
+
+/// Native iOS 26 floating Liquid Glass bottom tab bar backed by Apple's
+/// real `UITabBarController` and `UITab` APIs (`iptv/liquid_glass_tab_bar`).
+class NativeGlassTabBar extends StatefulWidget {
+  const NativeGlassTabBar({
+    super.key,
+    required this.tabs,
+    required this.selectedId,
+    required this.onSelected,
+    this.onReselect,
+    this.tintColor = AppColors.accent,
+    this.isDark = true,
+  });
+
+  final List<NativeGlassTab> tabs;
+  final String selectedId;
+  final ValueChanged<String> onSelected;
+  final ValueChanged<String>? onReselect;
+  final Color tintColor;
+  final bool isDark;
+
+  @override
+  State<NativeGlassTabBar> createState() => _NativeGlassTabBarState();
+}
+
+class _NativeGlassTabBarState extends State<NativeGlassTabBar> {
+  MethodChannel? _channel;
+  late Map<String, Object?> _params = _encode();
+
+  Map<String, Object?> _encode() => <String, Object?>{
+        'tabs': [for (final t in widget.tabs) t.toMap()],
+        'selectedId': widget.selectedId,
+        'tintColor': widget.tintColor.toARGB32(),
+        'isDark': widget.isDark,
+      };
+
+  @override
+  void didUpdateWidget(NativeGlassTabBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final next = _encode();
+    if (!_deepEquals(next, _params)) {
+      _params = next;
+      _channel?.invokeMethod<void>('update', next);
+    }
+  }
+
+  @override
+  void dispose() {
+    _channel?.setMethodCallHandler(null);
+    _channel = null;
+    super.dispose();
+  }
+
+  void _onCreated(int id) {
+    final ch = MethodChannel('iptv/liquid_glass_tab_bar_$id');
+    _channel = ch;
+    ch.setMethodCallHandler((call) async {
+      if (!mounted) return null;
+      final args = call.arguments as Map?;
+      final tabId = args?['id'] as String?;
+      if (tabId == null || tabId.isEmpty) return null;
+      if (call.method == 'selected') {
+        widget.onSelected(tabId);
+      } else if (call.method == 'reselected') {
+        widget.onReselect?.call(tabId);
+      }
+      return null;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.paddingOf(context).bottom;
+    final height = (bottomInset + 84).clamp(92.0, 140.0);
+    return SizedBox(
+      width: double.infinity,
+      height: height,
+      child: UiKitView(
+        viewType: 'iptv/liquid_glass_tab_bar',
+        creationParams: _params,
+        creationParamsCodec: const StandardMessageCodec(),
+        onPlatformViewCreated: _onCreated,
+        gestureRecognizers: const <Factory<OneSequenceGestureRecognizer>>{
+          Factory<OneSequenceGestureRecognizer>(EagerGestureRecognizer.new),
+        },
+      ),
+    );
   }
 }

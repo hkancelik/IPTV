@@ -19,7 +19,6 @@ import 'package:iptv_app/src/ui/shell.dart';
 import 'package:iptv_app/src/ui/tokens.dart';
 import 'package:iptv_app/src/xtream.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:uikit_tab_bar/uikit_tab_bar.dart';
 
 // iPhone 15 logical dimensions (393 × 852 pt @3x) and Dynamic Island / Home Indicator insets.
 const _iphone15Portrait = Size(393, 852);
@@ -584,10 +583,10 @@ void main() {
       expect(calls, hasLength(2));
     });
 
-    testWidgets('PhoneBottomBar mounts native iOS 26 UIKitTabBar when supported and returns from Settings on reselect', (t) async {
+    testWidgets('PhoneBottomBar mounts native iOS 26 NativeGlassTabBar when supported and returns from Settings on reselect', (t) async {
       _configureIphone(t, _iphone15Portrait, _portraitPadding);
-      debugUseNativeTabBar = true;
-      addTearDown(() => debugUseNativeTabBar = null);
+      debugUseNativeLiquidGlass = true;
+      addTearDown(() => debugUseNativeLiquidGlass = null);
 
       final selectedTabs = <int>[];
       await t.pumpWidget(_iosApp(Scaffold(
@@ -602,13 +601,13 @@ void main() {
       )));
       await t.pump();
 
-      final nativeBar = t.widget<UIKitTabBar>(find.byType(UIKitTabBar));
+      final nativeBar = t.widget<NativeGlassTabBar>(find.byType(NativeGlassTabBar));
       expect(nativeBar.tabs, hasLength(5));
       expect(nativeBar.selectedId, 'nav-live');
-      expect(nativeBar.style.brightness, Brightness.dark);
-      expect(nativeBar.style.tintColor, AppColors.accent);
-      expect(nativeBar.minimizeBehavior, UIKitTabBarMinimizeBehavior.never);
-      expect(nativeBar.verticalBarBehavior, UIKitVerticalBarBehavior.disabled);
+      expect(nativeBar.isDark, isTrue);
+      expect(nativeBar.tintColor, AppColors.accent);
+      final kitView = t.widget<UiKitView>(find.byType(UiKitView));
+      expect(kitView.viewType, 'iptv/liquid_glass_tab_bar');
 
       // Selecting another tab switches to it.
       nativeBar.onSelected('nav-movies');

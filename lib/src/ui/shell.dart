@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:uikit_tab_bar/uikit_tab_bar.dart';
 
 import 'basics.dart';
 import 'focus_ring.dart';
@@ -176,10 +175,10 @@ class PageHeader extends StatelessWidget {
 
 /// Bottom 5-tab bar for iPhone portrait.
 ///
-/// On iOS 26+ this hosts Apple's native [UITabBarController] Liquid Glass bar
-/// via [UIKitTabBar] (real system optical refraction, sliding glass lens, and
-/// haptics). On older iOS, Android, desktop and widget tests it falls back to
-/// a dark frosted-glass capsule.
+/// On iOS 26+ this hosts Apple's native `UITabBarController` Liquid Glass bar
+/// via [NativeGlassTabBar] (real system optical refraction, sliding glass lens,
+/// and haptics). On older iOS, Android, desktop and widget tests it falls back
+/// to a dark frosted-glass capsule.
 class PhoneBottomBar extends StatefulWidget {
   const PhoneBottomBar({
     super.key,
@@ -191,7 +190,7 @@ class PhoneBottomBar extends StatefulWidget {
   final int selected;
   final ValueChanged<int> onSelect;
 
-  /// Last selected primary tab (`0..4`), kept active in native [UITabBar]
+  /// Last selected primary tab (`0..4`), kept active in native `UITabBar`
   /// when Settings (`5`) is opened from the top bar so tapping any tab returns.
   final int lastMainTab;
 
@@ -199,41 +198,11 @@ class PhoneBottomBar extends StatefulWidget {
 
   /// Native iOS 26+ Liquid Glass tab definitions using SF Symbols.
   static const nativeTabs = [
-    UIKitTab(
-      id: 'nav-home',
-      label: 'Ana sayfa',
-      icon: UIKitTabIcon.symbol('house'),
-      selectedIcon: UIKitTabIcon.symbol('house.fill'),
-      fallbackIcon: Icon(Icons.home_rounded),
-    ),
-    UIKitTab(
-      id: 'nav-live',
-      label: 'Canlı TV',
-      icon: UIKitTabIcon.symbol('tv'),
-      selectedIcon: UIKitTabIcon.symbol('tv.fill'),
-      fallbackIcon: Icon(Icons.live_tv_rounded),
-    ),
-    UIKitTab(
-      id: 'nav-movies',
-      label: 'Filmler',
-      icon: UIKitTabIcon.symbol('film'),
-      selectedIcon: UIKitTabIcon.symbol('film.fill'),
-      fallbackIcon: Icon(Icons.movie_rounded),
-    ),
-    UIKitTab(
-      id: 'nav-series',
-      label: 'Diziler',
-      icon: UIKitTabIcon.symbol('play.square.stack'),
-      selectedIcon: UIKitTabIcon.symbol('play.square.stack.fill'),
-      fallbackIcon: Icon(Icons.video_library_rounded),
-    ),
-    UIKitTab(
-      id: 'nav-favorites',
-      label: 'Favoriler',
-      icon: UIKitTabIcon.symbol('heart'),
-      selectedIcon: UIKitTabIcon.symbol('heart.fill'),
-      fallbackIcon: Icon(Icons.favorite_rounded),
-    ),
+    NativeGlassTab(id: 'nav-home', label: 'Ana sayfa', sfSymbol: 'house.fill'),
+    NativeGlassTab(id: 'nav-live', label: 'Canlı TV', sfSymbol: 'tv.fill'),
+    NativeGlassTab(id: 'nav-movies', label: 'Filmler', sfSymbol: 'film.fill'),
+    NativeGlassTab(id: 'nav-series', label: 'Diziler', sfSymbol: 'play.square.stack.fill'),
+    NativeGlassTab(id: 'nav-favorites', label: 'Favoriler', sfSymbol: 'heart.fill'),
   ];
 
   @override
@@ -262,21 +231,17 @@ class _PhoneBottomBarState extends State<PhoneBottomBar> {
 
   @override
   Widget build(BuildContext context) {
-    if (UIKitTabBar.isNativeSupported) {
+    if (isNativeLiquidGlassSupported) {
       final activeIndex = widget.selected >= 0 && widget.selected < 5 ? widget.selected : _lastMainTab;
-      return UIKitTabBar(
+      return NativeGlassTabBar(
         tabs: PhoneBottomBar.nativeTabs,
         selectedId: navKeys[activeIndex],
         onSelected: _selectNativeId,
         onReselect: (id) {
           if (widget.selected >= 5) _selectNativeId(id);
         },
-        minimizeBehavior: UIKitTabBarMinimizeBehavior.never,
-        verticalBarBehavior: UIKitVerticalBarBehavior.disabled,
-        style: const UIKitTabBarStyle(
-          tintColor: AppColors.accent,
-          brightness: Brightness.dark,
-        ),
+        tintColor: AppColors.accent,
+        isDark: true,
       );
     }
 

@@ -5,6 +5,7 @@ import UIKit
 /// - `iptv/liquid_glass_surface`: `UIVisualEffectView` + `UIGlassEffect` + `UICornerConfiguration`
 /// - `iptv/liquid_glass_button`: Interactive `UIButton.Configuration.glass()` control
 /// - `iptv/liquid_glass_menu`: Interactive `UIButton.Configuration.glass()` + `UIMenu`
+/// - `iptv/liquid_glass_tab_bar`: Native `UITabBarController` Liquid Glass bottom tab bar
 final class LiquidGlassPlugin {
   static func register(with registry: FlutterPluginRegistry) {
     guard let registrar = registry.registrar(forPlugin: "LiquidGlassPlugin") else { return }
@@ -22,6 +23,11 @@ final class LiquidGlassPlugin {
     registrar.register(
       LiquidGlassMenuFactory(messenger: messenger),
       withId: "iptv/liquid_glass_menu",
+      gestureRecognizersBlockingPolicy: FlutterPlatformViewGestureRecognizersBlockingPolicyDoNotBlockGesture
+    )
+    registrar.register(
+      LiquidGlassTabBarFactory(messenger: messenger),
+      withId: "iptv/liquid_glass_tab_bar",
       gestureRecognizersBlockingPolicy: FlutterPlatformViewGestureRecognizersBlockingPolicyDoNotBlockGesture
     )
   }
@@ -554,5 +560,198 @@ private final class LiquidGlassMenuPlatformView: NSObject, FlutterPlatformView {
       }
     }
     return result
+  }
+}
+
+// MARK: - 4. Native Liquid Glass Bottom Tab Bar (UITabBarController)
+
+final class LiquidGlassTabBarFactory: NSObject, FlutterPlatformViewFactory {
+  private let messenger: FlutterBinaryMessenger
+
+  init(messenger: FlutterBinaryMessenger) {
+    self.messenger = messenger
+    super.init()
+  }
+
+  func create(withFrame frame: CGRect, viewIdentifier viewId: Int64, arguments args: Any?) -> FlutterPlatformView {
+    if #available(iOS 26.0, *) {
+      return LiquidGlassTabBarPlatformView(
+        frame: frame,
+        viewId: viewId,
+        args: args as? [String: Any],
+        messenger: messenger
+      )
+    }
+    return LiquidGlassEmptyPlatformView()
+  }
+
+  func createArgsCodec() -> FlutterMessageCodec & NSObjectProtocol {
+    FlutterStandardMessageCodec.sharedInstance()
+  }
+}
+
+private final class LiquidGlassTabBarHostView: UIView {
+  weak var tabBar: UITabBar?
+  var onWindowChanged: ((UIWindow?) -> Void)?
+
+  override func didMoveToWindow() {
+    super.didMoveToWindow()
+    onWindowChanged?(window)
+  }
+
+  override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+    guard let bar = tabBar, !bar.isHidden, bar.alpha > 0.01 else { return nil }
+    let barPoint = convert(point, to: bar)
+    guard bar.bounds.insetBy(dx: -8, dy: -8).contains(barPoint) else { return nil }
+    return super.hitTest(point, with: event)
+  }
+
+  var nearestViewController: UIViewController? {
+    var responder: UIResponder? = superview
+    while let r = responder {
+      if let vc = r as? UIViewController { return vc }
+      responder = r.next
+    }
+    return nil
+  }
+}
+
+@available(iOS 26.0, *)
+private final class LiquidGlassTabBarPlatformView: NSObject, FlutterPlatformView, UITabBarControllerDelegate {
+  private let host: LiquidGlassTabBarHostView
+  private let controller = UITabBarController()
+  private let channel: FlutterMethodChannel
+  private var tabsById: [String: UITab] = [:]
+  private var tabOrder: [String] = []
+  private var currentSelectedId: String?
+
+  init(frame: CGRect, viewId: Int64, args: [String: Any]?, messenger: FlutterBinaryMessenger) {
+    host = LiquidGlassTabBarHostView(frame: frame)
+    host.backgroundColor = .clear
+    host.isOpaque = false
+    host.clipsToBounds = false
+
+    channel = FlutterMethodChannel(name: "iptv/liquid_glass_tab_bar_\(viewId)", binaryMessenger: messenger)
+
+    super.init()
+
+    controller.delegate = self
+    controller.view.backgroundColor = .clear
+    controller.view.isOpaque = false
+    controller.view.frame = host.bounds
+    controller.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    controller.tabBarMinimizeBehavior = .never
+    if UIDevice.current.userInterfaceIdiom == .pad {
+      controller.traitOverrides.horizontalSizeClass = .compact
+    }
+
+    host.tabBar = controller.tabBar
+    host.addSubview(controller.view)
+    host.onWindowChanged = { [weak self] window in
+      self?.handleWindowChanged(window)
+    }
+
+    apply(args)
+
+    channel.setMethodCallHandler { [weak self] call, result in
+      guard let self else { result(nil); return }
+      if call.method == "update" {
+        self.apply(call.arguments as? [String: Any])
+        result(nil)
+      } else {
+        result(FlutterMethodNotImplemented)
+      }
+    }
+  }
+
+  func view() -> UIView { host }
+
+  private func handleWindowChanged(_ window: UIWindow?) {
+    if window != nil {
+      if controller.parent == nil, let parent = host.nearestViewController {
+        parent.addChild(controller)
+        controller.didMove(toParent: parent)
+      }
+    } else if controller.parent != nil {
+      controller.willMove(toParent: nil)
+      controller.removeFromParent()
+    }
+  }
+
+  private func apply(_ dict: [String: Any]?) {
+    guard let dict else { return }
+    let isDark = (dict["isDark"] as? NSNumber)?.boolValue ?? true
+    let tint = decodeARGBColor(dict["tintColor"])
+    let selectedId = dict["selectedId"] as? String
+    let rawTabs = (dict["tabs"] as? [[String: Any]]) ?? []
+
+    let uiStyle: UIUserInterfaceStyle = isDark ? .dark : .light
+    host.overrideUserInterfaceStyle = uiStyle
+    controller.overrideUserInterfaceStyle = uiStyle
+
+    let appearance = UITabBarAppearance()
+    appearance.configureWithDefaultBackground()
+    controller.tabBar.standardAppearance = appearance
+    controller.tabBar.scrollEdgeAppearance = nil
+    controller.tabBar.tintColor = tint
+    controller.view.tintColor = tint
+
+    var nextOrder: [String] = []
+    for item in rawTabs {
+      guard let id = item["id"] as? String, !id.isEmpty else { continue }
+      let label = (item["label"] as? String) ?? ""
+      let sfSymbol = item["sfSymbol"] as? String
+      let image = sfSymbol.flatMap { UIImage(systemName: $0) }
+      let tab = tabsById[id] ?? makeTab(id: id)
+      tab.title = label
+      tab.image = image
+      tab.accessibilityIdentifier = id
+      tabsById[id] = tab
+      nextOrder.append(id)
+    }
+
+    if nextOrder != tabOrder, !nextOrder.isEmpty {
+      tabOrder = nextOrder
+      let known = Set(nextOrder)
+      for key in tabsById.keys where !known.contains(key) {
+        tabsById[key] = nil
+      }
+      controller.setTabs(nextOrder.compactMap { tabsById[$0] }, animated: false)
+    }
+
+    currentSelectedId = selectedId
+    if let selectedId, let target = tabsById[selectedId], controller.selectedTab !== target {
+      controller.selectedTab = target
+    }
+  }
+
+  private func makeTab(id: String) -> UITab {
+    UITab(title: "", image: nil, identifier: id) { _ in
+      let vc = UIViewController()
+      vc.view.backgroundColor = .clear
+      vc.view.isOpaque = false
+      vc.view.isUserInteractionEnabled = false
+      return vc
+    }
+  }
+
+  func tabBarController(_ tabBarController: UITabBarController, shouldSelectTab tab: UITab) -> Bool {
+    if tab === tabBarController.selectedTab {
+      channel.invokeMethod("reselected", arguments: ["id": tab.identifier])
+      return false
+    }
+    return true
+  }
+
+  func tabBarController(
+    _ tabBarController: UITabBarController,
+    didSelectTab selectedTab: UITab,
+    previousTab: UITab?
+  ) {
+    let id = selectedTab.identifier
+    if id != currentSelectedId {
+      currentSelectedId = id
+      channel.invokeMethod("selected", arguments: ["id": id])
+    }
   }
 }
