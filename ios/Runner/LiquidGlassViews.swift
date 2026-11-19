@@ -398,7 +398,7 @@ private final class LiquidGlassMenuUIButton: UIButton {
     animator: UIContextMenuInteractionAnimating?
   ) {
     super.contextMenuInteraction(interaction, willEndFor: configuration, animator: animator)
-    let finish = { [weak self] in self?.onMenuDidHide?() }
+    let finish: () -> Void = { [weak self] in self?.onMenuDidHide?() }
     if let animator {
       animator.addCompletion(finish)
     } else {
