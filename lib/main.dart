@@ -20,6 +20,9 @@ Future<void> main() async {
       ..maximumSizeBytes = 32 << 20
       ..maximumSize = 120;
   }
+  if (Platform.isIOS) {
+    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  }
   await AppSettings.instance.load();
   if (AppSettings.instance.phoneRemote) PhoneRemote.instance.setEnabled(true);
   runApp(const IptvApp());
@@ -38,9 +41,15 @@ class IptvApp extends StatelessWidget {
           navigatorKey: appNavigatorKey,
           debugShowCheckedModeBanner: false,
           theme: buildAppTheme(),
-          // Light ground: dark status bar icons on Android.
+          // Dark "Kömür" ground: white status bar icons on iOS & Android OLED displays.
           builder: (context, child) => AnnotatedRegion<SystemUiOverlayStyle>(
-            value: SystemUiOverlayStyle.dark,
+            value: const SystemUiOverlayStyle(
+              statusBarColor: Colors.transparent,
+              statusBarBrightness: Brightness.dark, // iOS: dark background -> white text/icons
+              statusBarIconBrightness: Brightness.light, // Android: light icons
+              systemNavigationBarColor: Colors.transparent,
+              systemNavigationBarIconBrightness: Brightness.light,
+            ),
             child: UiScale(scale: AppSettings.instance.uiScale, child: child!),
           ),
           home: const LoginPage(autoLogin: true),

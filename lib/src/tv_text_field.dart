@@ -15,6 +15,10 @@ class RemoteTextField extends StatefulWidget {
     this.controller,
     this.decoration,
     this.obscureText = false,
+    this.keyboardType,
+    this.textInputAction,
+    this.autocorrect = true,
+    this.enableSuggestions = true,
     this.onChanged,
     this.onSubmitted,
   });
@@ -22,6 +26,10 @@ class RemoteTextField extends StatefulWidget {
   final TextEditingController? controller;
   final InputDecoration? decoration;
   final bool obscureText;
+  final TextInputType? keyboardType;
+  final TextInputAction? textInputAction;
+  final bool autocorrect;
+  final bool enableSuggestions;
   final ValueChanged<String>? onChanged;
   final ValueChanged<String>? onSubmitted;
 
@@ -87,11 +95,14 @@ class _RemoteTextFieldState extends State<RemoteTextField> {
       focusNode: _node,
       decoration: widget.decoration,
       obscureText: widget.obscureText,
+      keyboardType: widget.keyboardType,
+      autocorrect: widget.autocorrect,
+      enableSuggestions: widget.enableSuggestions,
       onChanged: widget.onChanged,
       readOnly: tv && !_editing,
       showCursor: tv ? _editing : null,
       onTap: tv ? _start : null,
-      textInputAction: tv ? TextInputAction.next : null,
+      textInputAction: tv ? TextInputAction.next : widget.textInputAction,
       onSubmitted: (v) {
         widget.onSubmitted?.call(v);
         if (tv) {

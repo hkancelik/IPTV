@@ -162,7 +162,7 @@ class XtreamClient {
     return base.replace(queryParameters: {
       'username': acc.username,
       'password': acc.password,
-      if (action != null) 'action': action,
+      'action': ?action,
       ...extra,
     });
   }

@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import 'tokens.dart';
@@ -17,6 +18,15 @@ ThemeData buildAppTheme() {
   final base = ThemeData(brightness: Brightness.dark, useMaterial3: true, colorScheme: scheme, fontFamily: AppText.family);
   return base.copyWith(
     scaffoldBackgroundColor: AppColors.ground,
+    pageTransitionsTheme: const PageTransitionsTheme(
+      builders: {
+        TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+        TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
+        TargetPlatform.android: FadeUpwardsPageTransitionsBuilder(),
+        TargetPlatform.linux: FadeUpwardsPageTransitionsBuilder(),
+        TargetPlatform.windows: FadeUpwardsPageTransitionsBuilder(),
+      },
+    ),
     splashFactory: NoSplash.splashFactory,
     focusColor: AppColors.transparent,
     hoverColor: AppColors.transparent,

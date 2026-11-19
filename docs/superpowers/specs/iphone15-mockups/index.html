@@ -1,0 +1,1417 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IPTV · iPhone 15 Tasarım Örnekleri (Dikey & Yatay)</title>
+<style>
+@font-face {
+  font-family: 'Fraunces';
+  src: url('../../../../assets/fonts/Fraunces-Variable.ttf') format('truetype');
+  font-weight: 100 900;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'HankenGrotesk';
+  src: url('../../../../assets/fonts/HankenGrotesk-Variable.ttf') format('truetype');
+  font-weight: 100 900;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'HankenGrotesk';
+  src: url('../../../../assets/fonts/HankenGrotesk-Italic-Variable.ttf') format('truetype');
+  font-weight: 100 900;
+  font-style: italic;
+}
+
+:root {
+  --ground: #0B0B0D;
+  --surface: #151517;
+  --surface-alt: #1E1E22;
+  --line: #2A2A2E;
+  --glass: rgba(21, 21, 23, 0.86);
+  --video-glass: rgba(18, 18, 22, 0.78);
+  --glass-border: #2E2E36;
+  --ink: #F4F4F5;
+  --ink2: #A1A1AA;
+  --ink3: #71717A;
+  --body: #D4D4D8;
+  --accent: #A78BFA;
+  --on-accent: #120A2A;
+  --accent-soft: #2A2342;
+  --accent-ink: #C4B5FD;
+  --live: #FF5C6C;
+  --live-soft: #3A1E24;
+  --live-ink: #FFB3BC;
+  --live-text: #FF8A96;
+  --warn-soft: #3A2E14;
+  --warn-ink: #F2C879;
+  --ok: #7DD3A8;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: radial-gradient(circle at 20% 0%, #1B1530 0%, #09090B 52%, #050507 100%);
+  color: var(--ink);
+  font-family: 'HankenGrotesk', -apple-system, BlinkMacSystemFont, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.page-bar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  background: rgba(11, 11, 13, 0.82);
+  border-bottom: 1px solid var(--line);
+  padding: 14px 24px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+}
+.brand-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-right: auto;
+}
+.brand-sq {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: var(--on-accent);
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+}
+.brand-title {
+  font-family: 'Fraunces', serif;
+  font-weight: 650;
+  font-size: 19px;
+  letter-spacing: -0.015em;
+}
+.brand-sub {
+  font-size: 12.5px;
+  color: var(--ink2);
+}
+
+.seg {
+  display: inline-flex;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px;
+  gap: 2px;
+}
+.seg button {
+  border: 0;
+  background: transparent;
+  color: var(--ink2);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 7px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 140ms, color 140ms;
+}
+.seg button.active {
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 700;
+}
+.screen-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 16px 24px 0;
+  justify-content: center;
+}
+.screen-pills button {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink2);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 15px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 140ms;
+}
+.screen-pills button.active {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  border-color: rgba(167, 139, 250, 0.55);
+}
+
+.stage {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 28px 24px 56px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 36px;
+}
+.device-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.device-wrap.hidden { display: none; }
+.device-caption {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ink2);
+}
+.device-caption strong {
+  color: var(--ink);
+  font-family: 'Fraunces', serif;
+  font-weight: 600;
+  font-size: 15px;
+}
+.badge-dim {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--accent-ink);
+}
+
+/* Realistic iPhone 15 hardware shell */
+.iphone-portrait {
+  width: 413px;
+  height: 872px;
+  padding: 10px;
+  border-radius: 62px;
+  background: linear-gradient(145deg, #3A3A40 0%, #1C1C20 45%, #2E2E34 100%);
+  box-shadow: 0 32px 80px rgba(0, 0, 0, 0.72), inset 0 0 0 2px rgba(255,255,255,0.08);
+  position: relative;
+}
+.iphone-landscape {
+  width: 872px;
+  height: 413px;
+  padding: 10px;
+  border-radius: 62px;
+  background: linear-gradient(145deg, #3A3A40 0%, #1C1C20 45%, #2E2E34 100%);
+  box-shadow: 0 32px 80px rgba(0, 0, 0, 0.72), inset 0 0 0 2px rgba(255,255,255,0.08);
+  position: relative;
+}
+.screen {
+  width: 100%;
+  height: 100%;
+  border-radius: 53px;
+  background: var(--ground);
+  overflow: hidden;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Dynamic Island & iOS status chrome */
+.status-portrait {
+  height: 54px;
+  padding: 14px 28px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: relative;
+  z-index: 20;
+  flex: none;
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.island-portrait {
+  position: absolute;
+  left: 50%;
+  top: 11px;
+  transform: translateX(-50%);
+  width: 124px;
+  height: 36px;
+  border-radius: 20px;
+  background: #000000;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
+  z-index: 30;
+}
+.island-landscape {
+  position: absolute;
+  left: 11px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 36px;
+  height: 124px;
+  border-radius: 20px;
+  background: #000000;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
+  z-index: 30;
+}
+.home-ind-p {
+  position: absolute;
+  left: 50%;
+  bottom: 8px;
+  transform: translateX(-50%);
+  width: 134px;
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(244, 244, 245, 0.45);
+  z-index: 30;
+}
+.home-ind-l {
+  position: absolute;
+  left: 50%;
+  bottom: 7px;
+  transform: translateX(-50%);
+  width: 210px;
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(244, 244, 245, 0.42);
+  z-index: 30;
+}
+.status-icons {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+/* Shared Kömür UI primitives inside phone */
+.serif { font-family: 'Fraunces', serif; }
+.p-header {
+  padding: 6px 18px 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+}
+.p-title {
+  font-family: 'Fraunces', serif;
+  font-weight: 650;
+  font-size: 24px;
+  letter-spacing: -0.015em;
+  line-height: 1.12;
+}
+.p-sub { font-size: 12.5px; color: var(--ink2); margin-top: 2px; }
+.icon-circle {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 1px solid var(--glass-border);
+  color: var(--ink);
+  display: grid;
+  place-items: center;
+  font-size: 15px;
+  flex: none;
+}
+.icon-circle.active { background: var(--accent); color: var(--on-accent); border-color: transparent; }
+.avatar-circle {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--on-accent);
+  font-family: 'Fraunces', serif;
+  font-weight: 700;
+  font-size: 14px;
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+.card {
+  background: var(--surface);
+  border-radius: 22px;
+  border: 1px solid rgba(255,255,255,0.04);
+  box-shadow: 0 10px 26px rgba(0,0,0,0.34);
+}
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 10px;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+.pill.accent { background: var(--accent-soft); color: var(--accent-ink); }
+.pill.live { background: var(--live-soft); color: var(--live-ink); }
+.pill.warn { background: var(--warn-soft); color: var(--warn-ink); }
+.pill.neutral { background: var(--surface-alt); color: var(--body); }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--live); display: inline-block; }
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 40px;
+  padding: 0 18px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 700;
+  font-size: 13.5px;
+}
+.btn-sec {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: var(--surface-alt);
+  color: var(--ink);
+  font-weight: 600;
+  font-size: 12.5px;
+}
+.bar {
+  height: 5px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+.bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+}
+.search-pill {
+  height: 40px;
+  border-radius: 20px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  padding: 0 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink2);
+  font-size: 13.5px;
+}
+.chip-row {
+  display: flex;
+  gap: 7px;
+  overflow: hidden;
+  padding: 0 16px;
+}
+.chip {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  color: var(--ink2);
+  font-size: 12.5px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+.chip.on {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  border-color: rgba(167,139,250,0.45);
+}
+
+/* Floating glass bottom bar (Portrait) */
+.bottom-bar {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 24px;
+  height: 60px;
+  padding: 5px 6px;
+  border-radius: 30px;
+  background: var(--glass);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 16px 36px rgba(0,0,0,0.6);
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  z-index: 25;
+}
+.btab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  border-radius: 24px;
+  color: var(--ink2);
+  font-size: 10px;
+  font-weight: 700;
+}
+.btab.on {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+.btab svg { width: 19px; height: 19px; }
+
+/* Slim floating glass rail (Landscape) */
+.l-shell {
+  flex: 1;
+  display: flex;
+  padding: 10px 54px 18px 58px;
+  gap: 10px;
+  min-height: 0;
+}
+.l-rail {
+  width: 54px;
+  border-radius: 24px;
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  padding: 8px 5px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+.l-item {
+  width: 40px;
+  height: 36px;
+  border-radius: 13px;
+  display: grid;
+  place-items: center;
+  color: var(--ink2);
+}
+.l-item.on { background: var(--accent); color: var(--on-accent); }
+.l-item svg { width: 18px; height: 18px; }
+.l-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Poster gradients */
+.art-dune { background: linear-gradient(155deg, #C2652E 0%, #58281A 65%, #1A1318 100%); }
+.art-opp { background: linear-gradient(155deg, #B8292F 0%, #501724 62%, #14121E 100%); }
+.art-sev { background: linear-gradient(155deg, #3B28CC 0%, #242073 60%, #101228 100%); }
+.art-int { background: linear-gradient(155deg, #0D6FA8 0%, #0A375B 62%, #0A1424 100%); }
+.art-win { background: linear-gradient(155deg, #10855D 0%, #0D4B3A 62%, #0B1D1B 100%); }
+.art-br { background: linear-gradient(155deg, #6E34D6 0%, #3E1D7A 60%, #18102A 100%); }
+
+.ch-badge {
+  width: 40px;
+  height: 40px;
+  border-radius: 13px;
+  display: grid;
+  place-items: center;
+  font-family: 'Fraunces', serif;
+  font-weight: 700;
+  font-size: 13px;
+  flex: none;
+}
+.t-violet { background: #2A2342; color: #C4B5FD; }
+.t-green { background: #14301F; color: #7DD3A8; }
+.t-cyan { background: #12303A; color: #7DD3E8; }
+.t-red { background: #3A1E24; color: #FFB3BC; }
+.t-amber { background: #3A2E14; color: #F2C879; }
+
+.ch-row {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 9px 11px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.scroll-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0 16px 96px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.notes-grid {
+  max-width: 1180px;
+  margin: 0 auto 48px;
+  padding: 0 24px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+}
+.note-card {
+  background: rgba(21, 21, 23, 0.85);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 16px 18px;
+}
+.note-card h3 {
+  margin: 0 0 6px;
+  font-family: 'Fraunces', serif;
+  font-size: 16px;
+  color: var(--ink);
+}
+.note-card p {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--ink2);
+}
+
+@media (max-width: 940px) {
+  .iphone-landscape { transform: scale(0.76); transform-origin: top center; margin-bottom: -95px; }
+}
+</style>
+</head>
+<body>
+
+<header class="page-bar">
+  <div class="brand-row">
+    <div class="brand-sq">▶</div>
+    <div>
+      <div class="brand-title">IPTV · iPhone 15 Tasarım Vitrini</div>
+      <div class="brand-sub">Kömür OLED teması · Fraunces + Hanken Grotesk · Dynamic Island güvenli alan</div>
+    </div>
+  </div>
+  <div class="seg" id="orientSeg">
+    <button data-mode="both" class="active">Yan Yana</button>
+    <button data-mode="portrait">Sadece Dikey</button>
+    <button data-mode="landscape">Sadece Yatay</button>
+  </div>
+</header>
+
+<nav class="screen-pills" id="screenTabs">
+  <button data-screen="home" class="active">Ana Sayfa</button>
+  <button data-screen="live">Canlı TV & EPG</button>
+  <button data-screen="movies">Filmler & Diziler</button>
+  <button data-screen="detail">Dizi Detayı</button>
+  <button data-screen="playerLive">Oynatıcı (Canlı)</button>
+  <button data-screen="playerVod">Oynatıcı (Film)</button>
+  <button data-screen="settings">Ayarlar</button>
+</nav>
+
+<main class="stage">
+  <section class="device-wrap" id="wrapPortrait">
+    <div class="device-caption">
+      <strong>iPhone 15 · Dikey</strong>
+      <span class="badge-dim">393 × 852 pt · @3x</span>
+    </div>
+    <div class="iphone-portrait">
+      <div class="screen" id="portraitScreen"></div>
+    </div>
+  </section>
+
+  <section class="device-wrap" id="wrapLandscape">
+    <div class="device-caption">
+      <strong>iPhone 15 · Yatay</strong>
+      <span class="badge-dim">852 × 393 pt · @3x</span>
+    </div>
+    <div class="iphone-landscape">
+      <div class="screen" id="landscapeScreen"></div>
+    </div>
+  </section>
+</main>
+
+<section class="notes-grid">
+  <article class="note-card">
+    <h3>Dynamic Island & Home Indicator</h3>
+    <p>Dikeyde üst 59 pt ve alt 34 pt, yatayda sol/sağ 59 pt ve alt 21 pt güvenli alan korunur. Hiçbir düğme çentiğin veya ana çizginin altında kalmaz.</p>
+  </article>
+  <article class="note-card">
+    <h3>Tek Elle Yüzen Cam Kapsül</h3>
+    <p>Dikey kullanımda 5 ana sekme başparmak bölgesindeki buzlu cam kapsülde; yatayda tüm 6 sekme sol güvenli alanın hemen içindeki 54 pt ince rayda yaşar.</p>
+  </article>
+  <article class="note-card">
+    <h3>Hibrit Dikey / Yatay Oynatıcı</h3>
+    <p>Dikeyde üstte 16:9 video, altta tek elle kanal/bölüm seçici ve EPG; yataya çevirince video kesintisiz tam ekran OLED moduna geçer.</p>
+  </article>
+  <article class="note-card">
+    <h3>iPhone 15 OLED + Sessiz Mod</h3>
+    <p>Gerçek #0B0B0D kömür siyahı OLED çerçeveyle bütünleşir. AVAudioSession .playback ile telefon sessiz moddayken bile yayın sesi açık kalır.</p>
+  </article>
+</section>
+
+<script>
+const ICONS = {
+  home: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3 3 10.5V20a1 1 0 0 0 1 1h6v-6h4v6h6a1 1 0 0 0 1-1v-9.5L12 3z"/></svg>',
+  live: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="13" rx="3"/><path d="m17 2-5 5-5-5"/></svg>',
+  movies: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M7 4v16M17 4v16M3 12h18"/></svg>',
+  series: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h12M4 7h16"/><rect x="2" y="11" width="20" height="10" rx="3"/></svg>',
+  fav: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-7-4.5-9.3-8.4C1.2 9.9 2.4 6 6 5.3c2-.4 3.8.5 6 2.7 2.2-2.2 4-3.1 6-2.7 3.6.7 4.8 4.6 3.3 7.3C19 16.5 12 21 12 21z"/></svg>',
+  settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M2 14h4M10 8h4M18 16h4"/></svg>'
+};
+
+const statusPortrait = () => `
+  <div class="island-portrait"></div>
+  <div class="status-portrait">
+    <span>09:41</span>
+    <span class="status-icons"><span>5G</span><span>▮▮▮▮</span><span>🔋</span></span>
+  </div>`;
+
+const bottomBar = (active) => {
+  const tabs = [
+    ['home', 'Ana sayfa'],
+    ['live', 'Canlı TV'],
+    ['movies', 'Filmler'],
+    ['series', 'Diziler'],
+    ['fav', 'Favoriler']
+  ];
+  return `<div class="bottom-bar">${tabs.map(([k, lbl]) => `
+    <div class="btab ${active === k ? 'on' : ''}">${ICONS[k]}<span>${lbl}</span></div>
+  `).join('')}</div><div class="home-ind-p"></div>`;
+};
+
+const landscapeRail = (active) => {
+  const tabs = ['home','live','movies','series','fav','settings'];
+  return `
+    <div class="island-landscape"></div>
+    <aside class="l-rail">
+      <div class="brand-sq" style="width:32px;height:32px;border-radius:10px;font-size:13px;margin-bottom:4px">▶</div>
+      ${tabs.map(k => `<div class="l-item ${active === k ? 'on' : ''}">${ICONS[k]}</div>`).join('')}
+      <div class="avatar-circle" style="margin-top:auto;width:32px;height:32px;font-size:13px">E</div>
+    </aside>`;
+};
+
+const headerP = (title, sub, settingsOn = false) => `
+  <div class="p-header">
+    <div style="flex:1;min-width:0">
+      <div class="p-title">${title}</div>
+      ${sub ? `<div class="p-sub">${sub}</div>` : ''}
+    </div>
+    <div class="icon-circle ${settingsOn ? 'active' : ''}">⚙</div>
+    <div class="avatar-circle">E</div>
+  </div>`;
+
+const SCREENS = {
+  home: {
+    portrait: () => `
+      ${statusPortrait()}
+      ${headerP('İyi geceler, Ev TV')}
+      <div class="scroll-body">
+        <div class="card" style="padding:15px;display:flex;gap:12px;align-items:center">
+          <div style="flex:1;min-width:0">
+            <span class="pill accent">Kaldığın yerden</span>
+            <div class="serif" style="font-size:21px;font-weight:650;margin-top:8px;line-height:1.15">Oppenheimer</div>
+            <div class="bar" style="margin-top:10px"><span style="width:42%"></span></div>
+            <div style="font-size:12px;color:var(--ink2);margin-top:4px">2 sa 15 dk kaldı</div>
+            <div class="btn-primary" style="margin-top:12px;height:38px">▶ Devam et</div>
+          </div>
+          <div class="art-opp" style="width:92px;height:136px;border-radius:16px;flex:none"></div>
+        </div>
+        <div>
+          <div class="serif" style="font-size:16px;font-weight:600;margin-bottom:8px">Son izlediklerin</div>
+          <div style="display:flex;gap:10px">
+            <div class="card" style="width:236px;padding:8px;display:flex;gap:10px;align-items:center;border-radius:18px;flex:none">
+              <div class="art-sev" style="width:54px;height:80px;border-radius:11px;flex:none"></div>
+              <div style="min-width:0">
+                <div class="serif" style="font-size:14px;font-weight:600">Severance</div>
+                <div style="font-size:11.5px;color:var(--ink2);margin-top:2px">1. sezon 3. bölüm · 27 dk</div>
+                <div class="bar" style="margin-top:8px;height:4px"><span style="width:55%"></span></div>
+              </div>
+            </div>
+            <div class="card" style="width:140px;padding:8px;display:flex;gap:8px;align-items:center;border-radius:18px;flex:none;opacity:.85">
+              <div class="art-dune" style="width:54px;height:80px;border-radius:11px;flex:none"></div>
+              <div style="min-width:0">
+                <div class="serif" style="font-size:13.5px;font-weight:600">Dune 2</div>
+                <div style="font-size:11px;color:var(--ink2)">1 sa 12 dk</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="card" style="padding:14px">
+          <div style="display:flex;align-items:center;margin-bottom:10px">
+            <span class="serif" style="font-size:16px;font-weight:600;margin-right:auto">Kanallarım</span>
+            <span style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:var(--live-text)"><span class="dot"></span>Canlı</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:9px">
+            ${[
+              ['T1','t-violet','TRT 1 HD','Ana Haber Bülteni','62%'],
+              ['TS','t-green','TRT Spor','Spor Gündemi (Canlı)','48%'],
+              ['NT','t-cyan','NTV','Gece Bülteni','30%']
+            ].map(([ab,cls,n,epg,pct]) => `
+              <div style="display:flex;align-items:center;gap:10px">
+                <div class="ch-badge ${cls}" style="width:36px;height:36px;border-radius:11px;font-size:12px">${ab}</div>
+                <div style="flex:1;min-width:0">
+                  <div class="serif" style="font-size:14px;font-weight:600">${n}</div>
+                  <div style="font-size:12px;color:var(--ink2);font-style:italic">${epg}</div>
+                </div>
+                <div class="bar" style="width:48px;height:4px"><span style="width:${pct}"></span></div>
+              </div>`).join('')}
+          </div>
+        </div>
+        <div>
+          <div class="serif" style="font-size:16px;font-weight:600;margin-bottom:8px">Filmlerim</div>
+          <div style="display:flex;gap:10px">
+            <div class="art-dune" style="width:88px;height:126px;border-radius:14px;flex:none"></div>
+            <div class="art-int" style="width:88px;height:126px;border-radius:14px;flex:none"></div>
+            <div class="art-win" style="width:88px;height:126px;border-radius:14px;flex:none"></div>
+            <div class="art-br" style="width:88px;height:126px;border-radius:14px;flex:none"></div>
+          </div>
+        </div>
+      </div>
+      ${bottomBar('home')}`,
+    landscape: () => `
+      <div class="l-shell">
+        ${landscapeRail('home')}
+        <div class="l-main">
+          <div class="serif" style="font-size:21px;font-weight:650;padding:2px 4px">İyi geceler, Ev TV</div>
+          <div style="flex:1;min-height:0;display:flex;gap:12px">
+            <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:10px">
+              <div class="card" style="padding:14px;display:flex;gap:14px;align-items:center">
+                <div style="flex:1;min-width:0">
+                  <span class="pill accent">Kaldığın yerden</span>
+                  <div class="serif" style="font-size:21px;font-weight:650;margin-top:6px">Oppenheimer</div>
+                  <div style="display:flex;align-items:center;gap:10px;margin-top:8px">
+                    <div class="bar" style="flex:1"><span style="width:42%"></span></div>
+                    <span style="font-size:12px;color:var(--ink2)">2 sa 15 dk</span>
+                  </div>
+                  <div class="btn-primary" style="margin-top:10px;height:36px">▶ Devam et</div>
+                </div>
+                <div class="art-opp" style="width:84px;height:124px;border-radius:15px;flex:none"></div>
+              </div>
+              <div class="serif" style="font-size:15px;font-weight:600">Son izlediklerin</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+                <div class="card" style="padding:8px;display:flex;gap:9px;align-items:center;border-radius:18px">
+                  <div class="art-sev" style="width:48px;height:70px;border-radius:10px;flex:none"></div>
+                  <div style="min-width:0">
+                    <div class="serif" style="font-size:13.5px;font-weight:600">Severance</div>
+                    <div style="font-size:11.5px;color:var(--ink2)">S1B3 · 27 dk</div>
+                    <div class="bar" style="margin-top:6px;height:4px"><span style="width:55%"></span></div>
+                  </div>
+                </div>
+                <div class="card" style="padding:8px;display:flex;gap:9px;align-items:center;border-radius:18px">
+                  <div class="art-dune" style="width:48px;height:70px;border-radius:10px;flex:none"></div>
+                  <div style="min-width:0">
+                    <div class="serif" style="font-size:13.5px;font-weight:600">Dune 2</div>
+                    <div style="font-size:11.5px;color:var(--ink2)">1 sa 12 dk kaldı</div>
+                    <div class="bar" style="margin-top:6px;height:4px"><span style="width:62%"></span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="card" style="width:246px;padding:14px;display:flex;flex-direction:column;gap:10px;flex:none">
+              <div style="display:flex;align-items:center">
+                <span class="serif" style="font-size:15.5px;font-weight:600;margin-right:auto">Kanallarım</span>
+                <span style="display:flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;color:var(--live-text)"><span class="dot"></span>Canlı</span>
+              </div>
+              ${[
+                ['T1','t-violet','TRT 1 HD','Ana Haber Bülteni','62%'],
+                ['TS','t-green','TRT Spor','Spor Gündemi','48%'],
+                ['NT','t-cyan','NTV','Gece Bülteni','30%'],
+                ['BS','t-amber','beIN Sports 1','Süper Lig Özeti','74%']
+              ].map(([ab,cls,n,epg,pct]) => `
+                <div style="display:flex;align-items:center;gap:9px">
+                  <div class="ch-badge ${cls}" style="width:34px;height:34px;border-radius:10px;font-size:11.5px">${ab}</div>
+                  <div style="flex:1;min-width:0">
+                    <div class="serif" style="font-size:13.5px;font-weight:600">${n}</div>
+                    <div style="font-size:11.5px;color:var(--ink2);font-style:italic;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${epg}</div>
+                  </div>
+                  <div class="bar" style="width:38px;height:4px"><span style="width:${pct}"></span></div>
+                </div>`).join('')}
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="home-ind-l"></div>`
+  },
+
+  live: {
+    portrait: () => `
+      ${statusPortrait()}
+      ${headerP('Canlı TV', 'Tümü, 8 kanal')}
+      <div style="padding:0 16px 8px"><div class="search-pill">🔍 Kanal ara</div></div>
+      <div class="chip-row" style="margin-bottom:10px">
+        <span class="chip" style="background:var(--surface-alt)">⊞</span>
+        <span class="chip on">Tümü <small>8</small></span>
+        <span class="chip">Ulusal <small>1</small></span>
+        <span class="chip">Spor <small>3</small></span>
+        <span class="chip">Haber <small>2</small></span>
+      </div>
+      <div class="scroll-body" style="gap:8px">
+        ${[
+          ['1','T1','t-violet','TRT 1 HD','Ana Haber Bülteni','22:38–23:38','62%',true],
+          ['2','TS','t-green','TRT Spor','Spor Gündemi (Canlı)','22:23–23:23','72%',true],
+          ['3','NT','t-cyan','NTV','Gece Bülteni','22:53–23:53','24%',true],
+          ['4','BS','t-violet','beIN Sports 1','Süper Lig Özeti','22:48–23:48','44%',true],
+          ['5','TB','t-red','TRT Belgesel','Anadolu’nun Yaban Hayatı','22:33–23:33','58%',false],
+          ['6','CT','t-cyan','CNN Türk','Gündem Özel','22:43–23:43','38%',false],
+          ['7','T2','t-amber','TRT 2','Sinema Söyleşileri','22:58–23:58','15%',false]
+        ].map(([num,ab,cls,name,epg,time,pct,fav]) => `
+          <div class="ch-row">
+            <div class="ch-badge ${cls}">${ab}</div>
+            <div style="flex:1;min-width:0">
+              <div style="display:flex;align-items:baseline;gap:6px">
+                <span style="font-size:11.5px;color:var(--ink3);font-variant-numeric:tabular-nums">${num}</span>
+                <span class="serif" style="font-size:14.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${name}</span>
+              </div>
+              <div style="font-size:12px;color:var(--ink2);font-style:italic;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${epg}</div>
+              <div style="display:flex;align-items:center;gap:7px;margin-top:4px">
+                <div class="bar" style="flex:1;height:3.5px"><span style="width:${pct}"></span></div>
+                <span style="font-size:10.5px;color:var(--ink3);font-variant-numeric:tabular-nums">${time}</span>
+              </div>
+            </div>
+            <span style="font-size:17px;color:${fav ? 'var(--live)' : 'var(--ink3)'}">${fav ? '♥' : '♡'}</span>
+          </div>`).join('')}
+      </div>
+      ${bottomBar('live')}`,
+    landscape: () => `
+      <div class="l-shell">
+        ${landscapeRail('live')}
+        <div class="l-main">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span class="serif" style="font-size:21px;font-weight:650">Canlı TV</span>
+            <span style="font-size:12.5px;color:var(--ink2);margin-right:auto">Tümü, 8 kanal</span>
+            <div class="search-pill" style="width:190px;height:36px;font-size:12.5px">🔍 Kanal ara</div>
+          </div>
+          <div style="flex:1;min-height:0;display:flex;gap:10px">
+            <div class="card" style="width:170px;padding:10px;display:flex;flex-direction:column;gap:4px;flex:none">
+              <div class="search-pill" style="height:32px;font-size:12px;background:var(--surface-alt);border:0">🔍 Kategori</div>
+              <div style="height:34px;border-radius:11px;background:var(--accent-soft);color:var(--accent-ink);padding:0 10px;display:flex;align-items:center;justify-content:space-between;font-size:13px;font-weight:700;margin-top:4px"><span>Tümü</span><span>8</span></div>
+              ${[['Ulusal',1],['Spor',3],['Haber',2],['Belgesel',1],['Kültür',1]].map(([g,c]) => `
+                <div style="height:32px;padding:0 10px;display:flex;align-items:center;justify-content:space-between;font-size:12.5px;color:var(--ink2)"><span>${g}</span><span>${c}</span></div>
+              `).join('')}
+              <div class="btn-sec" style="margin-top:auto;height:32px;font-size:11.5px">⚙ Düzenle</div>
+            </div>
+            <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:7px;overflow:hidden">
+              ${[
+                ['1','T1','t-violet','TRT 1 HD','Ana Haber Bülteni','22:38–23:38','62%',true],
+                ['2','TS','t-green','TRT Spor','Spor Gündemi (Canlı)','22:23–23:23','72%',true],
+                ['3','NT','t-cyan','NTV','Gece Bülteni','22:53–23:53','24%',true],
+                ['4','BS','t-violet','beIN Sports 1','Süper Lig Özeti','22:48–23:48','44%',true],
+                ['5','TB','t-red','TRT Belgesel','Anadolu’nun Yaban Hayatı','22:33–23:33','58%',false]
+              ].map(([num,ab,cls,name,epg,time,pct,fav]) => `
+                <div class="ch-row" style="padding:8px 12px">
+                  <span style="width:16px;text-align:right;font-size:12px;color:var(--ink3)">${num}</span>
+                  <div class="ch-badge ${cls}" style="width:36px;height:36px;border-radius:11px;font-size:12px">${ab}</div>
+                  <div style="flex:1;min-width:0">
+                    <div class="serif" style="font-size:14px;font-weight:600">${name}</div>
+                    <div style="font-size:11.5px;color:var(--ink2);font-style:italic">${epg}</div>
+                  </div>
+                  <div style="width:110px;text-align:right">
+                    <div style="font-size:11px;color:var(--ink2);font-variant-numeric:tabular-nums">${time}</div>
+                    <div class="bar" style="margin-top:4px;height:4px"><span style="width:${pct}"></span></div>
+                  </div>
+                  <span style="font-size:16px;color:${fav ? 'var(--live)' : 'var(--ink3)'}">${fav ? '♥' : '♡'}</span>
+                </div>`).join('')}
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="home-ind-l"></div>`
+  },
+
+  movies: {
+    portrait: () => `
+      ${statusPortrait()}
+      ${headerP('Filmler', '10 film')}
+      <div style="padding:0 16px 8px;display:flex;gap:8px">
+        <div class="search-pill" style="flex:1">🔍 Film ara</div>
+        <div class="btn-sec" style="height:40px;background:var(--surface);border:1px solid var(--line)">⇅ Sırala</div>
+      </div>
+      <div class="chip-row" style="margin-bottom:10px">
+        <span class="chip" style="background:var(--surface-alt)">⊞</span>
+        <span class="chip on">Tümü <small>10</small></span>
+        <span class="chip">Bilim Kurgu <small>4</small></span>
+        <span class="chip">Dram <small>3</small></span>
+        <span class="chip">Aksiyon <small>2</small></span>
+      </div>
+      <div class="scroll-body">
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:11px">
+          ${[
+            ['art-dune','Dune 2','2024, TR',true],
+            ['art-opp','Oppenheimer','2023, TR',false],
+            ['art-int','Yıldızlararası','2014, TR',true],
+            ['art-br','Başlangıç','2010, TR',false],
+            ['art-win','Kış Uykusu','2014, TR',false],
+            ['art-sev','Blade Runner','2017, EN',false],
+            ['art-dune','Parazit','2019, TR',false],
+            ['art-win','Geliş','2016, TR',false],
+            ['art-opp','Mad Max','2015, TR',false]
+          ].map(([art,t,m,fav]) => `
+            <div>
+              <div class="${art}" style="aspect-ratio:2/3;border-radius:14px;position:relative;border:1px solid rgba(255,255,255,0.06)">
+                ${fav ? '<span style="position:absolute;top:6px;right:6px;width:24px;height:24px;border-radius:50%;background:var(--surface);display:grid;place-items:center;font-size:12px;color:var(--live)">♥</span>' : ''}
+              </div>
+              <div class="serif" style="font-size:12.5px;font-weight:600;margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${t}</div>
+              <div style="font-size:11px;color:var(--ink2)">${m}</div>
+            </div>`).join('')}
+        </div>
+      </div>
+      ${bottomBar('movies')}`,
+    landscape: () => `
+      <div class="l-shell">
+        ${landscapeRail('movies')}
+        <div class="l-main">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span class="serif" style="font-size:21px;font-weight:650">Filmler</span>
+            <span style="font-size:12.5px;color:var(--ink2);margin-right:auto">10 film</span>
+            <div class="search-pill" style="width:170px;height:36px;font-size:12.5px">🔍 Film ara</div>
+            <div class="btn-sec" style="height:36px;background:var(--surface);border:1px solid var(--line)">⇅ Sırala</div>
+          </div>
+          <div style="flex:1;min-height:0;display:flex;gap:10px">
+            <div class="card" style="width:166px;padding:10px;display:flex;flex-direction:column;gap:4px;flex:none">
+              <div class="search-pill" style="height:32px;font-size:12px;background:var(--surface-alt);border:0">🔍 Kategori</div>
+              <div style="height:34px;border-radius:11px;background:var(--accent-soft);color:var(--accent-ink);padding:0 10px;display:flex;align-items:center;justify-content:space-between;font-size:13px;font-weight:700;margin-top:4px"><span>Tümü</span><span>10</span></div>
+              ${[['Bilim Kurgu',4],['Dram',3],['Aksiyon',2],['Gerilim',1]].map(([g,c]) => `
+                <div style="height:32px;padding:0 10px;display:flex;align-items:center;justify-content:space-between;font-size:12.5px;color:var(--ink2)"><span>${g}</span><span>${c}</span></div>
+              `).join('')}
+            </div>
+            <div style="flex:1;display:grid;grid-template-columns:repeat(4,1fr);gap:12px;overflow:hidden;align-content:start">
+              ${[
+                ['art-dune','Dune 2','2024, TR',true],
+                ['art-opp','Oppenheimer','2023, TR',false],
+                ['art-int','Yıldızlararası','2014, TR',true],
+                ['art-br','Başlangıç','2010, TR',false],
+                ['art-win','Kış Uykusu','2014, TR',false],
+                ['art-sev','Blade Runner','2017, EN',false],
+                ['art-dune','Parazit','2019, TR',false],
+                ['art-win','Geliş','2016, TR',false]
+              ].map(([art,t,m,fav]) => `
+                <div>
+                  <div class="${art}" style="height:132px;border-radius:14px;position:relative;border:1px solid rgba(255,255,255,0.06)">
+                    ${fav ? '<span style="position:absolute;top:6px;right:6px;width:24px;height:24px;border-radius:50%;background:var(--surface);display:grid;place-items:center;font-size:12px;color:var(--live)">♥</span>' : ''}
+                  </div>
+                  <div class="serif" style="font-size:12.5px;font-weight:600;margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${t}</div>
+                  <div style="font-size:11px;color:var(--ink2)">${m}</div>
+                </div>`).join('')}
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="home-ind-l"></div>`
+  },
+
+  detail: {
+    portrait: () => `
+      <div style="position:absolute;left:0;right:0;top:0;height:255px;background:linear-gradient(180deg, rgba(59,40,204,0.45) 0%, rgba(11,11,13,0.92) 78%, var(--ground) 100%)"></div>
+      ${statusPortrait()}
+      <div style="padding:4px 16px;display:flex;justify-content:space-between;position:relative;z-index:10">
+        <div class="icon-circle" style="background:var(--video-glass)">‹</div>
+        <div class="icon-circle" style="background:var(--video-glass);color:var(--live)">♥</div>
+      </div>
+      <div class="scroll-body" style="padding-top:10px;padding-bottom:24px;position:relative;z-index:10">
+        <div style="display:flex;gap:14px;align-items:flex-end">
+          <div class="art-sev" style="width:106px;height:158px;border-radius:17px;border:1px solid var(--glass-border);box-shadow:0 16px 32px rgba(0,0,0,0.55);flex:none"></div>
+          <div style="min-width:0">
+            <div style="font-size:12px;font-weight:600;color:var(--accent-ink)">Dizi</div>
+            <div class="serif" style="font-size:25px;font-weight:650;margin-top:2px">Severance</div>
+            <div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:8px">
+              <span class="pill warn">★ 8.7</span>
+              <span class="pill neutral">2022</span>
+              <span class="pill neutral">TR</span>
+              <span class="pill neutral">2 sezon</span>
+            </div>
+          </div>
+        </div>
+        <div class="btn-primary" style="width:100%;height:44px">▶ 3. bölümden devam et</div>
+        <div class="card" style="padding:14px;font-size:13px;line-height:1.5;color:var(--body)">
+          Lumon Industries çalışanları, iş ve özel yaşam anılarını birbirinden tamamen ayıran cerrahi bir işlem geçirmiştir. Mark Scout ekibinin karanlık gerçeğini keşfeder.
+          <div style="font-size:12px;color:var(--ink2);margin-top:8px">Oyuncular: Adam Scott, Zach Cherry, Britt Lower</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="btn-primary" style="height:34px;padding:0 14px;font-size:12.5px">1. sezon</span>
+          <span class="btn-sec" style="height:34px">2. sezon</span>
+          <span style="margin-left:auto;font-size:12.5px;color:var(--ink2)">4 bölüm</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:9px">
+          ${[
+            ['1. bölüm','İyi Haberler','57 dk',0],
+            ['2. bölüm','Yarım Döngü','52 dk',0],
+            ['3. bölüm','Sonsuza Dek','27 dk kaldı',56]
+          ].map(([tag,name,meta,pct]) => `
+            <div class="ch-row" style="padding:9px">
+              <div class="art-sev" style="width:108px;height:64px;border-radius:12px;position:relative;flex:none;padding:6px">
+                <span class="pill" style="background:var(--surface);color:var(--ink);height:20px;font-size:10.5px;padding:0 7px">${tag}</span>
+                ${pct ? `<div class="bar" style="position:absolute;left:7px;right:7px;bottom:6px;height:3.5px;background:rgba(0,0,0,0.45)"><span style="width:${pct}%;background:#fff"></span></div>` : ''}
+              </div>
+              <div style="flex:1;min-width:0">
+                <div class="serif" style="font-size:14.5px;font-weight:600">${name}</div>
+                <div style="font-size:12px;margin-top:3px;color:${pct ? 'var(--accent-ink)' : 'var(--ink2)'};font-weight:600">${meta}</div>
+              </div>
+              <div class="icon-circle" style="width:32px;height:32px;background:var(--surface-alt);border:0;color:var(--accent-ink);font-size:12px">▶</div>
+            </div>`).join('')}
+        </div>
+      </div>
+      <div class="home-ind-p"></div>`,
+    landscape: () => `
+      <div class="island-landscape"></div>
+      <div style="flex:1;display:flex;gap:12px;padding:12px 54px 18px 58px;min-height:0">
+        <div class="card" style="width:320px;padding:14px;display:flex;flex-direction:column;gap:10px;flex:none">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="btn-sec" style="height:32px;padding:0 12px;font-size:12px">‹ Geri</span>
+            <span style="font-size:12px;color:var(--ink2)">Diziler</span>
+          </div>
+          <div style="display:flex;gap:12px">
+            <div class="art-sev" style="width:80px;height:120px;border-radius:13px;flex:none"></div>
+            <div style="min-width:0">
+              <div class="serif" style="font-size:21px;font-weight:650">Severance</div>
+              <div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:7px">
+                <span class="pill warn">★ 8.7</span>
+                <span class="pill neutral">2022</span>
+                <span class="pill neutral">2 sezon</span>
+              </div>
+            </div>
+          </div>
+          <div style="font-size:12.5px;line-height:1.45;color:var(--body)">Lumon Industries çalışanları, iş ve özel yaşam anılarını birbirinden tamamen ayıran cerrahi bir işlem geçirmiştir.</div>
+          <div style="margin-top:auto;display:flex;gap:8px">
+            <div class="btn-primary" style="flex:1;height:40px;font-size:13px">▶ 3. bölümden devam</div>
+            <div class="icon-circle" style="width:40px;height:40px;background:var(--live-soft);color:var(--live-ink);border:0">♥</div>
+          </div>
+        </div>
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:9px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="btn-primary" style="height:32px;padding:0 13px;font-size:12px">1. sezon</span>
+            <span class="btn-sec" style="height:32px;font-size:12px">2. sezon</span>
+            <span style="margin-left:auto;font-size:12px;color:var(--ink2)">4 bölüm</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px;overflow:hidden">
+            ${[
+              ['1. bölüm','İyi Haberler','57 dk',0],
+              ['2. bölüm','Yarım Döngü','52 dk',0],
+              ['3. bölüm','Sonsuza Dek','27 dk kaldı',56],
+              ['4. bölüm','Sen Kimsin?','49 dk',0]
+            ].map(([tag,name,meta,pct]) => `
+              <div class="ch-row" style="padding:8px">
+                <div class="art-sev" style="width:104px;height:58px;border-radius:11px;position:relative;flex:none;padding:5px">
+                  <span class="pill" style="background:var(--surface);color:var(--ink);height:19px;font-size:10px;padding:0 6px">${tag}</span>
+                  ${pct ? `<div class="bar" style="position:absolute;left:6px;right:6px;bottom:5px;height:3px;background:rgba(0,0,0,0.45)"><span style="width:${pct}%;background:#fff"></span></div>` : ''}
+                </div>
+                <div style="flex:1;min-width:0">
+                  <div class="serif" style="font-size:14px;font-weight:600">${name}</div>
+                  <div style="font-size:12px;color:${pct ? 'var(--accent-ink)' : 'var(--ink2)'};font-weight:600">${meta}</div>
+                </div>
+                <div class="icon-circle" style="width:32px;height:32px;background:var(--surface-alt);border:0;color:var(--accent-ink);font-size:11px">▶</div>
+              </div>`).join('')}
+          </div>
+        </div>
+      </div>
+      <div class="home-ind-l"></div>`
+  },
+
+  playerLive: {
+    portrait: () => `
+      <div style="background:#000">${statusPortrait()}</div>
+      <div style="height:221px;background:radial-gradient(circle at 55% 42%, #2F2156 0%, #0D0B18 65%, #000 100%);position:relative;flex:none;display:flex;flex-direction:column;justify-content:space-between;padding:10px 12px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="icon-circle" style="width:32px;height:32px;background:var(--video-glass)">‹</div>
+          <div style="flex:1;min-width:0">
+            <div class="serif" style="font-size:14px;font-weight:600">TRT 1 HD</div>
+            <div style="font-size:11px;color:var(--body)">Ulusal</div>
+          </div>
+          <div class="icon-circle" style="width:32px;height:32px;background:var(--video-glass);font-size:13px">⛶</div>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:center;gap:22px">
+          <div class="icon-circle" style="width:40px;height:40px;background:var(--video-glass)">⏮</div>
+          <div class="icon-circle active" style="width:50px;height:50px;font-size:18px">❚❚</div>
+          <div class="icon-circle" style="width:40px;height:40px;background:var(--video-glass)">⏭</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="pill live" style="height:22px"><span class="dot"></span>Canlı</span>
+          <span style="font-size:11.5px;color:var(--body)">#1</span>
+        </div>
+      </div>
+      <div class="scroll-body" style="padding:14px 16px 26px;gap:12px">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div class="ch-badge t-violet" style="width:44px;height:44px">T1</div>
+          <div>
+            <div style="display:flex;align-items:center;gap:7px"><span class="pill live" style="height:21px"><span class="dot"></span>Canlı</span><span style="font-size:12px;color:var(--ink2)">#1 · Ulusal</span></div>
+            <div class="serif" style="font-size:20px;font-weight:650;margin-top:2px">TRT 1 HD</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:7px;overflow:hidden">
+          <span class="btn-primary" style="height:34px;padding:0 13px;font-size:12px;flex:none">⟳ Yatay tam ekran</span>
+          <span class="btn-sec" style="height:34px;font-size:12px;flex:none">♪ Türkçe</span>
+          <span class="btn-sec" style="height:34px;font-size:12px;flex:none">CC Kapalı</span>
+        </div>
+        <div class="card" style="padding:13px">
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <span class="pill accent" style="height:22px">Şimdi yayında</span>
+            <span style="font-size:12px;color:var(--ink2);font-variant-numeric:tabular-nums">22:38 – 23:38</span>
+          </div>
+          <div class="serif" style="font-size:15.5px;font-weight:600;margin-top:7px">Ana Haber Bülteni</div>
+          <div class="bar" style="margin-top:8px"><span style="width:62%"></span></div>
+          <div style="font-size:12px;color:var(--ink2);margin-top:8px">Sırada 23:38 · <strong style="color:var(--body)">Gece Kuşağı</strong></div>
+        </div>
+        <div class="serif" style="font-size:15.5px;font-weight:600">Kanallar <span style="font-family:HankenGrotesk;font-size:12.5px;color:var(--ink2)">8</span></div>
+        <div style="display:flex;flex-direction:column;gap:7px">
+          ${[
+            ['T1','t-violet','TRT 1 HD',true],
+            ['TS','t-green','TRT Spor',false],
+            ['NT','t-cyan','NTV',false],
+            ['BS','t-amber','beIN Sports 1',false]
+          ].map(([ab,cls,n,on]) => `
+            <div class="ch-row" style="padding:8px 11px;${on ? 'background:var(--accent-soft);border-color:rgba(167,139,250,0.5)' : ''}">
+              <div class="ch-badge ${cls}" style="width:32px;height:32px;border-radius:10px;font-size:11px">${ab}</div>
+              <span class="serif" style="font-size:14px;font-weight:600;color:${on ? 'var(--accent-ink)' : 'var(--ink)'};margin-right:auto">${n}</span>
+              ${on ? '<span style="color:var(--accent);font-size:14px">ılılı</span>' : ''}
+            </div>`).join('')}
+        </div>
+      </div>
+      <div class="home-ind-p"></div>`,
+    landscape: () => `
+      <div class="island-landscape"></div>
+      <div style="flex:1;background:radial-gradient(circle at 58% 45%, #2E2058 0%, #100D1E 60%, #000 100%);position:relative;display:flex;flex-direction:column;justify-content:space-between;padding:16px 58px 20px 62px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="icon-circle" style="background:var(--video-glass)">‹</div>
+          <div style="margin-right:auto">
+            <div class="serif" style="font-size:16px;font-weight:600">TRT 1 HD</div>
+            <div style="font-size:11.5px;color:var(--body)">Ulusal</div>
+          </div>
+          <span class="btn-sec" style="height:34px;background:var(--video-glass);border:1px solid var(--glass-border)">☰ Kanallar</span>
+          <span class="btn-sec" style="height:34px;background:var(--video-glass);border:1px solid var(--glass-border)">♪ Türkçe</span>
+          <span class="btn-sec" style="height:34px;background:var(--video-glass);border:1px solid var(--glass-border)">CC Kapalı</span>
+          <div class="icon-circle" style="background:var(--video-glass)">⟳</div>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:center;gap:28px">
+          <div class="icon-circle" style="width:46px;height:46px;background:var(--video-glass)">⏮</div>
+          <div class="icon-circle active" style="width:60px;height:60px;font-size:22px">❚❚</div>
+          <div class="icon-circle" style="width:46px;height:46px;background:var(--video-glass)">⏭</div>
+        </div>
+        <div style="background:var(--video-glass);backdrop-filter:blur(20px);border:1px solid var(--glass-border);border-radius:20px;padding:11px 14px;display:flex;align-items:center;gap:12px">
+          <div class="ch-badge t-violet" style="width:40px;height:40px">T1</div>
+          <div style="width:140px">
+            <div class="serif" style="font-size:15px;font-weight:650">1 · TRT 1 HD</div>
+            <span class="pill live" style="height:20px;margin-top:3px"><span class="dot"></span>Canlı</span>
+          </div>
+          <div style="flex:1;padding-left:14px;border-left:1px solid var(--line)">
+            <div style="display:flex;justify-content:space-between;font-size:13px">
+              <strong class="serif">Ana Haber Bülteni</strong>
+              <span style="color:var(--ink2);font-variant-numeric:tabular-nums">22:38–23:38</span>
+            </div>
+            <div class="bar" style="margin-top:6px;height:4px"><span style="width:62%"></span></div>
+            <div style="font-size:11px;color:var(--ink2);margin-top:4px">Sırada 23:38 · Gece Kuşağı</div>
+          </div>
+          <div class="icon-circle" style="width:34px;height:34px;background:var(--surface-alt)">▲</div>
+          <div class="icon-circle" style="width:34px;height:34px;background:var(--surface-alt)">▼</div>
+        </div>
+      </div>
+      <div class="home-ind-l"></div>`
+  },
+
+  playerVod: {
+    portrait: () => `
+      <div style="background:#000">${statusPortrait()}</div>
+      <div style="height:221px;background:radial-gradient(circle at 52% 45%, #3D2136 0%, #140D1B 62%, #000 100%);position:relative;flex:none;display:flex;flex-direction:column;justify-content:space-between;padding:10px 12px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="icon-circle" style="width:32px;height:32px;background:var(--video-glass)">‹</div>
+          <div style="flex:1;min-width:0">
+            <div class="serif" style="font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Dune: Çöl Gezegeni Bölüm İki</div>
+          </div>
+          <div class="icon-circle" style="width:32px;height:32px;background:var(--video-glass);font-size:13px">⛶</div>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:center;gap:22px">
+          <div class="icon-circle" style="width:42px;height:42px;background:var(--video-glass);font-size:11px;font-weight:700">-10</div>
+          <div class="icon-circle active" style="width:50px;height:50px;font-size:18px">❚❚</div>
+          <div class="icon-circle" style="width:42px;height:42px;background:var(--video-glass);font-size:11px;font-weight:700">+10</div>
+        </div>
+        <div style="background:var(--video-glass);border:1px solid var(--glass-border);border-radius:14px;padding:6px 10px;display:flex;align-items:center;gap:8px;font-size:11px;font-variant-numeric:tabular-nums">
+          <span>1:34:12</span>
+          <div class="bar" style="flex:1"><span style="width:56%"></span></div>
+          <span style="color:var(--ink2)">-1:11:48</span>
+        </div>
+      </div>
+      <div class="scroll-body" style="padding:16px 16px 26px;gap:14px">
+        <div>
+          <div style="font-size:12px;color:var(--accent-ink);font-weight:600">Bilim Kurgu · 2024</div>
+          <div class="serif" style="font-size:22px;font-weight:650;margin-top:3px">Dune: Çöl Gezegeni Bölüm İki</div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          <span class="btn-primary" style="height:36px;padding:0 14px;font-size:12.5px">⟳ Yatay tam ekran</span>
+          <span class="btn-sec" style="height:36px">♪ Türkçe (AC3)</span>
+          <span class="btn-sec" style="height:36px">CC Türkçe</span>
+          <span class="btn-sec" style="height:36px">⚡ 1.0x</span>
+          <span class="btn-sec" style="height:36px">⏱ Zamana git</span>
+          <span class="btn-sec" style="height:36px">⤢ Doldur</span>
+        </div>
+        <div class="card" style="padding:14px;display:flex;align-items:center;justify-content:space-between">
+          <div>
+            <div class="serif" style="font-size:14.5px;font-weight:600">Çift dokunuşla sarma</div>
+            <div style="font-size:12px;color:var(--ink2);margin-top:2px">Videonun soluna -10 sn, sağına +10 sn</div>
+          </div>
+          <span class="pill accent">Aktif</span>
+        </div>
+      </div>
+      <div class="home-ind-p"></div>`,
+    landscape: () => `
+      <div class="island-landscape"></div>
+      <div style="flex:1;background:radial-gradient(circle at 52% 45%, #3D2136 0%, #140D1B 62%, #000 100%);position:relative;display:flex;flex-direction:column;justify-content:space-between;padding:16px 58px 20px 62px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="icon-circle" style="background:var(--video-glass)">‹</div>
+          <div style="margin-right:auto">
+            <div class="serif" style="font-size:16.5px;font-weight:600">Dune: Çöl Gezegeni Bölüm İki</div>
+            <div style="font-size:11.5px;color:var(--body)">Bilim Kurgu · 2024</div>
+          </div>
+          <span class="btn-sec" style="height:34px;background:var(--video-glass);border:1px solid var(--glass-border)">♪ Türkçe</span>
+          <span class="btn-sec" style="height:34px;background:var(--video-glass);border:1px solid var(--glass-border)">CC Kapalı</span>
+          <span class="btn-sec" style="height:34px;background:var(--video-glass);border:1px solid var(--glass-border)">⚡ 1.0x</span>
+          <div class="icon-circle" style="background:var(--video-glass)">⤢</div>
+          <div class="icon-circle" style="background:var(--video-glass)">⟳</div>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:center;gap:28px">
+          <div class="icon-circle" style="width:46px;height:46px;background:var(--video-glass);font-size:12px;font-weight:700">-10</div>
+          <div class="icon-circle active" style="width:60px;height:60px;font-size:22px">❚❚</div>
+          <div class="icon-circle" style="width:46px;height:46px;background:var(--video-glass);font-size:12px;font-weight:700">+10</div>
+        </div>
+        <div style="background:var(--video-glass);backdrop-filter:blur(20px);border:1px solid var(--glass-border);border-radius:20px;padding:11px 16px;display:flex;align-items:center;gap:12px;font-size:13.5px;font-variant-numeric:tabular-nums">
+          <strong>1:34:12</strong>
+          <div class="bar" style="flex:1;height:7px"><span style="width:56%"></span></div>
+          <span style="color:var(--ink2)">-1:11:48</span>
+          <span class="btn-sec" style="height:32px;font-size:12px;background:var(--surface-alt)">⏱ Zamana git</span>
+        </div>
+      </div>
+      <div class="home-ind-l"></div>`
+  },
+
+  settings: {
+    portrait: () => `
+      ${statusPortrait()}
+      ${headerP('Ayarlar', null, true)}
+      <div class="chip-row" style="margin-bottom:10px">
+        <span class="chip on">Hesap</span>
+        <span class="chip">Oynatıcı</span>
+        <span class="chip">İçerik</span>
+        <span class="chip">Görünüm</span>
+      </div>
+      <div class="scroll-body" style="gap:12px">
+        <div class="card" style="padding:14px">
+          <div style="display:flex;align-items:center;gap:12px">
+            <div class="ch-badge t-amber" style="width:46px;height:46px">ET</div>
+            <div>
+              <div class="serif" style="font-size:17px;font-weight:650">Ev TV</div>
+              <div style="font-size:12.5px;color:var(--ink2)">demo.example</div>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px">
+            <div style="background:var(--surface-alt);border-radius:14px;padding:10px">
+              <div style="font-size:11px;color:var(--ink2)">Abonelik bitişi</div>
+              <div class="serif" style="font-size:13.5px;font-weight:600;margin-top:3px">19.11.2027</div>
+            </div>
+            <div style="background:var(--surface-alt);border-radius:14px;padding:10px">
+              <div style="font-size:11px;color:var(--ink2)">Bağlantılar</div>
+              <div class="serif" style="font-size:13.5px;font-weight:600;color:var(--ok);margin-top:3px">1 / 2 aktif</div>
+            </div>
+          </div>
+          <div class="btn-sec" style="width:100%;height:40px;margin-top:12px">↪ Kullanıcı değiştir</div>
+        </div>
+        <div class="card" style="padding:14px;display:flex;flex-direction:column;gap:12px">
+          <div class="serif" style="font-size:16.5px;font-weight:600">Oynatıcı</div>
+          <div>
+            <div class="serif" style="font-size:14px;font-weight:600;margin-bottom:6px">Tercih edilen ses dili</div>
+            <div style="display:flex;background:var(--surface-alt);padding:3px;border-radius:14px;font-size:12px;font-weight:600">
+              <span style="flex:1;text-align:center;padding:7px 4px;border-radius:11px;background:var(--surface);color:var(--ink)">Varsayılan</span>
+              <span style="flex:1;text-align:center;padding:7px 4px;color:var(--ink2)">Türkçe</span>
+              <span style="flex:1;text-align:center;padding:7px 4px;color:var(--ink2)">İngilizce</span>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <div>
+              <div class="serif" style="font-size:14px;font-weight:600">Donanım hızlandırma</div>
+              <div style="font-size:11.5px;color:var(--ink2)">VideoToolbox donanım çözücü</div>
+            </div>
+            <div style="width:46px;height:26px;border-radius:13px;background:var(--accent);padding:3px;display:flex;justify-content:flex-end"><span style="width:20px;height:20px;border-radius:50%;background:var(--surface)"></span></div>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <div>
+              <div class="serif" style="font-size:14px;font-weight:600">Sonraki bölümü otomatik oynat</div>
+              <div style="font-size:11.5px;color:var(--ink2)">Bölüm bitince 10 sn sayar</div>
+            </div>
+            <div style="width:46px;height:26px;border-radius:13px;background:var(--accent);padding:3px;display:flex;justify-content:flex-end"><span style="width:20px;height:20px;border-radius:50%;background:var(--surface)"></span></div>
+          </div>
+        </div>
+      </div>
+      ${bottomBar('settings')}`,
+    landscape: () => `
+      <div class="l-shell">
+        ${landscapeRail('settings')}
+        <div class="l-main">
+          <div class="serif" style="font-size:21px;font-weight:650;padding:2px 4px">Ayarlar</div>
+          <div style="flex:1;min-height:0;display:flex;gap:10px">
+            <div class="card" style="width:166px;padding:8px;display:flex;flex-direction:column;gap:3px;flex:none">
+              ${['Hesap','Oynatıcı','İçerik','Telefon kumanda','Görünüm','Kısayollar'].map((s,i) => `
+                <div style="height:34px;border-radius:11px;padding:0 10px;display:flex;align-items:center;font-size:13px;font-weight:${i===0?700:600};background:${i===0?'var(--accent-soft)':'transparent'};color:${i===0?'var(--accent-ink)':'var(--ink2)'}">${s}</div>
+              `).join('')}
+            </div>
+            <div style="flex:1;display:flex;flex-direction:column;gap:10px;overflow:hidden">
+              <div class="card" style="padding:12px 14px;display:flex;align-items:center;gap:14px">
+                <div class="ch-badge t-amber" style="width:42px;height:42px">ET</div>
+                <div>
+                  <div class="serif" style="font-size:15.5px;font-weight:650">Ev TV</div>
+                  <div style="font-size:12px;color:var(--ink2)">demo.example</div>
+                </div>
+                <div style="padding-left:14px;border-left:1px solid var(--line)">
+                  <div style="font-size:11px;color:var(--ink2)">Eşzamanlı bağlantılar</div>
+                  <div class="serif" style="font-size:13.5px;color:var(--ok);font-weight:600">1 / 2 kullanımda</div>
+                </div>
+                <span class="btn-sec" style="margin-left:auto">↪ Değiştir</span>
+              </div>
+              <div class="card" style="padding:14px;display:flex;flex-direction:column;gap:12px;flex:1">
+                <div class="serif" style="font-size:16px;font-weight:600">Oynatıcı</div>
+                <div style="display:flex;align-items:center;justify-content:space-between">
+                  <span class="serif" style="font-size:14px;font-weight:600">Tercih edilen ses dili</span>
+                  <div style="display:flex;background:var(--surface-alt);padding:3px;border-radius:14px;font-size:12px;font-weight:600;gap:4px">
+                    <span style="padding:5px 10px;border-radius:10px;background:var(--surface)">Varsayılan</span>
+                    <span style="padding:5px 10px;color:var(--ink2)">Türkçe</span>
+                    <span style="padding:5px 10px;color:var(--ink2)">İngilizce</span>
+                  </div>
+                </div>
+                <div style="display:flex;align-items:center;justify-content:space-between">
+                  <div>
+                    <div class="serif" style="font-size:14px;font-weight:600">Donanım hızlandırma</div>
+                    <div style="font-size:12px;color:var(--ink2)">Apple A16 VideoToolbox donanım çözücü</div>
+                  </div>
+                  <div style="width:46px;height:26px;border-radius:13px;background:var(--accent);padding:3px;display:flex;justify-content:flex-end"><span style="width:20px;height:20px;border-radius:50%;background:var(--surface)"></span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="home-ind-l"></div>`
+  }
+};
+
+let currentScreen = 'home';
+let currentMode = 'both';
+
+function render() {
+  const s = SCREENS[currentScreen];
+  document.getElementById('portraitScreen').innerHTML = s.portrait();
+  document.getElementById('landscapeScreen').innerHTML = s.landscape();
+  document.getElementById('wrapPortrait').classList.toggle('hidden', currentMode === 'landscape');
+  document.getElementById('wrapLandscape').classList.toggle('hidden', currentMode === 'portrait');
+}
+
+document.getElementById('screenTabs').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-screen]');
+  if (!btn) return;
+  currentScreen = btn.dataset.screen;
+  document.querySelectorAll('#screenTabs button').forEach(b => b.classList.toggle('active', b === btn));
+  render();
+});
+
+document.getElementById('orientSeg').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-mode]');
+  if (!btn) return;
+  currentMode = btn.dataset.mode;
+  document.querySelectorAll('#orientSeg button').forEach(b => b.classList.toggle('active', b === btn));
+  render();
+});
+
+render();
+</script>
+</body>
+</html>

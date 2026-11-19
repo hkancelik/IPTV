@@ -16,6 +16,7 @@ import 'ui/basics.dart';
 import 'ui/controls.dart';
 import 'ui/focus_ring.dart';
 import 'ui/format.dart';
+import 'ui/layout.dart';
 import 'ui/shell.dart';
 import 'ui/tokens.dart';
 import 'xtream.dart';
@@ -90,9 +91,7 @@ class _HomePageState extends State<HomePage> {
       _playLive(item);
     } else {
       Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => DetailPage(client: widget.client, item: item),
-        ),
+        appRoute(context, (_) => DetailPage(client: widget.client, item: item)),
       );
     }
   }
@@ -116,16 +115,18 @@ class _HomePageState extends State<HomePage> {
     }
 
     Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => PlayerPage(queue: [for (final i in list) entry(i)], index: index, kind: Kind.live, client: widget.client),
+      appRoute(
+        context,
+        (_) => PlayerPage(queue: [for (final i in list) entry(i)], index: index, kind: Kind.live, client: widget.client),
       ),
     );
   }
 
   void _openHistory(HistoryEntry e) {
     Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => PlayerPage(
+      appRoute(
+        context,
+        (_) => PlayerPage(
           queue: [PlayerEntry(url: e.url, title: e.title, logo: e.logo)],
           kind: e.kind,
           client: widget.client,
@@ -246,115 +247,239 @@ class _HomePageState extends State<HomePage> {
       counts[i.group] = (counts[i.group] ?? 0) + 1;
     }
     String filter = '';
+    final phone = isPhoneLayout(context);
+
+    Widget buildBody(BuildContext ctx, StateSetter setLocal, {required bool compact}) {
+      final s = AppSettings.instance;
+      final ordered = s.orderedGroups(kind, counts.keys);
+      final visible = [
+        for (final n in ordered)
+          if (filter.isEmpty || matchesQuery(n, filter)) n,
+      ];
+      final canReorder = filter.isEmpty;
+
+      void save(List<String> order) {
+        s.update(groupOrder: {...s.groupOrder, kind.name: order});
+        setLocal(() {});
+      }
+
+      void move(int from, int to) {
+        final list = [...ordered];
+        final item = list.removeAt(from);
+        list.insert(to.clamp(0, list.length), item);
+        save(list);
+      }
+
+      Widget tile(int index, String n) {
+        final key = AppSettings.groupKey(kind, n);
+        return Container(
+          key: ValueKey(n),
+          height: 56,
+          padding: const EdgeInsets.symmetric(horizontal: 6),
+          child: Row(children: [
+            if (canReorder)
+              ReorderableDragStartListener(
+                index: index,
+                child: const Padding(padding: EdgeInsets.symmetric(horizontal: 6), child: Icon(Icons.drag_indicator_rounded, size: 20, color: AppColors.ink3)),
+              ),
+            Checkbox(
+              value: !s.hiddenGroups.contains(key),
+              onChanged: (v) {
+                AppHaptics.selection(ctx);
+                final next = {...s.hiddenGroups};
+                (v ?? true) ? next.remove(key) : next.add(key);
+                s.update(hiddenGroups: next);
+                setLocal(() {});
+              },
+            ),
+            const SizedBox(width: 4),
+            Expanded(
+              child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(groupLabel(n), maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.label(14)),
+                Text('${counts[n]} öğe', style: AppText.meta(12.5)),
+              ]),
+            ),
+            if (canReorder) ...[
+              AppButton(icon: Icons.vertical_align_top_rounded, height: compact ? 36 : AppSizes.buttonHeight, tooltip: 'En üste al', onPressed: index == 0 ? null : () => move(index, 0)),
+              if (!compact) ...[
+                const SizedBox(width: 4),
+                AppButton(icon: Icons.keyboard_arrow_up_rounded, tooltip: 'Yukarı', onPressed: index == 0 ? null : () => move(index, index - 1)),
+                const SizedBox(width: 4),
+                AppButton(icon: Icons.keyboard_arrow_down_rounded, tooltip: 'Aşağı', onPressed: index >= ordered.length - 1 ? null : () => move(index, index + 1)),
+              ],
+            ],
+          ]),
+        );
+      }
+
+      return Column(children: [
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Text(
+            compact ? 'Sürükleyerek sırayı değiştir. Kutuyu kaldırarak gizle.' : 'Sürükleyerek ya da oklarla sırayı değiştir. Kutuyu kaldırarak kategoriyi gizle.',
+            style: AppText.meta(13),
+          ),
+        ),
+        const SizedBox(height: 10),
+        SearchField(hint: 'Kategori ara (arama sırasında sıralama kapalı)', onPage: false, onChanged: (v) => setLocal(() => filter = v)),
+        const SizedBox(height: 6),
+        Expanded(
+          child: canReorder
+              ? ReorderableListView.builder(
+                  buildDefaultDragHandles: false,
+                  padding: const EdgeInsets.symmetric(vertical: AppSizes.scrollPad),
+                  itemCount: visible.length,
+                  itemExtent: 56,
+                  onReorderItem: (from, to) => move(from, to),
+                  itemBuilder: (_, i) => tile(i, visible[i]),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.symmetric(vertical: AppSizes.scrollPad),
+                  itemExtent: 56,
+                  itemCount: visible.length,
+                  itemBuilder: (_, i) => tile(i, visible[i]),
+                ),
+        ),
+      ]);
+    }
+
+    if (phone) {
+      await showAppSheet<void>(
+        context: context,
+        title: 'Kategorileri düzenle',
+        maxHeightFraction: 0.88,
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx, setLocal) => Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+            child: Column(
+              children: [
+                Expanded(child: buildBody(ctx, setLocal, compact: true)),
+                const SizedBox(height: 10),
+                Row(children: [
+                  Expanded(
+                    child: AppButton(
+                      label: 'Sırayı sıfırla',
+                      onPressed: () {
+                        AppSettings.instance.update(groupOrder: {...AppSettings.instance.groupOrder}..remove(kind.name));
+                        setLocal(() {});
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: AppButton(label: 'Tamam', variant: AppButtonVariant.primary, onPressed: () => Navigator.pop(ctx)),
+                  ),
+                ]),
+              ],
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+
     await showDialog<void>(
       context: context,
       builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) => AlertDialog(
+          title: const Text('Kategorileri düzenle'),
+          content: SizedBox(width: 560, height: 520, child: buildBody(ctx, setLocal, compact: false)),
+          actions: [
+            AppButton(
+              label: 'Sırayı sıfırla',
+              onPressed: () {
+                AppSettings.instance.update(groupOrder: {...AppSettings.instance.groupOrder}..remove(kind.name));
+                setLocal(() {});
+              },
+            ),
+            AppButton(label: 'Tamam', variant: AppButtonVariant.primary, onPressed: () => Navigator.pop(ctx)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Searchable iOS bottom sheet for picking a category when playlists have many categories.
+  Future<void> _openCategorySheet(Kind kind, _View view) async {
+    String q = '';
+    await showAppSheet<void>(
+      context: context,
+      title: 'Kategoriler',
+      subtitle: '${groupCount(view.groups.length)} kategori',
+      trailing: AppButton(
+        dense: true,
+        height: 36,
+        icon: Icons.tune_rounded,
+        label: 'Düzenle',
+        onPressed: () {
+          Navigator.of(context).pop();
+          _manageGroups(kind);
+        },
+      ),
+      builder: (ctx) => StatefulBuilder(
         builder: (ctx, setLocal) {
-          final s = AppSettings.instance;
-          final ordered = s.orderedGroups(kind, counts.keys);
-          final visible = [
-            for (final n in ordered)
-              if (filter.isEmpty || matchesQuery(n, filter)) n,
-          ];
-          final canReorder = filter.isEmpty;
-
-          void save(List<String> order) {
-            s.update(groupOrder: {...s.groupOrder, kind.name: order});
-            setLocal(() {});
-          }
-
-          void move(int from, int to) {
-            final list = [...ordered];
-            final item = list.removeAt(from);
-            list.insert(to.clamp(0, list.length), item);
-            save(list);
-          }
-
-          Widget tile(int index, String n) {
-            final key = AppSettings.groupKey(kind, n);
-            return Container(
-              key: ValueKey(n),
-              height: 56,
-              padding: const EdgeInsets.symmetric(horizontal: 6),
-              child: Row(children: [
-                if (canReorder)
-                  ReorderableDragStartListener(
-                    index: index,
-                    child: const Padding(padding: EdgeInsets.symmetric(horizontal: 6), child: Icon(Icons.drag_indicator_rounded, size: 20, color: AppColors.ink3)),
-                  ),
-                Checkbox(
-                  value: !s.hiddenGroups.contains(key),
-                  onChanged: (v) {
-                    final next = {...s.hiddenGroups};
-                    (v ?? true) ? next.remove(key) : next.add(key);
-                    s.update(hiddenGroups: next);
-                    setLocal(() {});
+          final names = AppSettings.instance.orderedGroups(kind, view.groups.keys).where((n) => matchesQuery(groupLabel(n), q)).toList();
+          final showAll = q.trim().isEmpty;
+          return Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                child: SearchField(hint: 'Kategori ara', onPage: false, onChanged: (v) => setLocal(() => q = v)),
+              ),
+              Expanded(
+                child: ListView.builder(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  itemCount: names.length + (showAll ? 1 : 0),
+                  itemBuilder: (_, i) {
+                    if (showAll && i == 0) {
+                      return SheetOptionTile(
+                        label: 'Tümü',
+                        trailingText: groupCount(view.total),
+                        selected: _group == null,
+                        onTap: () {
+                          setState(() => _group = null);
+                          Navigator.of(ctx).pop();
+                        },
+                      );
+                    }
+                    final name = names[i - (showAll ? 1 : 0)];
+                    return SheetOptionTile(
+                      label: groupLabel(name),
+                      trailingText: groupCount(view.groups[name] ?? 0),
+                      selected: _group == name,
+                      onTap: () {
+                        setState(() => _group = name);
+                        Navigator.of(ctx).pop();
+                      },
+                    );
                   },
                 ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(groupLabel(n), maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.label(14)),
-                    Text('${counts[n]} öğe', style: AppText.meta(13)),
-                  ]),
-                ),
-                if (canReorder) ...[
-                  AppButton(icon: Icons.vertical_align_top_rounded, tooltip: 'En üste al', onPressed: index == 0 ? null : () => move(index, 0)),
-                  const SizedBox(width: 4),
-                  AppButton(icon: Icons.keyboard_arrow_up_rounded, tooltip: 'Yukarı', onPressed: index == 0 ? null : () => move(index, index - 1)),
-                  const SizedBox(width: 4),
-                  AppButton(icon: Icons.keyboard_arrow_down_rounded, tooltip: 'Aşağı', onPressed: index >= ordered.length - 1 ? null : () => move(index, index + 1)),
-                ],
-              ]),
-            );
-          }
-
-          return AlertDialog(
-            title: const Text('Kategorileri düzenle'),
-            content: SizedBox(
-              width: 560,
-              height: 520,
-              child: Column(children: [
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text('Sürükleyerek ya da oklarla sırayı değiştir. Kutuyu kaldırarak kategoriyi gizle.', style: AppText.meta(13)),
-                ),
-                const SizedBox(height: 12),
-                SearchField(hint: 'Kategori ara (arama sırasında sıralama kapalı)', onPage: false, onChanged: (v) => setLocal(() => filter = v)),
-                const SizedBox(height: 8),
-                Expanded(
-                  child: canReorder
-                      ? ReorderableListView.builder(
-                          buildDefaultDragHandles: false,
-                          padding: const EdgeInsets.symmetric(vertical: AppSizes.scrollPad),
-                          itemCount: visible.length,
-                          itemExtent: 56,
-                          onReorderItem: (from, to) => move(from, to),
-                          itemBuilder: (_, i) => tile(i, visible[i]),
-                        )
-                      : ListView.builder(
-                          padding: const EdgeInsets.symmetric(vertical: AppSizes.scrollPad),
-                          itemExtent: 56,
-                          itemCount: visible.length,
-                          itemBuilder: (_, i) => tile(i, visible[i]),
-                        ),
-                ),
-              ]),
-            ),
-            actions: [
-              AppButton(
-                label: 'Sırayı sıfırla',
-                onPressed: () {
-                  s.update(groupOrder: {...s.groupOrder}..remove(kind.name));
-                  setLocal(() {});
-                },
               ),
-              AppButton(label: 'Tamam', variant: AppButtonVariant.primary, onPressed: () => Navigator.pop(ctx)),
             ],
           );
         },
       ),
     );
+  }
+
+  Future<void> _pickSortSheet() async {
+    final picked = await showAppSheet<_Sort>(
+      context: context,
+      title: 'Sırala',
+      builder: (ctx) => ListView(
+        shrinkWrap: true,
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        children: [
+          for (final e in _sortLabels.entries)
+            SheetOptionTile(
+              label: e.value,
+              selected: e.key == _sort,
+              onTap: () => Navigator.of(ctx).pop(e.key),
+            ),
+        ],
+      ),
+    );
+    if (picked != null && mounted) setState(() => _sort = picked);
   }
 
   @override
@@ -363,28 +488,605 @@ class _HomePageState extends State<HomePage> {
       listenable: Listenable.merge([AppSettings.instance, Library.instance]),
       // Back (TV remote) never lands on the profile page: it steps back to "Tümü", then to Ana Sayfa,
       // then leaves the app. Switching user goes through Ayarlar (Navigator.pop ignores this PopScope).
-      builder: (context, _) => PopScope(
-        canPop: false,
-        onPopInvokedWithResult: (didPop, _) {
-          if (didPop) return;
-          if (_group != null && _kind != null) {
-            setState(() => _group = null);
-          } else if (_tab != _homeTab) {
-            _select(_homeTab);
-          } else {
-            SystemNavigator.pop();
-          }
-        },
-        child: Scaffold(
-          body: Row(
+      builder: (context, _) {
+        final mode = layoutModeOf(context);
+        return PopScope(
+          canPop: false,
+          onPopInvokedWithResult: (didPop, _) {
+            if (didPop) return;
+            if (_group != null && _kind != null) {
+              setState(() => _group = null);
+            } else if (_tab != _homeTab) {
+              _select(_homeTab);
+            } else {
+              SystemNavigator.pop();
+            }
+          },
+          child: switch (mode) {
+            AppLayoutMode.desktop => Scaffold(
+                body: Row(
+                  children: [
+                    SideMenu(selected: _tab, onSelect: _select, accountName: widget.account.name, onAccount: () => Navigator.of(context).pop()),
+                    const SizedBox(width: 8),
+                    Expanded(child: _content()),
+                  ],
+                ),
+              ),
+            AppLayoutMode.phonePortrait => Scaffold(
+                resizeToAvoidBottomInset: false,
+                body: Stack(
+                  children: [
+                    Positioned.fill(child: _phonePortraitContent()),
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: PhoneBottomBar(selected: _tab, onSelect: _select),
+                    ),
+                  ],
+                ),
+              ),
+            AppLayoutMode.phoneLandscape => Scaffold(
+                body: Row(
+                  children: [
+                    PhoneLandscapeRail(
+                      selected: _tab,
+                      onSelect: _select,
+                      accountName: widget.account.name,
+                      onAccount: () => Navigator.of(context).pop(),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(child: _phoneLandscapeContent()),
+                  ],
+                ),
+              ),
+          },
+        );
+      },
+    );
+  }
+
+  // ─── Phone Portrait & Landscape shells ─────────────────────
+
+  List<Widget> _phoneHeaderEndActions() => [
+        PhoneIconButton(
+          key: const ValueKey('nav-settings'),
+          icon: Icons.tune_rounded,
+          tooltip: 'Ayarlar',
+          active: _tab == _settingsTab,
+          onTap: () => _select(_tab == _settingsTab ? _homeTab : _settingsTab),
+        ),
+        PhoneAccountAvatar(
+          name: widget.account.name,
+          onTap: () => Navigator.of(context).pop(),
+        ),
+      ];
+
+  Widget _phonePortraitContent() {
+    if (_tab == _homeTab) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          PhoneTopBar(
+            title: '${greeting(DateTime.now())}, ${widget.account.name}',
+            actions: _phoneHeaderEndActions(),
+          ),
+          Expanded(child: _phoneHomeView(landscape: false)),
+        ],
+      );
+    }
+    if (_tab == _settingsTab) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          PhoneTopBar(title: 'Ayarlar', actions: _phoneHeaderEndActions()),
+          Expanded(
+            child: SettingsPage(
+              info: widget.info,
+              account: widget.account,
+              client: widget.client,
+              onLogout: () => Navigator.of(context).pop(),
+            ),
+          ),
+        ],
+      );
+    }
+    if (_tab == _favoritesTab) {
+      final match = queryMatcher(_query);
+      final favs = Library.instance.favorites.where(_allowed).where((i) => match(foldedNameOf(i))).toList();
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          PhoneTopBar(title: 'Favoriler', subtitle: favs.isEmpty ? null : '${groupCount(favs.length)} kayıt', actions: _phoneHeaderEndActions()),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+            child: SearchField(key: ValueKey('search$_tab'), hint: 'Favorilerde ara', onChanged: (v) => setState(() => _query = v)),
+          ),
+          Expanded(child: _favoritesView(favs, phonePortrait: true)),
+        ],
+      );
+    }
+
+    final kind = _kind!;
+    final view = _viewOf(kind);
+    final shown = view.shown;
+    final ready = !_loading.contains(kind) && _errors[kind] == null;
+    final n = groupCount(shown.length);
+    final (title, hint, subtitle) = switch (kind) {
+      Kind.live => ('Canlı TV', 'Kanal ara', '${_group == null ? 'Tümü' : groupLabel(_group!)}, $n kanal'),
+      Kind.movie => ('Filmler', 'Film ara', '${_group == null ? '' : '${groupLabel(_group!)} · '}$n film'),
+      Kind.series => ('Diziler', 'Dizi ara', '${_group == null ? '' : '${groupLabel(_group!)} · '}$n dizi'),
+    };
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        PhoneTopBar(title: title, subtitle: ready ? subtitle : null, actions: _phoneHeaderEndActions()),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+          child: Row(
             children: [
-              SideMenu(selected: _tab, onSelect: _select, accountName: widget.account.name, onAccount: () => Navigator.of(context).pop()),
-              const SizedBox(width: 8),
-              Expanded(child: _content()),
+              Expanded(child: SearchField(key: ValueKey('search$_tab'), hint: hint, onChanged: (v) => setState(() => _query = v))),
+              if (kind != Kind.live) ...[
+                const SizedBox(width: 8),
+                AppButton(
+                  variant: AppButtonVariant.onPage,
+                  height: 44,
+                  dense: true,
+                  icon: Icons.swap_vert_rounded,
+                  label: _sort == _Sort.provider ? 'Sırala' : _sortLabels[_sort],
+                  tooltip: 'Sırala',
+                  onPressed: _pickSortSheet,
+                ),
+              ],
             ],
           ),
         ),
+        if (ready && view.groups.isNotEmpty) ...[
+          _phoneCategoryStrip(kind, view),
+          const SizedBox(height: 8),
+        ],
+        Expanded(child: _body(kind, shown, phonePortrait: true)),
+      ],
+    );
+  }
+
+  Widget _phoneLandscapeContent() {
+    final pad = MediaQuery.paddingOf(context);
+    final rightPad = pad.right > 0 ? pad.right : 14.0;
+    final bottomPad = pad.bottom > 0 ? pad.bottom : 10.0;
+
+    if (_tab == _homeTab) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          PhoneTopBar(title: '${greeting(DateTime.now())}, ${widget.account.name}', landscape: true),
+          Expanded(child: _phoneHomeView(landscape: true)),
+        ],
+      );
+    }
+    if (_tab == _settingsTab) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const PhoneTopBar(title: 'Ayarlar', landscape: true),
+          Expanded(
+            child: SettingsPage(
+              info: widget.info,
+              account: widget.account,
+              client: widget.client,
+              onLogout: () => Navigator.of(context).pop(),
+            ),
+          ),
+        ],
+      );
+    }
+    if (_tab == _favoritesTab) {
+      final match = queryMatcher(_query);
+      final favs = Library.instance.favorites.where(_allowed).where((i) => match(foldedNameOf(i))).toList();
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          PhoneTopBar(
+            title: 'Favoriler',
+            subtitle: favs.isEmpty ? null : '${groupCount(favs.length)} kayıt',
+            landscape: true,
+            actions: [
+              SearchField(key: ValueKey('search$_tab'), hint: 'Favorilerde ara', width: 220, onChanged: (v) => setState(() => _query = v)),
+            ],
+          ),
+          Expanded(child: _favoritesView(favs, phoneLandscape: true)),
+        ],
+      );
+    }
+
+    final kind = _kind!;
+    final view = _viewOf(kind);
+    final shown = view.shown;
+    final ready = !_loading.contains(kind) && _errors[kind] == null;
+    final n = groupCount(shown.length);
+    final (title, hint, subtitle) = switch (kind) {
+      Kind.live => ('Canlı TV', 'Kanal ara', '${_group == null ? 'Tümü' : groupLabel(_group!)}, $n kanal'),
+      Kind.movie => ('Filmler', 'Film ara', '$n film'),
+      Kind.series => ('Diziler', 'Dizi ara', '$n dizi'),
+    };
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        PhoneTopBar(
+          title: title,
+          subtitle: ready ? subtitle : null,
+          landscape: true,
+          actions: [
+            SearchField(key: ValueKey('search$_tab'), hint: hint, width: 200, onChanged: (v) => setState(() => _query = v)),
+            if (kind != Kind.live)
+              AppButton(
+                variant: AppButtonVariant.onPage,
+                height: 40,
+                dense: true,
+                icon: Icons.swap_vert_rounded,
+                label: _sort == _Sort.provider ? 'Sırala' : _sortLabels[_sort],
+                tooltip: 'Sırala',
+                onPressed: _pickSortSheet,
+              ),
+          ],
+        ),
+        Expanded(
+          child: Padding(
+            padding: EdgeInsets.only(left: 8, right: rightPad > 14 ? rightPad - 8 : 0),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: EdgeInsets.only(top: 4, bottom: bottomPad),
+                  child: SizedBox(width: 188, child: _categoryPanel(kind, view, compact: true)),
+                ),
+                const SizedBox(width: 8),
+                Expanded(child: _body(kind, shown, phoneLandscape: true)),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Horizontal category chip bar for iPhone portrait, with searchable sheet & editor shortcuts.
+  Widget _phoneCategoryStrip(Kind kind, _View view) {
+    final names = AppSettings.instance.orderedGroups(kind, view.groups.keys);
+    Widget chip({required String label, String? count, required bool selected, required VoidCallback onTap}) => GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () {
+            AppHaptics.selection(context);
+            onTap();
+          },
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 140),
+            height: 36,
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            decoration: BoxDecoration(
+              color: selected ? AppColors.accentSoft : AppColors.surface,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: selected ? AppColors.accent.withValues(alpha: 0.45) : AppColors.line),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(label, style: selected ? AppText.title(13.5, color: AppColors.accentInk) : AppText.label(13.5, color: AppColors.ink2)),
+                if (count != null) ...[
+                  const SizedBox(width: 6),
+                  Text(count, style: AppText.meta(11.5, color: selected ? AppColors.accentInk : AppColors.ink3)),
+                ],
+              ],
+            ),
+          ),
+        );
+
+    return SizedBox(
+      height: 36,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        children: [
+          Tooltip(
+            message: 'Tüm kategoriler',
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () {
+                AppHaptics.selection(context);
+                _openCategorySheet(kind, view);
+              },
+              child: Container(
+                height: 36,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceAlt,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: AppColors.line),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.grid_view_rounded, size: 16, color: AppColors.ink),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          chip(label: 'Tümü', count: groupCount(view.total), selected: _group == null, onTap: () => setState(() => _group = null)),
+          for (final name in names) ...[
+            const SizedBox(width: 8),
+            chip(
+              label: groupLabel(name),
+              count: groupCount(view.groups[name] ?? 0),
+              selected: _group == name,
+              onTap: () => setState(() => _group = name),
+            ),
+          ],
+          const SizedBox(width: 8),
+          Tooltip(
+            message: 'Kategorileri düzenle / gizle',
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () {
+                AppHaptics.selection(context);
+                _manageGroups(kind);
+              },
+              child: Container(
+                height: 36,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceAlt,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: AppColors.line),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.tune_rounded, size: 15, color: AppColors.ink2),
+                    const SizedBox(width: 6),
+                    Text('Düzenle', style: AppText.label(13, color: AppColors.ink2)),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
+    );
+  }
+
+  Widget _phoneHomeView({required bool landscape}) {
+    final lib = Library.instance;
+    final continueList = lib.continueWatching.take(7).toList();
+    final favs = lib.favorites.where(_allowed).toList();
+    List<Item> of(Kind k) => favs.where((i) => i.kind == k).toList();
+    final channels = of(Kind.live);
+    final movies = of(Kind.movie);
+    final series = of(Kind.series);
+    final recents = continueList.skip(1).toList();
+    final pad = MediaQuery.paddingOf(context);
+
+    Widget continueHero(HistoryEntry e) {
+      final title = playerTitle(e.title).$1;
+      final left = _left(e);
+      return AppCard(
+        radius: AppSizes.cardRadius,
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Pill('Kaldığın yerden', tone: PillTone.accent, height: 26),
+                  const SizedBox(height: 10),
+                  Text(title, maxLines: 2, overflow: TextOverflow.ellipsis, style: AppText.display(landscape ? 22 : 24)),
+                  if (left != null) ...[
+                    const SizedBox(height: 10),
+                    ProgressBar(value: e.progress, height: 6),
+                    const SizedBox(height: 5),
+                    Text(left, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.meta(12.5)),
+                  ],
+                  const SizedBox(height: 14),
+                  AppButton(
+                    label: 'Devam et',
+                    icon: Icons.play_arrow_rounded,
+                    variant: AppButtonVariant.primary,
+                    height: 42,
+                    onPressed: () {
+                      AppHaptics.light(context);
+                      _openHistory(e);
+                    },
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 14),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: SizedBox(
+                width: landscape ? 88 : 96,
+                height: landscape ? 132 : 144,
+                child: ColoredBox(color: AppColors.surfaceAlt, child: PosterImage(e.logo, cacheWidth: 320)),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    Widget recentsCarousel() => SizedBox(
+          height: 108,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: EdgeInsets.symmetric(horizontal: landscape ? 4 : 16),
+            itemCount: recents.length,
+            separatorBuilder: (_, _) => const SizedBox(width: 12),
+            itemBuilder: (_, i) {
+              final e = recents[i];
+              final sub = [?episodeLabel(e.title), ?_left(e)].join(', ');
+              return GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () {
+                  AppHaptics.light(context);
+                  _openHistory(e);
+                },
+                child: Container(
+                  width: 248,
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: AppColors.line),
+                  ),
+                  child: Row(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: SizedBox(width: 60, height: 90, child: ColoredBox(color: AppColors.surfaceAlt, child: PosterImage(e.logo))),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(playerTitle(e.title).$1, maxLines: 2, overflow: TextOverflow.ellipsis, style: AppText.title(14.5)),
+                            if (sub.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 3), child: Text(sub, maxLines: 2, overflow: TextOverflow.ellipsis, style: AppText.meta(12))),
+                            if (e.durationMs > 0) Padding(padding: const EdgeInsets.only(top: 8, right: 4), child: ProgressBar(value: e.progress, height: 4)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        );
+
+    Widget posterRow(List<Item> items) => SizedBox(
+          height: 152,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: EdgeInsets.symmetric(horizontal: landscape ? 4 : 16),
+            itemCount: items.length,
+            separatorBuilder: (_, _) => const SizedBox(width: 12),
+            itemBuilder: (_, i) {
+              final it = items[i];
+              return GestureDetector(
+                onTap: () {
+                  AppHaptics.light(context);
+                  _open(it);
+                },
+                child: Container(
+                  width: 100,
+                  height: 150,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(AppSizes.itemRadius),
+                    border: Border.all(color: AppColors.line),
+                  ),
+                  child: ClipRRect(borderRadius: BorderRadius.circular(AppSizes.itemRadius - 1), child: PosterImage(it.logo)),
+                ),
+              );
+            },
+          ),
+        );
+
+    if (continueList.isEmpty && favs.isEmpty) {
+      return Padding(
+        padding: EdgeInsets.fromLTRB(landscape ? 12 : 16, 12, landscape ? (pad.right > 0 ? pad.right : 14) : 16, landscape ? 16 : phoneBottomClearance(context)),
+        child: Align(
+          alignment: Alignment.topCenter,
+          child: AppCard(
+            radius: AppSizes.cardRadius,
+            padding: const EdgeInsets.all(28),
+            child: Text(
+              'Burası senin sayfan.\nBeğendiğin kanal, film ve dizilerin kalp ikonuna dokun, burada görünsün.',
+              textAlign: TextAlign.center,
+              style: AppText.body(),
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (landscape) {
+      final rightPad = pad.right > 0 ? pad.right : 14.0;
+      final bottomPad = pad.bottom > 0 ? pad.bottom + 8 : 14.0;
+      final hasLeft = continueList.isNotEmpty || recents.isNotEmpty || movies.isNotEmpty || series.isNotEmpty;
+      return Padding(
+        padding: EdgeInsets.fromLTRB(12, 4, rightPad, 0),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (hasLeft)
+              Expanded(
+                child: ListView(
+                  padding: EdgeInsets.only(bottom: bottomPad),
+                  children: [
+                    if (continueList.isNotEmpty) ...[continueHero(continueList.first), const SizedBox(height: 16)],
+                    if (recents.isNotEmpty) ...[_sectionTitle('Son izlediklerin'), recentsCarousel(), const SizedBox(height: 16)],
+                    if (movies.isNotEmpty) ...[_sectionTitle('Filmlerim'), posterRow(movies), const SizedBox(height: 14)],
+                    if (series.isNotEmpty) ...[_sectionTitle('Dizilerim'), posterRow(series)],
+                  ],
+                ),
+              ),
+            if (hasLeft && channels.isNotEmpty) const SizedBox(width: 14),
+            if (channels.isNotEmpty)
+              if (hasLeft)
+                SizedBox(
+                  width: 268,
+                  child: SingleChildScrollView(
+                    padding: EdgeInsets.only(bottom: bottomPad),
+                    child: _channelPanel(channels),
+                  ),
+                )
+              else
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: EdgeInsets.only(bottom: bottomPad),
+                    child: _channelPanel(channels),
+                  ),
+                ),
+          ],
+        ),
+      );
+    }
+
+    return ListView(
+      padding: EdgeInsets.only(top: 4, bottom: phoneBottomClearance(context)),
+      children: [
+        if (continueList.isNotEmpty) ...[
+          Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: continueHero(continueList.first)),
+          const SizedBox(height: 20),
+        ],
+        if (recents.isNotEmpty) ...[
+          Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: _sectionTitle('Son izlediklerin')),
+          const SizedBox(height: 4),
+          recentsCarousel(),
+          const SizedBox(height: 20),
+        ],
+        if (channels.isNotEmpty) ...[
+          Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: _channelPanel(channels)),
+          const SizedBox(height: 20),
+        ],
+        if (movies.isNotEmpty) ...[
+          Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: _sectionTitle('Filmlerim')),
+          const SizedBox(height: 4),
+          posterRow(movies),
+          const SizedBox(height: 18),
+        ],
+        if (series.isNotEmpty) ...[
+          Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: _sectionTitle('Dizilerim')),
+          const SizedBox(height: 4),
+          posterRow(series),
+        ],
+      ],
     );
   }
 
@@ -453,7 +1155,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   /// Category search, "Tümü" and the categories with their counts, and the key that opens the editor.
-  Widget _categoryPanel(Kind kind, _View view) {
+  Widget _categoryPanel(Kind kind, _View view, {bool compact = false}) {
     final names = AppSettings.instance.orderedGroups(kind, view.groups.keys).where((n) => matchesQuery(groupLabel(n), _groupQuery)).toList();
     final showAll = _groupQuery.trim().isEmpty;
     return AppCard(
@@ -494,7 +1196,7 @@ class _HomePageState extends State<HomePage> {
         ),
         AppButton(
           icon: Icons.tune_rounded,
-          label: 'Kategorileri düzenle',
+          label: compact ? 'Düzenle' : 'Kategorileri düzenle',
           tooltip: 'Kategorileri düzenle / gizle',
           dense: true,
           onPressed: () => _manageGroups(kind),
@@ -755,7 +1457,7 @@ class _HomePageState extends State<HomePage> {
         ),
       );
 
-  Widget _body(Kind kind, List<Item> shown) {
+  Widget _body(Kind kind, List<Item> shown, {bool phonePortrait = false, bool phoneLandscape = false}) {
     if (_loading.contains(kind)) {
       return Center(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -768,15 +1470,20 @@ class _HomePageState extends State<HomePage> {
     final err = _errors[kind];
     if (err != null) {
       return Center(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text(err, textAlign: TextAlign.center, style: AppText.label(15, color: AppColors.liveText)),
-          const SizedBox(height: 14),
-          AppButton(label: 'Tekrar dene', variant: AppButtonVariant.primary, onPressed: () => _ensureLoaded(kind)),
-        ]),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Text(err, textAlign: TextAlign.center, style: AppText.label(15, color: AppColors.liveText)),
+            const SizedBox(height: 14),
+            AppButton(label: 'Tekrar dene', variant: AppButtonVariant.primary, onPressed: () => _ensureLoaded(kind)),
+          ]),
+        ),
       );
     }
     if (shown.isEmpty) return Center(child: Text('Sonuç yok', style: AppText.meta(15)));
-    return kind == Kind.live ? _liveList(shown) : _posterGrid(shown);
+    return kind == Kind.live
+        ? _liveList(shown, phonePortrait: phonePortrait, phoneLandscape: phoneLandscape)
+        : _posterGrid(shown, phonePortrait: phonePortrait, phoneLandscape: phoneLandscape);
   }
 
   Widget _heart(Item it, {double size = 22}) {
@@ -786,7 +1493,10 @@ class _HomePageState extends State<HomePage> {
       lift: false,
       tooltip: fav ? 'Favorilerden çıkar' : 'Favorilere ekle',
       hoverColor: AppColors.surfaceAlt,
-      onTap: () => Library.instance.toggleFavorite(it),
+      onTap: () {
+        AppHaptics.selection(context);
+        Library.instance.toggleFavorite(it);
+      },
       child: SizedBox(
         width: 44,
         height: 44,
@@ -795,12 +1505,85 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _liveList(List<Item> shown) => ListView.builder(
-        key: const ValueKey('channel-list'),
-        padding: const EdgeInsets.fromLTRB(AppSizes.scrollPad, AppSizes.scrollPad, 16, 16),
-        itemExtent: 76,
-        itemCount: shown.length,
-        itemBuilder: (_, i) => _channelRow(shown[i], i),
+  Widget _liveList(List<Item> shown, {bool phonePortrait = false, bool phoneLandscape = false}) {
+    final pad = MediaQuery.paddingOf(context);
+    final listPad = phonePortrait
+        ? EdgeInsets.fromLTRB(16, 4, 16, phoneBottomClearance(context))
+        : phoneLandscape
+            ? EdgeInsets.fromLTRB(4, 4, 10, pad.bottom > 0 ? pad.bottom + 8 : 14)
+            : const EdgeInsets.fromLTRB(AppSizes.scrollPad, AppSizes.scrollPad, 16, 16);
+    return ListView.builder(
+      key: const ValueKey('channel-list'),
+      padding: listPad,
+      itemExtent: phonePortrait ? 78 : 76,
+      itemCount: shown.length,
+      itemBuilder: (_, i) => phonePortrait ? _phoneChannelRow(shown[i], i) : _channelRow(shown[i], i),
+    );
+  }
+
+  /// Touch-optimized iPhone portrait channel row with inline EPG bar and crisp hierarchy.
+  Widget _phoneChannelRow(Item it, int index) => Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: RepaintBoundary(
+          child: Stack(children: [
+            Positioned.fill(
+              child: FocusRing(
+                radius: 18,
+                lift: false,
+                onTap: () {
+                  AppHaptics.light(context);
+                  _open(it);
+                },
+                child: Container(
+                  padding: const EdgeInsets.fromLTRB(10, 0, 52, 0),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: AppColors.line, width: 1),
+                  ),
+                  child: NowPlaying(
+                    cache: _epg,
+                    item: it,
+                    fallback: groupLabel(it.group),
+                    builder: (context, now) => Row(children: [
+                      ChannelBadge(name: it.name, logo: it.logo, size: 44),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(children: [
+                              Text('${index + 1}', style: AppText.meta(12, color: AppColors.ink3)),
+                              const SizedBox(width: 6),
+                              Expanded(child: Text(it.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.title(15))),
+                            ]),
+                            const SizedBox(height: 2),
+                            Text(
+                              now?.title ?? groupLabel(it.group),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: now == null ? AppText.meta(12.5) : AppText.note(12.5),
+                            ),
+                            if (now != null) ...[
+                              const SizedBox(height: 5),
+                              Row(children: [
+                                Expanded(child: ProgressBar(value: now.progress, height: 3.5)),
+                                const SizedBox(width: 8),
+                                Text('${hhmm(now.start)}–${hhmm(now.end)}', style: AppText.meta(11, color: AppColors.ink3)),
+                              ]),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ]),
+                  ),
+                ),
+              ),
+            ),
+            Positioned(right: 6, top: 13, child: _heart(it, size: 21)),
+          ]),
+        ),
       );
 
   /// A channel on its own white row: number, badge, name, programme now, time range and bar, heart.
@@ -839,13 +1622,13 @@ class _HomePageState extends State<HomePage> {
                           Text(now?.title ?? groupLabel(it.group), maxLines: 1, overflow: TextOverflow.ellipsis, style: now == null ? AppText.meta(13) : AppText.note(13)),
                         ]),
                       ),
-                      if (now != null && c.maxWidth >= 440) ...[
-                        const SizedBox(width: 14),
+                      if (now != null && c.maxWidth >= 340) ...[
+                        const SizedBox(width: 12),
                         SizedBox(
-                          width: 150,
+                          width: c.maxWidth >= 440 ? 150 : 110,
                           child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.end, children: [
-                            Text('${hhmm(now.start)} – ${hhmm(now.end)}', maxLines: 1, style: AppText.meta(13)),
-                            const SizedBox(height: 7),
+                            Text('${hhmm(now.start)} – ${hhmm(now.end)}', maxLines: 1, style: AppText.meta(c.maxWidth >= 440 ? 13 : 12)),
+                            const SizedBox(height: 6),
                             ProgressBar(value: now.progress),
                           ]),
                         ),
@@ -860,39 +1643,60 @@ class _HomePageState extends State<HomePage> {
         ),
       );
 
-  Widget _posterGrid(List<Item> shown) => LayoutBuilder(builder: (context, c) {
-        const pad = EdgeInsets.fromLTRB(AppSizes.scrollPad, AppSizes.scrollPad, 16, 16);
+  Widget _posterGrid(List<Item> shown, {bool phonePortrait = false, bool phoneLandscape = false}) => LayoutBuilder(builder: (context, c) {
+        final safe = MediaQuery.paddingOf(context);
+        final pad = phonePortrait
+            ? EdgeInsets.fromLTRB(16, 4, 16, phoneBottomClearance(context))
+            : phoneLandscape
+                ? EdgeInsets.fromLTRB(4, 4, 10, safe.bottom > 0 ? safe.bottom + 8 : 14)
+                : const EdgeInsets.fromLTRB(AppSizes.scrollPad, AppSizes.scrollPad, 16, 16);
+        final gap = phonePortrait ? 12.0 : 16.0;
         final inner = c.maxWidth - pad.horizontal;
-        final cols = posterColumns(inner);
-        final tile = (inner - 16 * (cols - 1)) / cols;
+        final cols = phonePortrait ? (inner < 310 ? 2 : 3) : posterColumns(inner);
+        final tile = (inner - gap * (cols - 1)) / cols;
         return GridView.builder(
           key: const ValueKey('poster-grid'),
           padding: pad,
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: cols, crossAxisSpacing: 16, mainAxisSpacing: 20, mainAxisExtent: tile * 1.53 + 52),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: cols,
+            crossAxisSpacing: gap,
+            mainAxisSpacing: phonePortrait ? 14 : 20,
+            mainAxisExtent: tile * 1.50 + (phonePortrait ? 46 : 52),
+          ),
           itemCount: shown.length,
-          itemBuilder: (_, i) => _posterTile(shown[i]),
+          itemBuilder: (_, i) => _posterTile(shown[i], compact: phonePortrait),
         );
       });
 
-  Widget _posterTile(Item it) => RepaintBoundary(
+  Widget _posterTile(Item it, {bool compact = false}) => RepaintBoundary(
         child: _PosterTile(
           key: ValueKey(it.id),
           item: it,
           favorite: Library.instance.isFavorite(it),
+          compact: compact,
           onOpen: () => _open(it),
-          onToggleFavorite: () => Library.instance.toggleFavorite(it),
+          onToggleFavorite: () {
+            AppHaptics.selection(context);
+            Library.instance.toggleFavorite(it);
+          },
         ),
       );
 
   /// Favorites in three sections: channels as rows, movies and series as posters. Empty sections are left out.
-  Widget _favoritesView(List<Item> favs) {
+  Widget _favoritesView(List<Item> favs, {bool phonePortrait = false, bool phoneLandscape = false}) {
+    final safe = MediaQuery.paddingOf(context);
+    final pad = phonePortrait
+        ? EdgeInsets.fromLTRB(16, 4, 16, phoneBottomClearance(context))
+        : phoneLandscape
+            ? EdgeInsets.fromLTRB(12, 4, safe.right > 0 ? safe.right : 14, safe.bottom > 0 ? safe.bottom + 8 : 14)
+            : const EdgeInsets.fromLTRB(AppSizes.scrollPad, AppSizes.scrollPad, 16, 16);
     if (favs.isEmpty) {
       return Padding(
-        padding: const EdgeInsets.fromLTRB(AppSizes.scrollPad, AppSizes.scrollPad, 16, 16),
+        padding: pad,
         child: Align(
           alignment: Alignment.topCenter,
           child: AppCard(
-            padding: const EdgeInsets.all(48),
+            padding: EdgeInsets.all(phonePortrait ? 28 : 48),
             child: Center(heightFactor: 1, child: Text('Henüz favori yok. Bir içeriğin kalp ikonuna dokun.', textAlign: TextAlign.center, style: AppText.body())),
           ),
         ),
@@ -902,16 +1706,21 @@ class _HomePageState extends State<HomePage> {
     final movies = [for (final i in favs) if (i.kind == Kind.movie) i];
     final series = [for (final i in favs) if (i.kind == Kind.series) i];
     return LayoutBuilder(builder: (context, c) {
-      const pad = EdgeInsets.fromLTRB(AppSizes.scrollPad, AppSizes.scrollPad, 16, 16);
+      final gap = phonePortrait ? 12.0 : 16.0;
       final inner = c.maxWidth - pad.horizontal;
-      final cols = posterColumns(inner);
-      final tile = (inner - 16 * (cols - 1)) / cols;
+      final cols = phonePortrait ? (inner < 310 ? 2 : 3) : posterColumns(inner);
+      final tile = (inner - gap * (cols - 1)) / cols;
       Widget heading(String t, {bool first = false}) =>
-          SliverToBoxAdapter(child: Padding(padding: EdgeInsets.only(top: first ? 0 : 14, bottom: 12), child: Text(t, style: AppText.title(18))));
+          SliverToBoxAdapter(child: Padding(padding: EdgeInsets.only(top: first ? 0 : 14, bottom: 10), child: Text(t, style: AppText.title(18))));
       Widget grid(List<Item> items) => SliverGrid.builder(
-            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: cols, crossAxisSpacing: 16, mainAxisSpacing: 20, mainAxisExtent: tile * 1.53 + 52),
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: cols,
+              crossAxisSpacing: gap,
+              mainAxisSpacing: phonePortrait ? 14 : 20,
+              mainAxisExtent: tile * 1.50 + (phonePortrait ? 46 : 52),
+            ),
             itemCount: items.length,
-            itemBuilder: (_, i) => _posterTile(items[i]),
+            itemBuilder: (_, i) => _posterTile(items[i], compact: phonePortrait),
           );
       return CustomScrollView(slivers: [
         SliverPadding(
@@ -919,7 +1728,11 @@ class _HomePageState extends State<HomePage> {
           sliver: SliverMainAxisGroup(slivers: [
             if (channels.isNotEmpty) ...[
               heading('Kanallar', first: true),
-              SliverFixedExtentList.builder(itemExtent: 76, itemCount: channels.length, itemBuilder: (_, i) => _channelRow(channels[i], i)),
+              SliverFixedExtentList.builder(
+                itemExtent: phonePortrait ? 78 : 76,
+                itemCount: channels.length,
+                itemBuilder: (_, i) => phonePortrait ? _phoneChannelRow(channels[i], i) : _channelRow(channels[i], i),
+              ),
             ],
             if (movies.isNotEmpty) ...[heading('Filmler', first: channels.isEmpty), grid(movies)],
             if (series.isNotEmpty) ...[heading('Diziler', first: channels.isEmpty && movies.isEmpty), grid(series)],
@@ -946,10 +1759,11 @@ int posterColumns(double width) => max(2, ((width + 16) / 134).floor());
 /// is its own focus stop; when the item is not a favorite it only shows while the poster or the heart has focus
 /// or the mouse.
 class _PosterTile extends StatefulWidget {
-  const _PosterTile({super.key, required this.item, required this.favorite, required this.onOpen, required this.onToggleFavorite});
+  const _PosterTile({super.key, required this.item, required this.favorite, required this.onOpen, required this.onToggleFavorite, this.compact = false});
 
   final Item item;
   final bool favorite;
+  final bool compact;
   final VoidCallback onOpen;
   final VoidCallback onToggleFavorite;
 
@@ -964,31 +1778,33 @@ class _PosterTileState extends State<_PosterTile> {
   Widget build(BuildContext context) {
     final t = parsedTitleOf(widget.item);
     final sub = [?t.year, if (t.tags.isNotEmpty) t.tags.first].join(', ');
+    final radius = widget.compact ? 15.0 : AppSizes.tileRadius;
     final showHeart = widget.favorite || _tileFocus || _tileHover || _heartFocus || _heartHover;
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Expanded(
         child: Stack(children: [
           Positioned.fill(
             child: FocusRing(
-              radius: AppSizes.tileRadius,
+              radius: radius,
               onTap: widget.onOpen,
+              onLongPress: widget.compact ? widget.onToggleFavorite : null,
               onFocusChange: (f) => setState(() => _tileFocus = f),
               onHoverChange: (h) => setState(() => _tileHover = h),
               builder: (context, focused, hovered) {
                 return Container(
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(AppSizes.tileRadius),
+                    borderRadius: BorderRadius.circular(radius),
                     boxShadow: hovered && !focused ? AppShadows.lift : AppShadows.forRepeated(),
-                    border: AppShadows.repeatedBorder(),
+                    border: AppShadows.repeatedBorder() ?? (widget.compact ? Border.all(color: AppColors.line, width: 0.8) : null),
                   ),
-                  child: ClipRRect(borderRadius: BorderRadius.circular(AppSizes.tileRadius), child: PosterImage(widget.item.logo)),
+                  child: ClipRRect(borderRadius: BorderRadius.circular(radius), child: PosterImage(widget.item.logo)),
                 );
               },
             ),
           ),
           Positioned(
-            top: 1,
-            right: 1,
+            top: widget.compact ? 0 : 1,
+            right: widget.compact ? 0 : 1,
             child: Opacity(
               opacity: showHeart ? 1 : 0,
               child: FocusRing(
@@ -1000,16 +1816,16 @@ class _PosterTileState extends State<_PosterTile> {
                 onHoverChange: (h) => setState(() => _heartHover = h),
                 builder: (context, focused, hovered) {
                   return SizedBox(
-                    width: 44,
-                    height: 44,
+                    width: widget.compact ? 38 : 44,
+                    height: widget.compact ? 38 : 44,
                     child: Center(
                       child: Container(
-                        width: 30,
-                        height: 30,
+                        width: widget.compact ? 26 : 30,
+                        height: widget.compact ? 26 : 30,
                         decoration: const BoxDecoration(color: AppColors.surface, shape: BoxShape.circle, boxShadow: AppShadows.chip),
                         child: Icon(
                           widget.favorite ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-                          size: 16,
+                          size: widget.compact ? 14 : 16,
                           color: widget.favorite ? AppColors.live : AppColors.ink2,
                         ),
                       ),
@@ -1021,9 +1837,9 @@ class _PosterTileState extends State<_PosterTile> {
           ),
         ]),
       ),
-      const SizedBox(height: 8),
-      Text(t.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.title(15)),
-      SizedBox(height: 20, child: sub.isEmpty ? null : Text(sub, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.meta(13))),
+      SizedBox(height: widget.compact ? 6 : 8),
+      Text(t.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.title(widget.compact ? 13.5 : 15)),
+      SizedBox(height: widget.compact ? 17 : 20, child: sub.isEmpty ? null : Text(sub, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.meta(widget.compact ? 12 : 13))),
     ]);
   }
 }

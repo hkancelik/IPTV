@@ -38,6 +38,20 @@ Koyu **"Kömür"** teması, **Fraunces + Hanken Grotesk** tipografisi ve hem far
 | ![Oynatıcı](docs/screenshots/player.png) | ![Ayarlar](docs/screenshots/settings.png) |
 | *Yüzen denetim kartı, ses/altyazı parçaları ve hız kontrolü* | *Hesap, oynatıcı, içerik, telefon kumandası ve görünüm ayarları* |
 
+### iPhone 15 Tasarımı (Dikey & Yatay)
+
+Dynamic Island ve Home Indicator güvenli alanlarına uyumlu, tek elle kullanılan yüzen buzlu cam kapsül çubuğu (dikey), ince yüzen sol ray (yatay) ve hibrit 16:9 / tam ekran OLED oynatıcı:
+
+| Dikey Ana Sayfa | Dikey Canlı TV | Dikey Oynatıcı |
+| :---: | :---: | :---: |
+| <img src="docs/screenshots/iphone15/portrait_home.png" width="220" alt="iPhone 15 Dikey Ana Sayfa" /> | <img src="docs/screenshots/iphone15/portrait_live.png" width="220" alt="iPhone 15 Dikey Canlı TV" /> | <img src="docs/screenshots/iphone15/portrait_player_live.png" width="220" alt="iPhone 15 Dikey Oynatıcı" /> |
+
+| Yatay Ana Sayfa | Yatay Tam Ekran Oynatıcı |
+| :---: | :---: |
+| ![iPhone 15 Yatay Ana Sayfa](docs/screenshots/iphone15/landscape_home.png) | ![iPhone 15 Yatay Oynatıcı](docs/screenshots/iphone15/landscape_player_live.png) |
+
+İnteraktif tasarım vitrini: `docs/superpowers/specs/iphone15-mockups/index.html` · Tasarım belgesi: `docs/superpowers/specs/2026-11-19-iphone15-arayuz-design.md`
+
 ---
 
 ## Neden bu oynatıcı?
@@ -113,12 +127,20 @@ flutter build apk --release --target-platform android-arm   # 32-bit ARM TV stic
 adb install -r build/app/outputs/flutter-apk/app-release.apk
 ```
 
-### macOS ve iOS (Yerel veya GitHub Actions)
+### macOS ve iOS (Xcode / iPhone 15 veya GitHub Actions)
 
 ```bash
 # macOS
 flutter build macos --release
 open build/macos/Build/Products/Release/iptv_app.app
+
+# iPhone 15 (Mac + Xcode)
+flutter pub get
+cd ios && pod install && cd ..
+open ios/Runner.xcworkspace
+# Xcode'da Runner → Signing & Capabilities → Team seçip iPhone 15'e Run (▶) ile yükle
+# veya doğrudan terminalden:
+flutter run --release -d <iphone-id>
 ```
 
 Mac bilgisayarın yoksa GitHub **Actions** sekmesindeki:

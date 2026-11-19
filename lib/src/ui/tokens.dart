@@ -38,6 +38,21 @@ abstract final class AppColors {
 
   /// The surface colour at zero opacity: the far end of the scene-to-card fade.
   static const surfaceClear = Color(0x00151517);
+
+  /// Frosted dark charcoal surface for floating iPhone navigation and player overlays.
+  static const glass = Color(0xD9151517);
+
+  /// Darker translucent surface for controls floating directly over video.
+  static const videoGlass = Color(0xBF121216);
+
+  /// Subtle hairline rim around frosted glass surfaces on OLED dark ground.
+  static const glassBorder = Color(0xFF2E2E36);
+
+  /// Ground colour at zero opacity for hero backdrop fades into the page ground.
+  static const groundClear = Color(0x000B0B0D);
+
+  /// Top/bottom dark gradient scrim over full-bleed video.
+  static const videoScrim = Color(0xA6000000);
 }
 
 /// Soft (background, text) pairs for channel badges and profile circles.

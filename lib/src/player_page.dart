@@ -10,6 +10,8 @@ import 'player_chrome.dart';
 import 'settings.dart';
 import 'ui/basics.dart';
 import 'ui/controls.dart';
+import 'ui/format.dart';
+import 'ui/layout.dart';
 import 'ui/tokens.dart';
 import 'xtream.dart';
 
@@ -46,6 +48,7 @@ class PlayerPage extends StatefulWidget {
 }
 
 class _PlayerPageState extends State<PlayerPage> {
+  final GlobalKey<VideoState> _videoKey = GlobalKey<VideoState>();
   late final Player _player = Player();
   late final VideoController _controller = VideoController(_player);
   Timer? _saveTimer;
@@ -64,6 +67,8 @@ class _PlayerPageState extends State<PlayerPage> {
   Timer? _countdownTimer;
   final ValueNotifier<String> _digits = ValueNotifier(''); // channel number being typed
   Timer? _digitsTimer;
+  BoxFit _fit = BoxFit.contain;
+  bool _immersive = false;
 
   PlayerEntry get _entry => widget.queue[_index];
   bool get _hasNext => _index < widget.queue.length - 1;
@@ -301,8 +306,40 @@ class _PlayerPageState extends State<PlayerPage> {
     Library.instance.savePosition(_entry.url, _player.state.position, _player.state.duration);
   }
 
+  void _toggleFit() {
+    setState(() => _fit = _fit == BoxFit.contain ? BoxFit.cover : BoxFit.contain);
+  }
+
+  Future<void> _toggleOrientation(bool currentlyLandscape) async {
+    if (currentlyLandscape) {
+      await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+      // Allow natural auto-rotation again shortly after rotating so physical turns still work.
+      Future.delayed(const Duration(seconds: 2), () {
+        if (mounted) SystemChrome.setPreferredOrientations(const []);
+      });
+    } else {
+      await SystemChrome.setPreferredOrientations([
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ]);
+      Future.delayed(const Duration(seconds: 2), () {
+        if (mounted) SystemChrome.setPreferredOrientations(const []);
+      });
+    }
+  }
+
+  void _setImmersive(bool on) {
+    if (_immersive == on) return;
+    _immersive = on;
+    SystemChrome.setEnabledSystemUIMode(on ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge);
+  }
+
   @override
   void dispose() {
+    if (_immersive) {
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    }
+    SystemChrome.setPreferredOrientations(const []);
     _saveTimer?.cancel();
     _countdownTimer?.cancel();
     _digitsTimer?.cancel();
@@ -335,50 +372,109 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 
   Widget _scaffold() {
+    final mode = layoutModeOf(context);
+    if (mode == AppLayoutMode.desktop) {
+      if (_immersive) _setImmersive(false);
+      return Scaffold(
+        backgroundColor: AppColors.video,
+        body: Stack(children: [
+          Positioned.fill(child: _video(mode)),
+          Positioned(
+            top: 92,
+            right: 28,
+            child: ValueListenableBuilder<String>(
+              valueListenable: _digits,
+              builder: (_, d, _) => d.isEmpty
+                  ? const SizedBox.shrink()
+                  : PlayerBox(padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 14), child: Text(d, style: AppText.display(40))),
+            ),
+          ),
+        ]),
+      );
+    }
+
+    if (mode == AppLayoutMode.phoneLandscape) {
+      return Scaffold(
+        backgroundColor: AppColors.video,
+        body: _video(mode),
+      );
+    }
+
+    // Phone Portrait: 16:9 edge-to-edge video below Dynamic Island + rich interactive companion panel below.
+    if (_immersive) _setImmersive(false);
     return Scaffold(
       backgroundColor: AppColors.video,
-      body: Stack(children: [
-        Positioned.fill(child: _video()),
-        Positioned(
-          top: 92,
-          right: 28,
-          child: ValueListenableBuilder<String>(
-            valueListenable: _digits,
-            builder: (_, d, _) => d.isEmpty
-                ? const SizedBox.shrink()
-                : PlayerBox(padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 14), child: Text(d, style: AppText.display(40))),
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SafeArea(
+            bottom: false,
+            child: AspectRatio(aspectRatio: 16 / 9, child: _video(mode)),
           ),
-        ),
-      ]),
+          Expanded(
+            child: ValueListenableBuilder<PlayerEntry>(
+              valueListenable: _current,
+              builder: (_, entry, _) => _PhoneCompanionHost(
+                player: _player,
+                live: widget.live,
+                entry: entry,
+                index: _index,
+                queue: widget.queue,
+                epg: entry.epg == null ? null : _epg,
+                coverFit: _fit == BoxFit.cover,
+                onSelectQueue: _switchTo,
+                onToggleFit: _toggleFit,
+                onToggleOrientation: () => _toggleOrientation(false),
+                onCancelCountdown: _cancelCountdown,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
-  Widget _video() {
+  Widget _video(AppLayoutMode mode) {
     return Video(
-        controller: _controller,
-        controls: (state) => ValueListenableBuilder<PlayerEntry>(
-          valueListenable: _current,
-          builder: (_, entry, _) => _Controls(
-            state: state,
-            player: _player,
-            title: entry.title,
-            logo: entry.logo,
-            group: entry.group,
-            index: _index,
-            live: widget.live,
-            error: _error,
-            onRetry: _retry,
-            epg: entry.epg == null ? null : _epg,
-            onPrev: _hasPrev ? _prev : null,
-            onNext: _hasNext ? _next : null,
-            queued: widget.queue.length > 1,
-            countdown: _countdown,
-            nextTitle: _hasNext ? widget.queue[_index + 1].title : null,
-            prevTitle: _hasPrev ? widget.queue[_index - 1].title : null,
-            onCancelCountdown: _cancelCountdown,
-            onDigit: widget.live && widget.queue.length > 1 ? _typeDigit : null,
-          ),
+      key: _videoKey,
+      controller: _controller,
+      fit: _fit,
+      subtitleViewConfiguration: SubtitleViewConfiguration(
+        style: AppText.label(18, color: AppColors.ink).copyWith(
+          shadows: const [Shadow(blurRadius: 6, color: Colors.black)],
         ),
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+      ),
+      controls: (state) => ValueListenableBuilder<PlayerEntry>(
+        valueListenable: _current,
+        builder: (_, entry, _) => _Controls(
+          state: state,
+          player: _player,
+          mode: mode,
+          title: entry.title,
+          logo: entry.logo,
+          group: entry.group,
+          index: _index,
+          queue: widget.queue,
+          live: widget.live,
+          error: _error,
+          onRetry: _retry,
+          epg: entry.epg == null ? null : _epg,
+          onPrev: _hasPrev ? _prev : null,
+          onNext: _hasNext ? _next : null,
+          onSelectQueue: _switchTo,
+          queued: widget.queue.length > 1,
+          countdown: _countdown,
+          nextTitle: _hasNext ? widget.queue[_index + 1].title : null,
+          prevTitle: _hasPrev ? widget.queue[_index - 1].title : null,
+          onCancelCountdown: _cancelCountdown,
+          onDigit: widget.live && widget.queue.length > 1 ? _typeDigit : null,
+          coverFit: _fit == BoxFit.cover,
+          onToggleFit: _toggleFit,
+          onToggleOrientation: () => _toggleOrientation(mode == AppLayoutMode.phoneLandscape),
+          onImmersiveChange: _setImmersive,
+        ),
+      ),
     );
   }
 }
@@ -416,13 +512,20 @@ class _Controls extends StatefulWidget {
   const _Controls({
     required this.state,
     required this.player,
+    required this.mode,
     required this.title,
     required this.index,
+    required this.queue,
     required this.live,
     required this.error,
     required this.onRetry,
     required this.countdown,
     required this.onCancelCountdown,
+    required this.coverFit,
+    required this.onToggleFit,
+    required this.onToggleOrientation,
+    required this.onImmersiveChange,
+    this.onSelectQueue,
     this.epg,
     this.onPrev,
     this.onNext,
@@ -436,22 +539,29 @@ class _Controls extends StatefulWidget {
 
   final VideoState state;
   final Player player;
+  final AppLayoutMode mode;
   final String title;
   final String logo;
   final String? group;
   final int index; // position in the queue
+  final List<PlayerEntry> queue;
   final bool live;
   final ValueNotifier<String?> error;
   final VoidCallback onRetry;
   final Future<List<Programme>>? epg;
   final VoidCallback? onPrev;
   final VoidCallback? onNext;
+  final ValueChanged<int>? onSelectQueue;
   final bool queued; // more than one channel/episode to move between
   final ValueNotifier<int?> countdown;
   final String? nextTitle;
   final String? prevTitle;
   final void Function(String digit)? onDigit;
   final VoidCallback onCancelCountdown;
+  final bool coverFit;
+  final VoidCallback onToggleFit;
+  final VoidCallback onToggleOrientation;
+  final ValueChanged<bool> onImmersiveChange;
 
   @override
   State<_Controls> createState() => _ControlsState();
@@ -469,15 +579,39 @@ class _ControlsState extends State<_Controls> {
 
   Player get p => widget.player;
   bool get _tv => AppSettings.instance.tvMode;
+  bool get _phone => widget.mode != AppLayoutMode.desktop;
+  bool get _phoneLandscape => widget.mode == AppLayoutMode.phoneLandscape;
   Duration get _skip => Duration(seconds: AppSettings.instance.skipSecs);
+
+  void _syncImmersive(bool visible) {
+    if (_phoneLandscape) {
+      widget.onImmersiveChange(!visible);
+    } else {
+      widget.onImmersiveChange(false);
+    }
+  }
 
   void _poke() {
     if (!mounted) return;
     setState(() => _visible = true);
+    _syncImmersive(true);
     final token = ++_hideToken;
     Future.delayed(const Duration(seconds: 3), () {
-      if (mounted && token == _hideToken && p.state.playing && !_barFocused) setState(() => _visible = false);
+      if (mounted && token == _hideToken && p.state.playing && !_barFocused) {
+        setState(() => _visible = false);
+        _syncImmersive(false);
+      }
     });
+  }
+
+  void _toggleVisible() {
+    if (_visible) {
+      _hideToken++;
+      setState(() => _visible = false);
+      _syncImmersive(false);
+    } else {
+      _poke();
+    }
   }
 
   void _flash(String text) {
@@ -711,6 +845,27 @@ class _ControlsState extends State<_Controls> {
   }
 
   Future<void> _pick<T>(String title, List<T> options, T current, String Function(T) label, void Function(T) set) async {
+    if (_phone) {
+      final choice = await showAppSheet<T>(
+        context: context,
+        title: title,
+        builder: (ctx) => ListView(
+          shrinkWrap: true,
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          children: [
+            for (final t in options)
+              SheetOptionTile(
+                label: label(t),
+                selected: t == current,
+                onTap: () => Navigator.of(ctx).pop(t),
+              ),
+          ],
+        ),
+      );
+      if (choice != null) set(choice);
+      _poke();
+      return;
+    }
     final choice = await showDialog<T>(
       context: context,
       builder: (ctx) => SimpleDialog(
@@ -730,8 +885,61 @@ class _ControlsState extends State<_Controls> {
     if (choice != null) set(choice);
   }
 
+  Future<void> _openQueueSheet() async {
+    if (widget.onSelectQueue == null) return;
+    await showAppSheet<void>(
+      context: context,
+      title: widget.live ? 'Kanallar' : 'Bölümler',
+      subtitle: '${widget.queue.length} öğe',
+      builder: (ctx) => ListView.builder(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        itemCount: widget.queue.length,
+        itemBuilder: (_, i) {
+          final e = widget.queue[i];
+          final title = widget.live ? '${i + 1}. ${e.title}' : playerTitle(e.title).$1;
+          final sub = widget.live ? e.group : episodeLabel(e.title);
+          return SheetOptionTile(
+            label: title,
+            subtitle: sub,
+            selected: i == widget.index,
+            onTap: () {
+              widget.onSelectQueue!(i);
+              Navigator.of(ctx).pop();
+            },
+          );
+        },
+      ),
+    );
+    _poke();
+  }
+
+  void _onPhoneDoubleTap(TapDownDetails details, double width) {
+    if (widget.live) {
+      if (details.localPosition.dx < width * 0.45 && widget.onPrev != null) {
+        AppHaptics.light(context);
+        widget.onPrev!();
+      } else if (details.localPosition.dx > width * 0.55 && widget.onNext != null) {
+        AppHaptics.light(context);
+        widget.onNext!();
+      }
+      return;
+    }
+    if (details.localPosition.dx < width * 0.45) {
+      AppHaptics.light(context);
+      _seekBy(-_skip);
+    } else if (details.localPosition.dx > width * 0.55) {
+      AppHaptics.light(context);
+      _seekBy(_skip);
+    } else {
+      AppHaptics.light(context);
+      p.playOrPause();
+      _poke();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (_phone) return _buildPhoneControls(context);
     return Focus(
       focusNode: _root,
       autofocus: true,
@@ -831,6 +1039,201 @@ class _ControlsState extends State<_Controls> {
               },
             ),
           ]),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPhoneControls(BuildContext context) {
+    final (title, sub) = widget.live ? (widget.title, widget.group) : playerTitle(widget.title);
+    TapDownDetails? lastDoubleTap;
+    return LayoutBuilder(
+      builder: (context, constraints) => GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: _toggleVisible,
+        onDoubleTapDown: (d) => lastDoubleTap = d,
+        onDoubleTap: () {
+          if (lastDoubleTap != null) _onPhoneDoubleTap(lastDoubleTap!, constraints.maxWidth);
+        },
+        child: Stack(
+          children: [
+            // Buffering indicator
+            Center(
+              child: StreamBuilder<bool>(
+                stream: p.stream.buffering,
+                builder: (_, s) => (s.data ?? false)
+                    ? Container(
+                        width: 52,
+                        height: 52,
+                        padding: const EdgeInsets.all(14),
+                        decoration: const BoxDecoration(color: AppColors.videoGlass, shape: BoxShape.circle),
+                        child: const CircularProgressIndicator(strokeWidth: 2.5),
+                      )
+                    : const SizedBox.shrink(),
+              ),
+            ),
+            // Error card
+            ValueListenableBuilder<String?>(
+              valueListenable: widget.error,
+              builder: (_, msg, _) {
+                if (msg == null) return const SizedBox.shrink();
+                final retrying = _isRetrying(msg);
+                return Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: PlayerBox(
+                      maxWidth: 360,
+                      padding: const EdgeInsets.all(18),
+                      child: Column(mainAxisSize: MainAxisSize.min, children: [
+                        Text(msg, textAlign: TextAlign.center, style: AppText.label(14)),
+                        if (!retrying) ...[
+                          const SizedBox(height: 14),
+                          AppButton(label: 'Tekrar dene', variant: AppButtonVariant.primary, onPressed: widget.onRetry),
+                        ],
+                      ]),
+                    ),
+                  ),
+                );
+              },
+            ),
+            // OSD badge (seek feedback, speed, etc.)
+            if (_osd != null)
+              Positioned(
+                top: _phoneLandscape ? 64 : 14,
+                left: 0,
+                right: 0,
+                child: Center(
+                  child: Container(
+                    height: 36,
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: AppColors.videoGlass,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: AppColors.glassBorder),
+                    ),
+                    child: Text(_osd!, style: AppText.label(13.5).copyWith(fontFeatures: const [FontFeature.tabularFigures()])),
+                  ),
+                ),
+              ),
+            // Animated glass overlay
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 160),
+              child: _visible
+                  ? KeyedSubtree(
+                      key: const ValueKey('phone-chrome'),
+                      child: StreamBuilder<bool>(
+                        stream: p.stream.playing,
+                        builder: (_, playingSnap) => StreamBuilder<Duration>(
+                          stream: p.stream.position,
+                          builder: (_, posSnap) => StreamBuilder<Duration>(
+                            stream: p.stream.duration,
+                            builder: (_, durSnap) => StreamBuilder<Duration>(
+                              stream: p.stream.buffer,
+                              builder: (_, bufSnap) => StreamBuilder<Tracks>(
+                                stream: p.stream.tracks,
+                                builder: (_, _) => StreamBuilder<double>(
+                                  stream: p.stream.rate,
+                                  builder: (_, rateSnap) => FutureBuilder<List<Programme>>(
+                                    future: widget.epg,
+                                    builder: (_, epgSnap) {
+                                      final t = p.state.tracks;
+                                      final cur = p.state.track;
+                                      final rate = rateSnap.data ?? p.state.rate;
+                                      String short(String s) => s.length <= 10 ? s : '${s.substring(0, 9)}…';
+                                      final audioLbl = short(_trackLabel(cur.audio.id, cur.audio.title, cur.audio.language));
+                                      final subLbl = cur.subtitle.id == 'no'
+                                          ? 'Altyazı'
+                                          : short(_trackLabel(cur.subtitle.id, cur.subtitle.title, cur.subtitle.language));
+                                      return PhonePlayerOverlay(
+                                        landscape: _phoneLandscape,
+                                        live: widget.live,
+                                        playing: playingSnap.data ?? p.state.playing,
+                                        title: title,
+                                        subtitle: sub,
+                                        onBack: () => Navigator.of(context).maybePop(),
+                                        onPlayPause: () {
+                                          p.playOrPause();
+                                          _poke();
+                                        },
+                                        onToggleOrientation: widget.onToggleOrientation,
+                                        onToggleFit: () {
+                                          widget.onToggleFit();
+                                          _flash(widget.coverFit ? 'Ekrana sığdırıldı' : 'Ekranı doldur');
+                                        },
+                                        coverFit: widget.coverFit,
+                                        skipSecs: _skip.inSeconds,
+                                        onSeekBack: widget.live ? null : () => _seekBy(-_skip),
+                                        onSeekForward: widget.live ? null : () => _seekBy(_skip),
+                                        onPrev: widget.onPrev,
+                                        onNext: widget.onNext,
+                                        queued: widget.queued,
+                                        position: _pending.value ?? posSnap.data ?? p.state.position,
+                                        duration: durSnap.data ?? p.state.duration,
+                                        buffer: bufSnap.data ?? p.state.buffer,
+                                        pending: _pending.value != null,
+                                        onSeek: (d) {
+                                          p.seek(d);
+                                          _poke();
+                                        },
+                                        audioLabel: audioLbl,
+                                        subtitleLabel: subLbl,
+                                        rateLabel: rate == 1.0 ? '1x' : '${rate}x',
+                                        onPickAudio: () => _pick<AudioTrack>('Ses', t.audio, cur.audio, (a) => _trackLabel(a.id, a.title, a.language), p.setAudioTrack),
+                                        onPickSubtitle: () => _pick<SubtitleTrack>('Altyazı', t.subtitle, cur.subtitle, (s) => _trackLabel(s.id, s.title, s.language), p.setSubtitleTrack),
+                                        onPickRate: widget.live
+                                            ? null
+                                            : () => _pick<double>('Oynatma hızı', const [0.5, 0.75, 1.0, 1.25, 1.5, 2.0], rate, (v) => v == 1.0 ? 'Normal' : '${v}x', p.setRate),
+                                        onGoTo: widget.live ? null : _goTo,
+                                        onOpenQueue: widget.queued ? _openQueueSheet : null,
+                                        liveChannelIndex: widget.index,
+                                        liveChannelName: widget.title,
+                                        liveChannelLogo: widget.logo,
+                                        programmes: epgSnap.data ?? const [],
+                                      );
+                                    },
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    )
+                  : const SizedBox.expand(key: ValueKey('phone-hidden')),
+            ),
+            // Next-episode countdown card
+            ValueListenableBuilder<int?>(
+              valueListenable: widget.countdown,
+              builder: (_, left, _) {
+                if (left == null) return const SizedBox.shrink();
+                return Align(
+                  alignment: Alignment.bottomRight,
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(16, 16, _phoneLandscape ? 64 : 14, _phoneLandscape ? 72 : 14),
+                    child: PlayerBox(
+                      maxWidth: 310,
+                      padding: const EdgeInsets.all(14),
+                      child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text('Sıradaki bölüm $left sn içinde başlıyor', style: AppText.title(14)),
+                        if (widget.nextTitle != null)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 3),
+                            child: Text(widget.nextTitle!, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.meta(12.5)),
+                          ),
+                        const SizedBox(height: 10),
+                        Row(mainAxisSize: MainAxisSize.min, children: [
+                          AppButton(label: 'Şimdi oynat', height: 36, dense: true, variant: AppButtonVariant.primary, onPressed: widget.onNext),
+                          const SizedBox(width: 8),
+                          AppButton(label: 'İptal', height: 36, dense: true, onPressed: widget.onCancelCountdown),
+                        ]),
+                      ]),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ],
         ),
       ),
     );
@@ -1094,23 +1497,24 @@ class _GoToDialogState extends State<_GoToDialog> {
       },
       child: Builder(builder: (context) {
         final focused = Focus.of(context).hasFocus;
+        final compact = isPhoneLayout(context);
         return Container(
-          width: 96,
-          padding: const EdgeInsets.symmetric(vertical: 8),
+          width: compact ? 74 : 96,
+          padding: EdgeInsets.symmetric(vertical: compact ? 6 : 8),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(AppSizes.tileRadius),
+            borderRadius: BorderRadius.circular(compact ? AppSizes.itemRadius : AppSizes.tileRadius),
             border: Border.all(color: focused ? AppColors.ink : AppColors.line, width: focused ? AppSizes.ring : 1),
             color: focused ? AppColors.accentSoft : AppColors.surfaceAlt,
           ),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             GestureDetector(
               onTap: () => setState(() => set(value >= max ? 0 : value + 1)),
-              child: const SizedBox(width: 44, height: 36, child: Icon(Icons.keyboard_arrow_up_rounded, color: AppColors.ink2)),
+              child: const SizedBox(width: 44, height: 34, child: Icon(Icons.keyboard_arrow_up_rounded, color: AppColors.ink2)),
             ),
-            Text(value.toString().padLeft(2, '0'), style: AppText.display(34).copyWith(fontFeatures: const [FontFeature.tabularFigures()])),
+            Text(value.toString().padLeft(2, '0'), style: AppText.display(compact ? 26 : 34).copyWith(fontFeatures: const [FontFeature.tabularFigures()])),
             GestureDetector(
               onTap: () => setState(() => set(value <= 0 ? max : value - 1)),
-              child: const SizedBox(width: 44, height: 36, child: Icon(Icons.keyboard_arrow_down_rounded, color: AppColors.ink2)),
+              child: const SizedBox(width: 44, height: 34, child: Icon(Icons.keyboard_arrow_down_rounded, color: AppColors.ink2)),
             ),
             Text(label, style: AppText.meta(12)),
           ]),
@@ -1142,6 +1546,119 @@ class _GoToDialogState extends State<_GoToDialog> {
         AppButton(label: 'İptal', onPressed: () => Navigator.pop(context)),
         AppButton(label: 'Git', variant: AppButtonVariant.primary, onPressed: () => Navigator.pop(context, _value)),
       ],
+    );
+  }
+}
+
+/// Hosts [PhonePlayerCompanion] beneath the 16:9 video in iPhone portrait mode, wired to live mpv streams.
+class _PhoneCompanionHost extends StatelessWidget {
+  const _PhoneCompanionHost({
+    required this.player,
+    required this.live,
+    required this.entry,
+    required this.index,
+    required this.queue,
+    required this.epg,
+    required this.coverFit,
+    required this.onSelectQueue,
+    required this.onToggleFit,
+    required this.onToggleOrientation,
+    required this.onCancelCountdown,
+  });
+
+  final Player player;
+  final bool live;
+  final PlayerEntry entry;
+  final int index;
+  final List<PlayerEntry> queue;
+  final Future<List<Programme>>? epg;
+  final bool coverFit;
+  final ValueChanged<int> onSelectQueue;
+  final VoidCallback onToggleFit;
+  final VoidCallback onToggleOrientation;
+  final VoidCallback onCancelCountdown;
+
+  Future<void> _pickSheet<T>(BuildContext context, String title, List<T> options, T current, String Function(T) label, void Function(T) set) async {
+    final choice = await showAppSheet<T>(
+      context: context,
+      title: title,
+      builder: (ctx) => ListView(
+        shrinkWrap: true,
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        children: [
+          for (final t in options)
+            SheetOptionTile(
+              label: label(t),
+              selected: t == current,
+              onTap: () => Navigator.of(ctx).pop(t),
+            ),
+        ],
+      ),
+    );
+    if (choice != null) set(choice);
+  }
+
+  Future<void> _goTo(BuildContext context) async {
+    final picked = await showDialog<Duration>(
+      context: context,
+      builder: (_) => _GoToDialog(initial: player.state.position, total: player.state.duration),
+    );
+    if (picked != null) player.seek(picked);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final (title, sub) = live ? (entry.title, entry.group) : playerTitle(entry.title);
+    return ListenableBuilder(
+      listenable: AppSettings.instance,
+      builder: (context, _) => StreamBuilder<Tracks>(
+        stream: player.stream.tracks,
+        builder: (_, _) => StreamBuilder<double>(
+          stream: player.stream.rate,
+          builder: (_, rateSnap) => FutureBuilder<List<Programme>>(
+            future: epg,
+            builder: (_, epgSnap) {
+              final t = player.state.tracks;
+              final cur = player.state.track;
+              final rate = rateSnap.data ?? player.state.rate;
+              String short(String s) => s.length <= 12 ? s : '${s.substring(0, 11)}…';
+              final audioLabel = short(_trackLabel(cur.audio.id, cur.audio.title, cur.audio.language));
+              final subLabel = cur.subtitle.id == 'no' ? 'Altyazı: Kapalı' : short(_trackLabel(cur.subtitle.id, cur.subtitle.title, cur.subtitle.language));
+              final autoNext = AppSettings.instance.autoNext;
+              return PhonePlayerCompanion(
+                live: live,
+                title: title,
+                subtitle: sub,
+                logo: entry.logo,
+                index: index,
+                programmes: epgSnap.data ?? const [],
+                queueTitles: [for (final q in queue) q.title],
+                queueLogos: [for (final q in queue) q.logo],
+                onSelectQueue: queue.length > 1 ? onSelectQueue : null,
+                audioLabel: audioLabel,
+                subtitleLabel: subLabel,
+                rateLabel: rate == 1.0 ? '1x' : '${rate}x',
+                coverFit: coverFit,
+                onPickAudio: () => _pickSheet<AudioTrack>(context, 'Ses parçası', t.audio, cur.audio, (a) => _trackLabel(a.id, a.title, a.language), player.setAudioTrack),
+                onPickSubtitle: () => _pickSheet<SubtitleTrack>(context, 'Altyazı', t.subtitle, cur.subtitle, (s) => _trackLabel(s.id, s.title, s.language), player.setSubtitleTrack),
+                onPickRate: live
+                    ? null
+                    : () => _pickSheet<double>(context, 'Oynatma hızı', const [0.5, 0.75, 1.0, 1.25, 1.5, 2.0], rate, (v) => v == 1.0 ? 'Normal' : '${v}x', player.setRate),
+                onGoTo: live ? null : () => _goTo(context),
+                onToggleOrientation: onToggleOrientation,
+                onToggleFit: onToggleFit,
+                autoNext: !live && queue.length > 1 ? autoNext : null,
+                onToggleAutoNext: !live && queue.length > 1
+                    ? () {
+                        AppSettings.instance.update(autoNext: !autoNext);
+                        if (autoNext) onCancelCountdown();
+                      }
+                    : null,
+              );
+            },
+          ),
+        ),
+      ),
     );
   }
 }
