@@ -79,7 +79,8 @@ class _SettingsPageState extends State<SettingsPage> {
         final landscape = mode == AppLayoutMode.phoneLandscape;
         final narrow = portrait || MediaQuery.sizeOf(context).width < 900;
         final pad = MediaQuery.paddingOf(context);
-        final rightPad = landscape ? (pad.right > 0 ? pad.right : 14.0) : 16.0;
+        final leftPad = landscape ? (pad.left > 0 ? pad.left : 14.0) : AppSizes.scrollPad;
+        final rightPad = landscape ? 12.0 : 16.0;
         final bottomPad = portrait
             ? phoneBottomClearance(context)
             : (landscape ? (pad.bottom > 0 ? pad.bottom + 8 : 16.0) : 16.0);
@@ -270,7 +271,7 @@ class _SettingsPageState extends State<SettingsPage> {
           final showIndex = landscape ? box.maxWidth >= 520 : box.maxWidth >= 640;
           final sideW = landscape ? 176.0 : AppSizes.sideWidth;
           return Padding(
-            padding: const EdgeInsets.only(left: AppSizes.scrollPad),
+            padding: EdgeInsets.only(left: leftPad),
             child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
               // The section index is only a shortcut: in a narrow area the cards get the room instead.
               if (showIndex) ...[

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../settings.dart';
+import 'liquid_glass.dart';
 import 'tokens.dart';
 
 /// Responsive shell modes.
@@ -67,6 +68,10 @@ abstract final class AppHaptics {
 }
 
 /// Frosted dark charcoal capsule/card used for iPhone floating navigation and player chrome.
+///
+/// On iOS 26+ this renders Apple's genuine native Liquid Glass material via
+/// [NativeGlassSurface]; on older iOS, Android, desktop and widget tests it
+/// falls back to a dark frosted `BackdropFilter` surface.
 class GlassSurface extends StatelessWidget {
   const GlassSurface({
     super.key,
@@ -77,6 +82,10 @@ class GlassSurface extends StatelessWidget {
     this.borderColor = AppColors.glassBorder,
     this.blur = 20,
     this.shadows = AppShadows.overlay,
+    this.nativeClear = false,
+    this.nativeShape,
+    this.interactive = false,
+    this.nativeTint,
   });
 
   final Widget child;
@@ -87,8 +96,27 @@ class GlassSurface extends StatelessWidget {
   final double blur;
   final List<BoxShadow> shadows;
 
+  /// Uses Apple's `.clear` Liquid Glass variant (recommended over rich video).
+  final bool nativeClear;
+  final NativeGlassShape? nativeShape;
+  final bool interactive;
+  final Color? nativeTint;
+
   @override
   Widget build(BuildContext context) {
+    if (isNativeLiquidGlassSupported) {
+      return NativeGlassSurface(
+        clear: nativeClear,
+        shape: nativeShape ?? NativeGlassShape.rect,
+        cornerRadius: radius,
+        padding: padding,
+        tint: nativeTint,
+        interactive: interactive,
+        isDark: true,
+        child: child,
+      );
+    }
+
     final borderRadius = BorderRadius.circular(radius);
     return DecoratedBox(
       decoration: BoxDecoration(borderRadius: borderRadius, boxShadow: shadows),

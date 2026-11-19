@@ -17,6 +17,7 @@ import 'ui/controls.dart';
 import 'ui/focus_ring.dart';
 import 'ui/format.dart';
 import 'ui/layout.dart';
+import 'ui/liquid_glass.dart';
 import 'ui/shell.dart';
 import 'ui/tokens.dart';
 import 'xtream.dart';
@@ -41,6 +42,7 @@ const _settingsTab = 5;
 
 class _HomePageState extends State<HomePage> {
   int _tab = 0;
+  int _lastMainTab = 0;
   final Map<Kind, List<Item>> _items = {};
   final Map<Kind, String?> _errors = {};
   final Set<Kind> _loading = {};
@@ -78,6 +80,7 @@ class _HomePageState extends State<HomePage> {
   void _select(int tab) {
     setState(() {
       _tab = tab;
+      if (tab >= 0 && tab < 5) _lastMainTab = tab;
       _group = null;
       _query = '';
       _groupQuery = '';
@@ -521,7 +524,7 @@ class _HomePageState extends State<HomePage> {
                       left: 0,
                       right: 0,
                       bottom: 0,
-                      child: PhoneBottomBar(selected: _tab, onSelect: _select),
+                      child: PhoneBottomBar(selected: _tab, lastMainTab: _lastMainTab, onSelect: _select),
                     ),
                   ],
                 ),
@@ -529,14 +532,14 @@ class _HomePageState extends State<HomePage> {
             AppLayoutMode.phoneLandscape => Scaffold(
                 body: Row(
                   children: [
+                    Expanded(child: _phoneLandscapeContent()),
+                    const SizedBox(width: 6),
                     PhoneLandscapeRail(
                       selected: _tab,
                       onSelect: _select,
                       accountName: widget.account.name,
                       onAccount: () => Navigator.of(context).pop(),
                     ),
-                    const SizedBox(width: 6),
-                    Expanded(child: _phoneLandscapeContent()),
                   ],
                 ),
               ),
@@ -561,6 +564,47 @@ class _HomePageState extends State<HomePage> {
           onTap: () => Navigator.of(context).pop(),
         ),
       ];
+
+  Widget _phoneSortButton({required double height}) {
+    final label = _sort == _Sort.provider ? 'Sırala' : _sortLabels[_sort]!;
+    return NativeGlassMenuButton(
+      menuTitle: 'Sırala',
+      sfSymbol: 'arrow.up.arrow.down',
+      fallbackIcon: Icons.swap_vert_rounded,
+      label: label,
+      tooltip: 'Sırala',
+      style: NativeGlassStyle.glass,
+      isRound: false,
+      height: height,
+      iconSize: 15,
+      fontSize: 13.5,
+      items: [
+        for (final e in _sortLabels.entries)
+          GlassMenuItem(
+            id: e.key.name,
+            title: e.value,
+            selected: e.key == _sort,
+          ),
+      ],
+      onSelected: (id) {
+        for (final e in _Sort.values) {
+          if (e.name == id) {
+            setState(() => _sort = e);
+            return;
+          }
+        }
+      },
+      fallbackBuilder: (_, _) => AppButton(
+        variant: AppButtonVariant.onPage,
+        height: height,
+        dense: true,
+        icon: Icons.swap_vert_rounded,
+        label: label,
+        tooltip: 'Sırala',
+        onPressed: _pickSortSheet,
+      ),
+    );
+  }
 
   Widget _phonePortraitContent() {
     if (_tab == _homeTab) {
@@ -629,15 +673,7 @@ class _HomePageState extends State<HomePage> {
               Expanded(child: SearchField(key: ValueKey('search$_tab'), hint: hint, onChanged: (v) => setState(() => _query = v))),
               if (kind != Kind.live) ...[
                 const SizedBox(width: 8),
-                AppButton(
-                  variant: AppButtonVariant.onPage,
-                  height: 44,
-                  dense: true,
-                  icon: Icons.swap_vert_rounded,
-                  label: _sort == _Sort.provider ? 'Sırala' : _sortLabels[_sort],
-                  tooltip: 'Sırala',
-                  onPressed: _pickSortSheet,
-                ),
+                _phoneSortButton(height: 44),
               ],
             ],
           ),
@@ -653,7 +689,7 @@ class _HomePageState extends State<HomePage> {
 
   Widget _phoneLandscapeContent() {
     final pad = MediaQuery.paddingOf(context);
-    final rightPad = pad.right > 0 ? pad.right : 14.0;
+    final leftPad = pad.left > 0 ? pad.left : 14.0;
     final bottomPad = pad.bottom > 0 ? pad.bottom : 10.0;
 
     if (_tab == _homeTab) {
@@ -720,21 +756,12 @@ class _HomePageState extends State<HomePage> {
           landscape: true,
           actions: [
             SearchField(key: ValueKey('search$_tab'), hint: hint, width: 200, onChanged: (v) => setState(() => _query = v)),
-            if (kind != Kind.live)
-              AppButton(
-                variant: AppButtonVariant.onPage,
-                height: 40,
-                dense: true,
-                icon: Icons.swap_vert_rounded,
-                label: _sort == _Sort.provider ? 'Sırala' : _sortLabels[_sort],
-                tooltip: 'Sırala',
-                onPressed: _pickSortSheet,
-              ),
+            if (kind != Kind.live) _phoneSortButton(height: 40),
           ],
         ),
         Expanded(
           child: Padding(
-            padding: EdgeInsets.only(left: 8, right: rightPad > 14 ? rightPad - 8 : 0),
+            padding: EdgeInsets.only(left: leftPad > 14 ? leftPad - 6 : 10, right: 6),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -785,72 +812,92 @@ class _HomePageState extends State<HomePage> {
 
     return SizedBox(
       height: 36,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Row(
         children: [
-          Tooltip(
-            message: 'Tüm kategoriler',
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: () {
-                AppHaptics.selection(context);
-                _openCategorySheet(kind, view);
-              },
-              child: Container(
-                height: 36,
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                decoration: BoxDecoration(
-                  color: AppColors.surfaceAlt,
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: AppColors.line),
-                ),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.grid_view_rounded, size: 16, color: AppColors.ink),
-                  ],
+          Padding(
+            padding: const EdgeInsets.only(left: 16, right: 8),
+            child: NativeGlassButton(
+              sfSymbol: 'square.grid.2x2',
+              tooltip: 'Tüm kategoriler',
+              width: 40,
+              height: 36,
+              isRound: false,
+              cornerRadius: 18,
+              iconSize: 15,
+              style: NativeGlassStyle.glass,
+              foregroundColor: AppColors.ink,
+              onPressed: () => _openCategorySheet(kind, view),
+              fallback: Tooltip(
+                message: 'Tüm kategoriler',
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () {
+                    AppHaptics.selection(context);
+                    _openCategorySheet(kind, view);
+                  },
+                  child: Container(
+                    height: 36,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceAlt,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: AppColors.line),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.grid_view_rounded, size: 16, color: AppColors.ink),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ),
           ),
-          const SizedBox(width: 8),
-          chip(label: 'Tümü', count: groupCount(view.total), selected: _group == null, onTap: () => setState(() => _group = null)),
-          for (final name in names) ...[
-            const SizedBox(width: 8),
-            chip(
-              label: groupLabel(name),
-              count: groupCount(view.groups[name] ?? 0),
-              selected: _group == name,
-              onTap: () => setState(() => _group = name),
-            ),
-          ],
-          const SizedBox(width: 8),
-          Tooltip(
-            message: 'Kategorileri düzenle / gizle',
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: () {
-                AppHaptics.selection(context);
-                _manageGroups(kind);
-              },
-              child: Container(
-                height: 36,
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                decoration: BoxDecoration(
-                  color: AppColors.surfaceAlt,
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: AppColors.line),
+          Expanded(
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.only(right: 16),
+              children: [
+                chip(label: 'Tümü', count: groupCount(view.total), selected: _group == null, onTap: () => setState(() => _group = null)),
+                for (final name in names) ...[
+                  const SizedBox(width: 8),
+                  chip(
+                    label: groupLabel(name),
+                    count: groupCount(view.groups[name] ?? 0),
+                    selected: _group == name,
+                    onTap: () => setState(() => _group = name),
+                  ),
+                ],
+                const SizedBox(width: 8),
+                Tooltip(
+                  message: 'Kategorileri düzenle / gizle',
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () {
+                      AppHaptics.selection(context);
+                      _manageGroups(kind);
+                    },
+                    child: Container(
+                      height: 36,
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      decoration: BoxDecoration(
+                        color: AppColors.surfaceAlt,
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: AppColors.line),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.tune_rounded, size: 15, color: AppColors.ink2),
+                          const SizedBox(width: 6),
+                          Text('Düzenle', style: AppText.label(13, color: AppColors.ink2)),
+                        ],
+                      ),
+                    ),
+                  ),
                 ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.tune_rounded, size: 15, color: AppColors.ink2),
-                    const SizedBox(width: 6),
-                    Text('Düzenle', style: AppText.label(13, color: AppColors.ink2)),
-                  ],
-                ),
-              ),
+              ],
             ),
           ),
         ],
@@ -999,7 +1046,7 @@ class _HomePageState extends State<HomePage> {
 
     if (continueList.isEmpty && favs.isEmpty) {
       return Padding(
-        padding: EdgeInsets.fromLTRB(landscape ? 12 : 16, 12, landscape ? (pad.right > 0 ? pad.right : 14) : 16, landscape ? 16 : phoneBottomClearance(context)),
+        padding: EdgeInsets.fromLTRB(landscape ? (pad.left > 0 ? pad.left : 14) : 16, 12, landscape ? 12 : 16, landscape ? 16 : phoneBottomClearance(context)),
         child: Align(
           alignment: Alignment.topCenter,
           child: AppCard(
@@ -1016,11 +1063,11 @@ class _HomePageState extends State<HomePage> {
     }
 
     if (landscape) {
-      final rightPad = pad.right > 0 ? pad.right : 14.0;
+      final leftPad = pad.left > 0 ? pad.left : 14.0;
       final bottomPad = pad.bottom > 0 ? pad.bottom + 8 : 14.0;
       final hasLeft = continueList.isNotEmpty || recents.isNotEmpty || movies.isNotEmpty || series.isNotEmpty;
       return Padding(
-        padding: EdgeInsets.fromLTRB(12, 4, rightPad, 0),
+        padding: EdgeInsets.fromLTRB(leftPad, 4, 12, 0),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -1688,7 +1735,7 @@ class _HomePageState extends State<HomePage> {
     final pad = phonePortrait
         ? EdgeInsets.fromLTRB(16, 4, 16, phoneBottomClearance(context))
         : phoneLandscape
-            ? EdgeInsets.fromLTRB(12, 4, safe.right > 0 ? safe.right : 14, safe.bottom > 0 ? safe.bottom + 8 : 14)
+            ? EdgeInsets.fromLTRB(safe.left > 0 ? safe.left : 14, 4, 12, safe.bottom > 0 ? safe.bottom + 8 : 14)
             : const EdgeInsets.fromLTRB(AppSizes.scrollPad, AppSizes.scrollPad, 16, 16);
     if (favs.isEmpty) {
       return Padding(

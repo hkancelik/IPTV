@@ -14,6 +14,7 @@ import 'package:iptv_app/src/library.dart';
 import 'package:iptv_app/src/player_chrome.dart';
 import 'package:iptv_app/src/settings.dart';
 import 'package:iptv_app/src/ui/app_theme.dart';
+import 'package:iptv_app/src/ui/liquid_glass.dart';
 import 'package:iptv_app/src/ui/tokens.dart';
 import 'package:iptv_app/src/xtream.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -409,6 +410,8 @@ Future<void> _settle(WidgetTester t, [int frames = 10]) async {
 
 void main() {
   testWidgets('render real iPhone 15 portrait and landscape screenshots', (t) async {
+    debugDisableShadows = false;
+    try {
     HttpOverrides.global = _PosterHttpOverrides();
     addTearDown(() => HttpOverrides.global = null);
 
@@ -563,6 +566,95 @@ void main() {
       ),
     );
 
+    const sampleMenu = [
+      GlassMenuItem(
+        id: 'menu-audio',
+        title: 'Ses parçası',
+        subtitle: 'Türkçe',
+        sfSymbol: 'speaker.wave.2',
+        icon: Icons.audiotrack_rounded,
+        children: [GlassMenuItem(id: 'audio:0', title: 'Türkçe', selected: true)],
+      ),
+      GlassMenuItem(
+        id: 'menu-sub',
+        title: 'Altyazı',
+        subtitle: 'Kapalı',
+        sfSymbol: 'captions.bubble',
+        icon: Icons.subtitles_rounded,
+        children: [GlassMenuItem(id: 'sub:0', title: 'Kapalı', selected: true)],
+      ),
+      GlassMenuItem(
+        id: 'menu-rate',
+        title: 'Oynatma hızı',
+        subtitle: 'Normal',
+        sfSymbol: 'gauge.with.needle',
+        icon: Icons.speed_rounded,
+        children: [GlassMenuItem(id: 'rate:1.0', title: 'Normal (1x)', selected: true)],
+      ),
+    ];
+
+    await renderShot(
+      'portrait_player_vod.png',
+      _portraitSize,
+      _portraitPad,
+      Scaffold(
+        backgroundColor: AppColors.video,
+        body: Column(
+          children: [
+            SafeArea(
+              bottom: false,
+              child: AspectRatio(
+                aspectRatio: 16 / 9,
+                child: DecoratedBox(
+                  decoration: const BoxDecoration(
+                    gradient: RadialGradient(center: Alignment(0.1, -0.1), radius: 1.0, colors: [Color(0xFF3E4A35), Color(0xFF1A2218), Colors.black]),
+                  ),
+                  child: PhonePlayerOverlay(
+                    landscape: false,
+                    live: false,
+                    playing: true,
+                    title: 'Aşk Tesadüfleri Sever 2',
+                    onBack: () {},
+                    onPlayPause: () {},
+                    onToggleOrientation: () {},
+                    onToggleFit: () {},
+                    coverFit: false,
+                    onSeekBack: () {},
+                    onSeekForward: () {},
+                    position: const Duration(minutes: 1, seconds: 12),
+                    duration: const Duration(hours: 2, seconds: 1),
+                    buffer: const Duration(minutes: 10),
+                    onSeek: (_) {},
+                    osdText: '+10 sn',
+                    menuItems: sampleMenu,
+                    onMenuSelected: (_) {},
+                  ),
+                ),
+              ),
+            ),
+            Expanded(
+              child: PhonePlayerCompanion(
+                live: false,
+                title: 'Aşk Tesadüfleri Sever 2',
+                index: 0,
+                queueTitles: const ['Aşk Tesadüfleri Sever 2'],
+                audioLabel: 'Otomatik',
+                subtitleLabel: 'Altyazı: Kapalı',
+                rateLabel: '1x',
+                coverFit: false,
+                onPickAudio: () {},
+                onPickSubtitle: () {},
+                onPickRate: () {},
+                onGoTo: () {},
+                onToggleOrientation: () {},
+                onToggleFit: () {},
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
     // ─── LANDSCAPE SHOTS (852 × 393) ───
     await renderShot('landscape_home.png', _landscapeSize, _landscapePad, HomePage(client: client, info: info, account: _acc));
     await renderShot(
@@ -644,6 +736,50 @@ void main() {
             duration: const Duration(hours: 2, minutes: 46),
             buffer: const Duration(hours: 1, minutes: 55),
             onSeek: (_) {},
+            menuItems: sampleMenu,
+            onMenuSelected: (_) {},
+            onPickAudio: () {},
+            onPickSubtitle: () {},
+            onPickRate: () {},
+            onGoTo: () {},
+            audioLabel: 'Türkçe',
+            subtitleLabel: 'Altyazı',
+            rateLabel: '1x',
+          ),
+        ),
+      ),
+    );
+    await renderShot(
+      'landscape_player_vod_scrub.png',
+      _landscapeSize,
+      _landscapePad,
+      Scaffold(
+        backgroundColor: AppColors.video,
+        body: DecoratedBox(
+          decoration: const BoxDecoration(
+            gradient: RadialGradient(center: Alignment(0.05, -0.08), radius: 0.95, colors: [Color(0xFF422238), Color(0xFF150E1E), Colors.black]),
+          ),
+          child: PhonePlayerOverlay(
+            landscape: true,
+            live: false,
+            playing: true,
+            title: 'Dune: Çöl Gezegeni Bölüm İki',
+            subtitle: 'Bilim Kurgu · 2024',
+            onBack: () {},
+            onPlayPause: () {},
+            onToggleOrientation: () {},
+            onToggleFit: () {},
+            coverFit: false,
+            onSeekBack: () {},
+            onSeekForward: () {},
+            position: const Duration(hours: 1, minutes: 34, seconds: 18),
+            duration: const Duration(hours: 2, minutes: 46),
+            buffer: const Duration(hours: 1, minutes: 55),
+            pending: true,
+            onSeek: (_) {},
+            osdText: '1:34:18  (+6 sn) · Hassas · 1 sn',
+            menuItems: sampleMenu,
+            onMenuSelected: (_) {},
             onPickAudio: () {},
             onPickSubtitle: () {},
             onPickRate: () {},
@@ -657,5 +793,8 @@ void main() {
     );
 
     addTearDown(t.view.reset);
+    } finally {
+      debugDisableShadows = true;
+    }
   });
 }

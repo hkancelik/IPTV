@@ -12,6 +12,7 @@ import 'ui/basics.dart';
 import 'ui/controls.dart';
 import 'ui/format.dart';
 import 'ui/layout.dart';
+import 'ui/liquid_glass.dart';
 import 'ui/tokens.dart';
 import 'xtream.dart';
 
@@ -42,6 +43,22 @@ class PlayerPage extends StatefulWidget {
   final XtreamClient? client;
 
   bool get live => kind == Kind.live;
+
+  /// Locks the player to landscape or portrait without an automatic reset timer.
+  /// Clearing preferred orientations on a timer causes iOS to snap back to
+  /// portrait whenever system Portrait Orientation Lock is enabled.
+  @visibleForTesting
+  static Future<void> applyOrientationLock({required bool toLandscape}) {
+    if (toLandscape) {
+      return SystemChrome.setPreferredOrientations(const [
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ]);
+    }
+    return SystemChrome.setPreferredOrientations(const [
+      DeviceOrientation.portraitUp,
+    ]);
+  }
 
   @override
   State<PlayerPage> createState() => _PlayerPageState();
@@ -310,23 +327,8 @@ class _PlayerPageState extends State<PlayerPage> {
     setState(() => _fit = _fit == BoxFit.contain ? BoxFit.cover : BoxFit.contain);
   }
 
-  Future<void> _toggleOrientation(bool currentlyLandscape) async {
-    if (currentlyLandscape) {
-      await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
-      // Allow natural auto-rotation again shortly after rotating so physical turns still work.
-      Future.delayed(const Duration(seconds: 2), () {
-        if (mounted) SystemChrome.setPreferredOrientations(const []);
-      });
-    } else {
-      await SystemChrome.setPreferredOrientations([
-        DeviceOrientation.landscapeLeft,
-        DeviceOrientation.landscapeRight,
-      ]);
-      Future.delayed(const Duration(seconds: 2), () {
-        if (mounted) SystemChrome.setPreferredOrientations(const []);
-      });
-    }
-  }
+  Future<void> _toggleOrientation(bool currentlyLandscape) =>
+      PlayerPage.applyOrientationLock(toLandscape: !currentlyLandscape);
 
   void _setImmersive(bool on) {
     if (_immersive == on) return;
@@ -572,6 +574,15 @@ class _ControlsState extends State<_Controls> {
   int _hideToken = 0;
   String? _osd;
   int _osdToken = 0;
+  bool _scrubbing = false;
+  bool _menuOpen = false;
+  Duration? _scrubPos;
+  String? _scrubOsd;
+  Duration? _seekHold;
+  Timer? _seekHoldTimer;
+  Duration _tapSeekDelta = Duration.zero;
+  Duration? _tapSeekAnchor;
+  Timer? _tapSeekTimer;
   double _lastVolume = 100;
   final FocusNode _root = FocusNode(debugLabel: 'player-root');
   final FocusNode _playNode = FocusNode(debugLabel: 'player-play');
@@ -597,7 +608,7 @@ class _ControlsState extends State<_Controls> {
     _syncImmersive(true);
     final token = ++_hideToken;
     Future.delayed(const Duration(seconds: 3), () {
-      if (mounted && token == _hideToken && p.state.playing && !_barFocused) {
+      if (mounted && token == _hideToken && p.state.playing && !_barFocused && !_scrubbing && !_menuOpen) {
         setState(() => _visible = false);
         _syncImmersive(false);
       }
@@ -605,6 +616,7 @@ class _ControlsState extends State<_Controls> {
   }
 
   void _toggleVisible() {
+    if (_scrubbing || _menuOpen) return;
     if (_visible) {
       _hideToken++;
       setState(() => _visible = false);
@@ -622,6 +634,81 @@ class _ControlsState extends State<_Controls> {
     });
   }
 
+  String _formatSignedDelta(Duration delta) {
+    final secs = delta.inSeconds;
+    if (secs == 0) return '0 sn';
+    final sign = secs < 0 ? '−' : '+';
+    final abs = secs.abs();
+    if (abs < 60) return '$sign$abs sn';
+    if (abs < 3600) {
+      final m = abs ~/ 60;
+      final s = abs % 60;
+      return s == 0 ? '$sign$m dk' : '$sign$m dk $s sn';
+    }
+    final h = abs ~/ 3600;
+    final m = (abs % 3600) ~/ 60;
+    return '$sign$h sa $m dk';
+  }
+
+  void _holdSeekTarget(Duration target) {
+    _seekHold = target;
+    _seekHoldTimer?.cancel();
+    _seekHoldTimer = Timer(const Duration(milliseconds: 1800), () {
+      if (mounted) setState(() => _seekHold = null);
+    });
+  }
+
+  void _onScrubStart() {
+    _hideToken++;
+    _tapSeekTimer?.cancel();
+    _tapSeekDelta = Duration.zero;
+    _tapSeekAnchor = null;
+    setState(() {
+      _scrubbing = true;
+      _visible = true;
+    });
+    _syncImmersive(true);
+  }
+
+  void _onScrubUpdate(Duration target, Duration delta, ScrubPrecision precision) {
+    final gear = scrubPrecisionLabel(precision);
+    final text = '${_fmt(target)}  (${_formatSignedDelta(delta)})${gear == null ? '' : ' · $gear'}';
+    setState(() {
+      _scrubPos = target;
+      _scrubOsd = text;
+    });
+  }
+
+  void _onScrubEnd(Duration target) {
+    setState(() {
+      _scrubbing = false;
+      _scrubPos = null;
+      _scrubOsd = null;
+      _holdSeekTarget(target);
+    });
+    p.seek(target);
+    _poke();
+  }
+
+  void _onScrubCancel() {
+    setState(() {
+      _scrubbing = false;
+      _scrubPos = null;
+      _scrubOsd = null;
+    });
+    _poke();
+  }
+
+  Duration _displayedPosition(Duration livePos) {
+    if (_scrubPos != null) return _scrubPos!;
+    if (_pending.value != null) return _pending.value!;
+    final hold = _seekHold;
+    if (hold != null && (livePos - hold).abs() > const Duration(seconds: 2)) {
+      return hold;
+    }
+    return livePos;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -631,6 +718,8 @@ class _ControlsState extends State<_Controls> {
   @override
   void dispose() {
     _commitTimer?.cancel();
+    _seekHoldTimer?.cancel();
+    _tapSeekTimer?.cancel();
     _pending.dispose();
     _root.dispose();
     _playNode.dispose();
@@ -699,9 +788,20 @@ class _ControlsState extends State<_Controls> {
 
   void _seekBy(Duration delta) {
     if (widget.live) return;
-    final target = p.state.position + delta;
-    p.seek(target < Duration.zero ? Duration.zero : target);
-    _flash('${delta.isNegative ? '−' : '+'}${delta.inSeconds.abs()} sn');
+    final total = p.state.duration;
+    _tapSeekAnchor ??= _seekHold ?? p.state.position;
+    _tapSeekDelta += delta;
+    var target = _tapSeekAnchor! + _tapSeekDelta;
+    if (target < Duration.zero) target = Duration.zero;
+    if (total > Duration.zero && target > total) target = total;
+    setState(() => _holdSeekTarget(target));
+    p.seek(target);
+    _flash(_formatSignedDelta(_tapSeekDelta));
+    _tapSeekTimer?.cancel();
+    _tapSeekTimer = Timer(const Duration(milliseconds: 1100), () {
+      _tapSeekDelta = Duration.zero;
+      _tapSeekAnchor = null;
+    });
   }
 
   void _setVolume(double v) {
@@ -913,6 +1013,138 @@ class _ControlsState extends State<_Controls> {
     _poke();
   }
 
+  static const _rates = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
+
+  List<GlassMenuItem> _buildPhoneMenuItems(Tracks t, Track cur, double rate) {
+    final autoNext = AppSettings.instance.autoNext;
+    final audioChildren = [
+      for (var i = 0; i < t.audio.length; i++)
+        GlassMenuItem(
+          id: 'audio:$i',
+          title: _trackLabel(t.audio[i].id, t.audio[i].title, t.audio[i].language),
+          selected: t.audio[i] == cur.audio,
+        ),
+    ];
+    final subChildren = [
+      for (var i = 0; i < t.subtitle.length; i++)
+        GlassMenuItem(
+          id: 'sub:$i',
+          title: _trackLabel(t.subtitle[i].id, t.subtitle[i].title, t.subtitle[i].language),
+          selected: t.subtitle[i] == cur.subtitle,
+        ),
+    ];
+    final rateChildren = [
+      for (final r in _rates)
+        GlassMenuItem(
+          id: 'rate:$r',
+          title: r == 1.0 ? 'Normal (1x)' : '${r}x',
+          selected: (r - rate).abs() < 0.01,
+        ),
+    ];
+    return [
+      if (audioChildren.isNotEmpty)
+        GlassMenuItem(
+          id: 'menu-audio',
+          title: 'Ses parçası',
+          subtitle: _trackLabel(cur.audio.id, cur.audio.title, cur.audio.language),
+          sfSymbol: 'speaker.wave.2',
+          icon: Icons.audiotrack_rounded,
+          children: audioChildren,
+        ),
+      if (subChildren.isNotEmpty)
+        GlassMenuItem(
+          id: 'menu-sub',
+          title: 'Altyazı',
+          subtitle: cur.subtitle.id == 'no' ? 'Kapalı' : _trackLabel(cur.subtitle.id, cur.subtitle.title, cur.subtitle.language),
+          sfSymbol: 'captions.bubble',
+          icon: Icons.subtitles_rounded,
+          children: subChildren,
+        ),
+      if (!widget.live)
+        GlassMenuItem(
+          id: 'menu-rate',
+          title: 'Oynatma hızı',
+          subtitle: rate == 1.0 ? 'Normal' : '${rate}x',
+          sfSymbol: 'gauge.with.needle',
+          icon: Icons.speed_rounded,
+          children: rateChildren,
+        ),
+      GlassMenuItem(
+        id: 'menu-actions',
+        title: '',
+        inline: true,
+        children: [
+          if (!widget.live)
+            const GlassMenuItem(
+              id: 'goto',
+              title: 'Zamana git',
+              sfSymbol: 'clock',
+              icon: Icons.schedule_rounded,
+            ),
+          if (widget.queued)
+            GlassMenuItem(
+              id: 'queue',
+              title: widget.live ? 'Kanallar' : 'Bölümler',
+              sfSymbol: 'list.bullet',
+              icon: Icons.queue_play_next_rounded,
+            ),
+          GlassMenuItem(
+            id: 'fit',
+            title: widget.coverFit ? 'Ekrana sığdır' : 'Ekranı doldur',
+            sfSymbol: widget.coverFit ? 'rectangle.arrowtriangle.2.outward' : 'aspectratio',
+            icon: widget.coverFit ? Icons.fit_screen_rounded : Icons.aspect_ratio_rounded,
+            selected: widget.coverFit,
+          ),
+          if (!widget.live && widget.queued)
+            GlassMenuItem(
+              id: 'autonext',
+              title: 'Sonraki bölümü otomatik oynat',
+              sfSymbol: 'play.circle',
+              icon: Icons.skip_next_rounded,
+              selected: autoNext,
+            ),
+        ],
+      ),
+    ];
+  }
+
+  void _handlePhoneMenuSelection(String id, Tracks t) {
+    if (id.startsWith('audio:')) {
+      final idx = int.tryParse(id.substring(6));
+      if (idx != null && idx >= 0 && idx < t.audio.length) {
+        final track = t.audio[idx];
+        p.setAudioTrack(track);
+        _flash('Ses: ${_trackLabel(track.id, track.title, track.language)}');
+      }
+    } else if (id.startsWith('sub:')) {
+      final idx = int.tryParse(id.substring(4));
+      if (idx != null && idx >= 0 && idx < t.subtitle.length) {
+        final track = t.subtitle[idx];
+        p.setSubtitleTrack(track);
+        _flash('Altyazı: ${_trackLabel(track.id, track.title, track.language)}');
+      }
+    } else if (id.startsWith('rate:')) {
+      final r = double.tryParse(id.substring(5));
+      if (r != null) {
+        p.setRate(r);
+        _flash(r == 1.0 ? 'Hız: Normal' : 'Hız: ${r}x');
+      }
+    } else if (id == 'goto') {
+      _goTo();
+    } else if (id == 'queue') {
+      _openQueueSheet();
+    } else if (id == 'fit') {
+      widget.onToggleFit();
+      _flash(widget.coverFit ? 'Ekrana sığdırıldı' : 'Ekranı doldur');
+    } else if (id == 'autonext') {
+      final next = !AppSettings.instance.autoNext;
+      AppSettings.instance.update(autoNext: next);
+      if (!next) widget.onCancelCountdown();
+      _flash('Otomatik sonraki: ${next ? 'açık' : 'kapalı'}');
+    }
+    _poke();
+  }
+
   void _onPhoneDoubleTap(TapDownDetails details, double width) {
     if (widget.live) {
       if (details.localPosition.dx < width * 0.45 && widget.onPrev != null) {
@@ -993,13 +1225,19 @@ class _ControlsState extends State<_Controls> {
                 top: 92,
                 left: 0,
                 right: 0,
-                child: Center(
-                  child: Container(
-                    height: 44,
-                    padding: const EdgeInsets.symmetric(horizontal: 18),
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(22), boxShadow: AppShadows.overlay),
-                    child: Text(_osd!, style: AppText.label(15).copyWith(fontFeatures: const [FontFeature.tabularFigures()])),
+                child: IgnorePointer(
+                  child: Center(
+                    child: Container(
+                      height: 44,
+                      padding: const EdgeInsets.symmetric(horizontal: 18),
+                      decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(22), boxShadow: AppShadows.overlay),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(_osd!, style: AppText.label(15).copyWith(fontFeatures: const [FontFeature.tabularFigures()])),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -1096,27 +1334,7 @@ class _ControlsState extends State<_Controls> {
                 );
               },
             ),
-            // OSD badge (seek feedback, speed, etc.)
-            if (_osd != null)
-              Positioned(
-                top: _phoneLandscape ? 64 : 14,
-                left: 0,
-                right: 0,
-                child: Center(
-                  child: Container(
-                    height: 36,
-                    padding: const EdgeInsets.symmetric(horizontal: 14),
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: AppColors.videoGlass,
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: AppColors.glassBorder),
-                    ),
-                    child: Text(_osd!, style: AppText.label(13.5).copyWith(fontFeatures: const [FontFeature.tabularFigures()])),
-                  ),
-                ),
-              ),
-            // Animated glass overlay
+            // Animated glass overlay (also hosts the non-overlapping OSD badge while visible)
             AnimatedSwitcher(
               duration: const Duration(milliseconds: 160),
               child: _visible
@@ -1145,6 +1363,7 @@ class _ControlsState extends State<_Controls> {
                                       final subLbl = cur.subtitle.id == 'no'
                                           ? 'Altyazı'
                                           : short(_trackLabel(cur.subtitle.id, cur.subtitle.title, cur.subtitle.language));
+                                      final livePos = posSnap.data ?? p.state.position;
                                       return PhonePlayerOverlay(
                                         landscape: _phoneLandscape,
                                         live: widget.live,
@@ -1163,17 +1382,40 @@ class _ControlsState extends State<_Controls> {
                                         },
                                         coverFit: widget.coverFit,
                                         skipSecs: _skip.inSeconds,
-                                        onSeekBack: widget.live ? null : () => _seekBy(-_skip),
-                                        onSeekForward: widget.live ? null : () => _seekBy(_skip),
+                                        onSeekBack: widget.live
+                                            ? null
+                                            : () {
+                                                _seekBy(-_skip);
+                                                _poke();
+                                              },
+                                        onSeekForward: widget.live
+                                            ? null
+                                            : () {
+                                                _seekBy(_skip);
+                                                _poke();
+                                              },
                                         onPrev: widget.onPrev,
                                         onNext: widget.onNext,
                                         queued: widget.queued,
-                                        position: _pending.value ?? posSnap.data ?? p.state.position,
+                                        position: _displayedPosition(livePos),
                                         duration: durSnap.data ?? p.state.duration,
                                         buffer: bufSnap.data ?? p.state.buffer,
-                                        pending: _pending.value != null,
-                                        onSeek: (d) {
-                                          p.seek(d);
+                                        pending: _pending.value != null || _scrubbing,
+                                        onSeek: _onScrubEnd,
+                                        onScrubStart: _onScrubStart,
+                                        onScrubUpdate: _onScrubUpdate,
+                                        onScrubEnd: _onScrubEnd,
+                                        onScrubCancel: _onScrubCancel,
+                                        onTimelineInteract: _poke,
+                                        osdText: _scrubOsd ?? _osd,
+                                        menuItems: _buildPhoneMenuItems(t, cur, rate),
+                                        onMenuSelected: (id) => _handlePhoneMenuSelection(id, t),
+                                        onMenuWillShow: () {
+                                          _menuOpen = true;
+                                          _hideToken++;
+                                        },
+                                        onMenuDidHide: () {
+                                          _menuOpen = false;
                                           _poke();
                                         },
                                         audioLabel: audioLbl,
@@ -1202,6 +1444,20 @@ class _ControlsState extends State<_Controls> {
                     )
                   : const SizedBox.expand(key: ValueKey('phone-hidden')),
             ),
+            // OSD badge while the glass controls are hidden (e.g. double-tap seek during playback)
+            if (!_visible && (_scrubOsd ?? _osd) != null)
+              Positioned(
+                top: _phoneLandscape ? (MediaQuery.paddingOf(context).top > 0 ? MediaQuery.paddingOf(context).top + 16 : 24) : 14,
+                left: 16,
+                right: 16,
+                child: Center(
+                  child: PhoneOsdBadge(
+                    key: const ValueKey('phone-player-osd-hidden'),
+                    text: (_scrubOsd ?? _osd)!,
+                    compact: !_phoneLandscape,
+                  ),
+                ),
+              ),
             // Next-episode countdown card
             ValueListenableBuilder<int?>(
               valueListenable: widget.countdown,
@@ -1441,11 +1697,14 @@ class _ControlsState extends State<_Controls> {
           builder: (_, buf) => ValueListenableBuilder<Duration?>(
             valueListenable: _pending,
             builder: (_, pending, _) => VodTimeline(
-              position: pending ?? pos.data ?? p.state.position,
+              position: _displayedPosition(pos.data ?? p.state.position),
               duration: dur.data ?? p.state.duration,
               buffer: buf.data ?? p.state.buffer,
-              pending: pending != null,
-              onSeek: p.seek,
+              pending: pending != null || _scrubbing,
+              onSeek: _onScrubEnd,
+              onScrubStart: _onScrubStart,
+              onScrubEnd: _onScrubEnd,
+              onScrubCancel: _onScrubCancel,
             ),
           ),
         ),

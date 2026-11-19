@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:uikit_tab_bar/uikit_tab_bar.dart';
 
 import 'basics.dart';
 import 'focus_ring.dart';
 import 'layout.dart';
+import 'liquid_glass.dart';
 import 'tokens.dart';
 
 const navLabels = ['Ana sayfa', 'Canlı TV', 'Filmler', 'Diziler', 'Favoriler', 'Ayarlar'];
@@ -172,17 +174,112 @@ class PageHeader extends StatelessWidget {
       );
 }
 
-/// Floating frosted-glass 5-tab capsule pinned above the iPhone Home Indicator (portrait).
-class PhoneBottomBar extends StatelessWidget {
-  const PhoneBottomBar({super.key, required this.selected, required this.onSelect});
+/// Bottom 5-tab bar for iPhone portrait.
+///
+/// On iOS 26+ this hosts Apple's native [UITabBarController] Liquid Glass bar
+/// via [UIKitTabBar] (real system optical refraction, sliding glass lens, and
+/// haptics). On older iOS, Android, desktop and widget tests it falls back to
+/// a dark frosted-glass capsule.
+class PhoneBottomBar extends StatefulWidget {
+  const PhoneBottomBar({
+    super.key,
+    required this.selected,
+    required this.onSelect,
+    this.lastMainTab = 0,
+  });
 
   final int selected;
   final ValueChanged<int> onSelect;
 
+  /// Last selected primary tab (`0..4`), kept active in native [UITabBar]
+  /// when Settings (`5`) is opened from the top bar so tapping any tab returns.
+  final int lastMainTab;
+
   static const _shortLabels = ['Ana sayfa', 'Canlı TV', 'Filmler', 'Diziler', 'Favoriler'];
+
+  /// Native iOS 26+ Liquid Glass tab definitions using SF Symbols.
+  static const nativeTabs = [
+    UIKitTab(
+      id: 'nav-home',
+      label: 'Ana sayfa',
+      icon: UIKitTabIcon.symbol('house'),
+      selectedIcon: UIKitTabIcon.symbol('house.fill'),
+      fallbackIcon: Icon(Icons.home_rounded),
+    ),
+    UIKitTab(
+      id: 'nav-live',
+      label: 'Canlı TV',
+      icon: UIKitTabIcon.symbol('tv'),
+      selectedIcon: UIKitTabIcon.symbol('tv.fill'),
+      fallbackIcon: Icon(Icons.live_tv_rounded),
+    ),
+    UIKitTab(
+      id: 'nav-movies',
+      label: 'Filmler',
+      icon: UIKitTabIcon.symbol('film'),
+      selectedIcon: UIKitTabIcon.symbol('film.fill'),
+      fallbackIcon: Icon(Icons.movie_rounded),
+    ),
+    UIKitTab(
+      id: 'nav-series',
+      label: 'Diziler',
+      icon: UIKitTabIcon.symbol('play.square.stack'),
+      selectedIcon: UIKitTabIcon.symbol('play.square.stack.fill'),
+      fallbackIcon: Icon(Icons.video_library_rounded),
+    ),
+    UIKitTab(
+      id: 'nav-favorites',
+      label: 'Favoriler',
+      icon: UIKitTabIcon.symbol('heart'),
+      selectedIcon: UIKitTabIcon.symbol('heart.fill'),
+      fallbackIcon: Icon(Icons.favorite_rounded),
+    ),
+  ];
+
+  @override
+  State<PhoneBottomBar> createState() => _PhoneBottomBarState();
+}
+
+class _PhoneBottomBarState extends State<PhoneBottomBar> {
+  late int _lastMainTab = _clampedMainTab(widget.selected >= 0 && widget.selected < 5 ? widget.selected : widget.lastMainTab);
+
+  static int _clampedMainTab(int i) => i.clamp(0, 4);
+
+  @override
+  void didUpdateWidget(PhoneBottomBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.selected >= 0 && widget.selected < 5) {
+      _lastMainTab = widget.selected;
+    } else if (widget.lastMainTab != oldWidget.lastMainTab) {
+      _lastMainTab = _clampedMainTab(widget.lastMainTab);
+    }
+  }
+
+  void _selectNativeId(String id) {
+    final idx = navKeys.indexOf(id);
+    if (idx >= 0 && idx < 5) widget.onSelect(idx);
+  }
 
   @override
   Widget build(BuildContext context) {
+    if (UIKitTabBar.isNativeSupported) {
+      final activeIndex = widget.selected >= 0 && widget.selected < 5 ? widget.selected : _lastMainTab;
+      return UIKitTabBar(
+        tabs: PhoneBottomBar.nativeTabs,
+        selectedId: navKeys[activeIndex],
+        onSelected: _selectNativeId,
+        onReselect: (id) {
+          if (widget.selected >= 5) _selectNativeId(id);
+        },
+        minimizeBehavior: UIKitTabBarMinimizeBehavior.never,
+        verticalBarBehavior: UIKitVerticalBarBehavior.disabled,
+        style: const UIKitTabBarStyle(
+          tintColor: AppColors.accent,
+          brightness: Brightness.dark,
+        ),
+      );
+    }
+
     final bottomInset = MediaQuery.paddingOf(context).bottom;
     return Padding(
       padding: EdgeInsets.fromLTRB(14, 0, 14, bottomInset > 0 ? bottomInset + 4 : 12),
@@ -202,7 +299,7 @@ class PhoneBottomBar extends StatelessWidget {
   }
 
   Widget _tab(BuildContext context, int i) {
-    final on = i == selected;
+    final on = i == widget.selected;
     return Semantics(
       button: true,
       selected: on,
@@ -212,7 +309,7 @@ class PhoneBottomBar extends StatelessWidget {
         behavior: HitTestBehavior.opaque,
         onTap: () {
           AppHaptics.selection(context);
-          onSelect(i);
+          widget.onSelect(i);
         },
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 160),
@@ -229,7 +326,7 @@ class PhoneBottomBar extends StatelessWidget {
               Icon(navIcons[i], size: 21, color: on ? AppColors.accentInk : AppColors.ink2),
               const SizedBox(height: 2),
               Text(
-                _shortLabels[i],
+                PhoneBottomBar._shortLabels[i],
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: AppText.label(10.5, color: on ? AppColors.accentInk : AppColors.ink2),
@@ -242,7 +339,7 @@ class PhoneBottomBar extends StatelessWidget {
   }
 }
 
-/// Slim frosted-glass vertical rail on the left for iPhone landscape, clearing the Dynamic Island.
+/// Slim frosted-glass vertical rail on the right for iPhone landscape, clearing the right safe area.
 class PhoneLandscapeRail extends StatelessWidget {
   const PhoneLandscapeRail({
     super.key,
@@ -260,31 +357,18 @@ class PhoneLandscapeRail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final pad = MediaQuery.paddingOf(context);
-    final left = pad.left > 0 ? pad.left : 10.0;
+    final right = pad.right > 0 ? pad.right : 10.0;
     final bottom = pad.bottom > 0 ? pad.bottom : 10.0;
     return Padding(
-      padding: EdgeInsets.fromLTRB(left, 10, 0, bottom),
+      padding: EdgeInsets.fromLTRB(0, 10, right, bottom),
       child: GlassSurface(
         radius: 26,
+        interactive: true,
         padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
         child: SizedBox(
           width: 48,
           child: Column(
             children: [
-              GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () {
-                  AppHaptics.selection(context);
-                  onSelect(0);
-                },
-                child: Container(
-                  width: 34,
-                  height: 34,
-                  decoration: BoxDecoration(color: AppColors.accent, borderRadius: BorderRadius.circular(11)),
-                  child: const Icon(Icons.play_arrow_rounded, color: AppColors.onAccent, size: 22),
-                ),
-              ),
-              const SizedBox(height: 6),
               Expanded(
                 child: SingleChildScrollView(
                   child: Column(
@@ -295,7 +379,7 @@ class PhoneLandscapeRail extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 4),
-              PhoneAccountAvatar(name: accountName, size: 34, onTap: onAccount),
+              PhoneAccountAvatar(name: accountName, size: 34, nativeGlass: false, onTap: onAccount),
             ],
           ),
         ),
@@ -335,13 +419,17 @@ class PhoneLandscapeRail extends StatelessWidget {
   }
 }
 
-/// Circular iPhone top-bar button with a comfortable 44×44 touch area.
+/// Circular iPhone top-bar button with a comfortable 42×42 touch area.
+///
+/// On iOS 26+ this renders Apple's native interactive Liquid Glass `UIButton`
+/// (`UIButton.Configuration.glass()` / `.clearGlass()` / `.prominentGlass()`).
 class PhoneIconButton extends StatelessWidget {
   const PhoneIconButton({
     super.key,
     required this.icon,
     required this.onTap,
     this.tooltip,
+    this.sfSymbol,
     this.active = false,
     this.translucent = false,
     this.iconColor,
@@ -350,6 +438,7 @@ class PhoneIconButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback? onTap;
   final String? tooltip;
+  final String? sfSymbol;
   final bool active;
   final bool translucent;
   final Color? iconColor;
@@ -358,7 +447,7 @@ class PhoneIconButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final bg = active ? AppColors.accent : (translucent ? AppColors.videoGlass : AppColors.surface);
     final fg = iconColor ?? (active ? AppColors.onAccent : AppColors.ink);
-    Widget button = Semantics(
+    Widget fallback = Semantics(
       button: true,
       selected: active,
       label: tooltip,
@@ -388,37 +477,63 @@ class PhoneIconButton extends StatelessWidget {
         ),
       ),
     );
-    if (tooltip != null) button = Tooltip(message: tooltip!, child: button);
-    return button;
+    if (tooltip != null) fallback = Tooltip(message: tooltip!, child: fallback);
+
+    final symbol = sfSymbol ?? sfSymbolForIcon(icon);
+    if (symbol == null) return fallback;
+
+    return NativeGlassButton(
+      sfSymbol: symbol,
+      tooltip: tooltip,
+      width: 42,
+      height: 42,
+      isRound: true,
+      iconSize: 17,
+      style: active
+          ? NativeGlassStyle.prominentGlass
+          : (translucent ? NativeGlassStyle.clearGlass : NativeGlassStyle.glass),
+      foregroundColor: fg,
+      tintColor: active ? AppColors.accent : null,
+      onPressed: onTap,
+      fallback: fallback,
+    );
   }
 }
 
 /// Circular account initial avatar used in the iPhone top bar and landscape rail.
 class PhoneAccountAvatar extends StatelessWidget {
-  const PhoneAccountAvatar({super.key, required this.name, required this.onTap, this.size = 38});
+  const PhoneAccountAvatar({
+    super.key,
+    required this.name,
+    required this.onTap,
+    this.size = 38,
+    this.nativeGlass = true,
+  });
 
   final String name;
   final VoidCallback onTap;
   final double size;
+  final bool nativeGlass;
 
   @override
   Widget build(BuildContext context) {
     final initial = name.trim().isEmpty ? '?' : String.fromCharCode(name.trim().runes.first).toUpperCase();
-    return Tooltip(
+    final box = size < 42 ? 42.0 : size;
+    final fallback = Tooltip(
       message: 'Kullanıcı değiştir',
       child: Semantics(
         button: true,
         label: 'Kullanıcı değiştir',
         child: GestureDetector(
-          key: const ValueKey('nav-account'),
+          key: nativeGlass ? null : const ValueKey('nav-account'),
           behavior: HitTestBehavior.opaque,
           onTap: () {
             AppHaptics.selection(context);
             onTap();
           },
           child: SizedBox(
-            width: size < 42 ? 42 : size,
-            height: size < 42 ? 42 : size,
+            width: box,
+            height: box,
             child: Center(
               child: Container(
                 width: size,
@@ -435,6 +550,20 @@ class PhoneAccountAvatar extends StatelessWidget {
           ),
         ),
       ),
+    );
+    if (!nativeGlass) return fallback;
+    return NativeGlassButton(
+      key: const ValueKey('nav-account'),
+      label: initial,
+      tooltip: 'Kullanıcı değiştir',
+      width: box,
+      height: box,
+      isRound: true,
+      fontSize: size * 0.42,
+      style: NativeGlassStyle.glass,
+      foregroundColor: AppColors.ink,
+      onPressed: onTap,
+      fallback: fallback,
     );
   }
 }
@@ -458,8 +587,8 @@ class PhoneTopBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final pad = MediaQuery.paddingOf(context);
     final top = landscape ? (pad.top > 0 ? pad.top : 10.0) : (pad.top > 0 ? pad.top + 6 : 14.0);
-    final right = landscape ? (pad.right > 0 ? pad.right : 14.0) : 16.0;
-    final left = landscape ? 12.0 : 18.0;
+    final left = landscape ? (pad.left > 0 ? pad.left : 14.0) : 18.0;
+    final right = landscape ? 12.0 : 16.0;
     return Padding(
       padding: EdgeInsets.fromLTRB(left, top, right, landscape ? 6 : 10),
       child: Row(

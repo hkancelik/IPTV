@@ -10,6 +10,7 @@ import 'ui/controls.dart';
 import 'ui/focus_ring.dart';
 import 'ui/format.dart';
 import 'ui/layout.dart';
+import 'ui/liquid_glass.dart';
 import 'ui/shell.dart';
 import 'ui/tokens.dart';
 import 'xtream.dart';
@@ -497,13 +498,26 @@ class _DetailPageState extends State<DetailPage> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Row(children: [
-                    AppButton(
-                      variant: AppButtonVariant.secondary,
-                      height: 36,
-                      dense: true,
-                      icon: Icons.chevron_left_rounded,
+                    NativeGlassButton(
+                      sfSymbol: 'chevron.left',
                       label: 'Geri',
+                      tooltip: 'Geri',
+                      isRound: false,
+                      width: 86,
+                      height: 36,
+                      iconSize: 15,
+                      fontSize: 13.5,
+                      style: NativeGlassStyle.glass,
+                      foregroundColor: AppColors.ink,
                       onPressed: () => Navigator.of(context).maybePop(),
+                      fallback: AppButton(
+                        variant: AppButtonVariant.secondary,
+                        height: 36,
+                        dense: true,
+                        icon: Icons.chevron_left_rounded,
+                        label: 'Geri',
+                        onPressed: () => Navigator.of(context).maybePop(),
+                      ),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
@@ -563,15 +577,27 @@ class _DetailPageState extends State<DetailPage> {
                   Row(children: [
                     Expanded(child: _primaryCta(queue, position, resumeEpisode)),
                     const SizedBox(width: 8),
-                    AppButton(
-                      variant: fav ? AppButtonVariant.danger : AppButtonVariant.secondary,
-                      height: AppSizes.primaryHeight,
-                      icon: fav ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                    NativeGlassButton(
+                      sfSymbol: fav ? 'heart.fill' : 'heart',
                       tooltip: fav ? 'Favorilerde' : 'Favorilere ekle',
+                      height: AppSizes.primaryHeight,
+                      iconSize: 20,
+                      style: NativeGlassStyle.glass,
+                      foregroundColor: fav ? AppColors.live : AppColors.ink,
                       onPressed: () {
                         AppHaptics.selection(context);
                         Library.instance.toggleFavorite(widget.item);
                       },
+                      fallback: AppButton(
+                        variant: fav ? AppButtonVariant.danger : AppButtonVariant.secondary,
+                        height: AppSizes.primaryHeight,
+                        icon: fav ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                        tooltip: fav ? 'Favorilerde' : 'Favorilere ekle',
+                        onPressed: () {
+                          AppHaptics.selection(context);
+                          Library.instance.toggleFavorite(widget.item);
+                        },
+                      ),
                     ),
                   ]),
                 ],
