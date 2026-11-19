@@ -38,7 +38,7 @@ Koyu **"Kömür"** teması, **Fraunces + Hanken Grotesk** tipografisi ve hem far
 | ![Oynatıcı](docs/screenshots/player.png) | ![Ayarlar](docs/screenshots/settings.png) |
 | *Yüzen denetim kartı, ses/altyazı parçaları ve hız kontrolü* | *Hesap, oynatıcı, içerik, telefon kumandası ve görünüm ayarları* |
 
-### iPhone 15 Tasarımı (Dikey & Yatay)
+### iPhone  Tasarımı (Dikey & Yatay)
 
 Dynamic Island ve Home Indicator güvenli alanlarına uyumlu, tek elle kullanılan yüzen buzlu cam kapsül çubuğu (dikey), ince yüzen sol ray (yatay) ve hibrit 16:9 / tam ekran OLED oynatıcı:
 
