@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
 
+import '../downloads.dart';
 import 'basics.dart';
 import 'focus_ring.dart';
 import 'layout.dart';
 import 'liquid_glass.dart';
 import 'tokens.dart';
 
-const navLabels = ['Ana sayfa', 'Canlı TV', 'Filmler', 'Diziler', 'Favoriler', 'Ayarlar'];
-const navKeys = ['nav-home', 'nav-live', 'nav-movies', 'nav-series', 'nav-favorites', 'nav-settings'];
+const navLabels = ['Ana sayfa', 'Canlı TV', 'Filmler', 'Diziler', 'Favoriler', 'Ayarlar', 'İndirilenler'];
+const navKeys = ['nav-home', 'nav-live', 'nav-movies', 'nav-series', 'nav-favorites', 'nav-settings', 'nav-downloads'];
 const navIcons = [
   Icons.home_rounded,
   Icons.live_tv_rounded,
@@ -15,7 +16,12 @@ const navIcons = [
   Icons.video_library_rounded,
   Icons.favorite_rounded,
   Icons.tune_rounded,
+  Icons.download_for_offline_rounded,
 ];
+
+/// Display order for vertical navigation menus (keeps İndirilenler above Ayarlar
+/// without changing the existing tab indices 0..5).
+const _verticalNavOrder = [0, 1, 2, 3, 4, 6, 5];
 
 /// Blue square with a play mark, optionally followed by "IPTV".
 class BrandMark extends StatelessWidget {
@@ -63,11 +69,14 @@ class SideMenu extends StatelessWidget {
               child: Align(alignment: narrow ? Alignment.center : Alignment.centerLeft, child: BrandMark(showName: !narrow)),
             ),
             Expanded(
-              child: ListView.separated(
-                padding: const EdgeInsets.all(AppSizes.scrollPad),
-                itemCount: navLabels.length,
-                separatorBuilder: (_, _) => const SizedBox(height: 6),
-                itemBuilder: (_, i) => _item(i, narrow),
+              child: ListenableBuilder(
+                listenable: DownloadManager.instance,
+                builder: (context, _) => ListView.separated(
+                  padding: const EdgeInsets.all(AppSizes.scrollPad),
+                  itemCount: _verticalNavOrder.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 6),
+                  itemBuilder: (_, idx) => _item(_verticalNavOrder[idx], narrow),
+                ),
               ),
             ),
             Padding(
@@ -105,6 +114,7 @@ class SideMenu extends StatelessWidget {
   Widget _item(int i, bool narrow) {
     final on = i == selected;
     final fg = on ? AppColors.onAccent : AppColors.ink2;
+    final badge = i == 6 ? DownloadManager.instance.activeCount : 0;
     return FocusRing(
       key: ValueKey(navKeys[i]),
       radius: AppSizes.itemRadius,
@@ -118,12 +128,38 @@ class SideMenu extends StatelessWidget {
         padding: EdgeInsets.symmetric(horizontal: narrow ? 0 : 14),
         decoration: BoxDecoration(color: on ? AppColors.accent : null, borderRadius: BorderRadius.circular(AppSizes.itemRadius)),
         child: Row(mainAxisAlignment: narrow ? MainAxisAlignment.center : MainAxisAlignment.start, children: [
-          Icon(navIcons[i], size: 20, color: fg),
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Icon(navIcons[i], size: 20, color: fg),
+              if (narrow && badge > 0)
+                Positioned(
+                  right: -4,
+                  top: -4,
+                  child: Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(color: on ? AppColors.onAccent : AppColors.accent, shape: BoxShape.circle),
+                  ),
+                ),
+            ],
+          ),
           if (!narrow) ...[
             const SizedBox(width: 12),
             Expanded(
               child: Text(navLabels[i], maxLines: 1, overflow: TextOverflow.ellipsis, style: on ? AppText.title(15, color: fg) : AppText.meta(15, color: fg)),
             ),
+            if (badge > 0) ...[
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                decoration: BoxDecoration(
+                  color: on ? AppColors.onAccent.withValues(alpha: 0.22) : AppColors.accentSoft,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text('$badge', style: AppText.label(11.5, color: on ? AppColors.onAccent : AppColors.accentInk)),
+              ),
+            ],
           ],
         ]),
       ),
@@ -335,11 +371,14 @@ class PhoneLandscapeRail extends StatelessWidget {
           child: Column(
             children: [
               Expanded(
-                child: SingleChildScrollView(
-                  child: Column(
-                    children: [
-                      for (var i = 0; i < navLabels.length; i++) _railItem(context, i),
-                    ],
+                child: ListenableBuilder(
+                  listenable: DownloadManager.instance,
+                  builder: (context, _) => SingleChildScrollView(
+                    child: Column(
+                      children: [
+                        for (final i in _verticalNavOrder) _railItem(context, i),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -354,6 +393,7 @@ class PhoneLandscapeRail extends StatelessWidget {
 
   Widget _railItem(BuildContext context, int i) {
     final on = i == selected;
+    final hasBadge = i == 6 && DownloadManager.instance.activeCount > 0;
     return Tooltip(
       message: navLabels[i],
       child: Semantics(
@@ -376,7 +416,22 @@ class PhoneLandscapeRail extends StatelessWidget {
               color: on ? AppColors.accent : AppColors.transparent,
               borderRadius: BorderRadius.circular(14),
             ),
-            child: Icon(navIcons[i], size: 20, color: on ? AppColors.onAccent : AppColors.ink2),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Icon(navIcons[i], size: 20, color: on ? AppColors.onAccent : AppColors.ink2),
+                if (hasBadge)
+                  Positioned(
+                    right: 8,
+                    top: 6,
+                    child: Container(
+                      width: 7,
+                      height: 7,
+                      decoration: BoxDecoration(color: on ? AppColors.onAccent : AppColors.accent, shape: BoxShape.circle),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
       ),

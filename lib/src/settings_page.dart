@@ -1,11 +1,16 @@
+import 'dart:io' show Platform;
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'package:qr_flutter/qr_flutter.dart';
 
+import 'downloads.dart';
 import 'phone_remote.dart';
 import 'player_session.dart';
 import 'settings.dart';
 import 'system_pip.dart';
+import 'tv_text_field.dart';
 import 'ui/basics.dart';
 import 'ui/controls.dart';
 import 'ui/focus_ring.dart';
@@ -13,7 +18,7 @@ import 'ui/layout.dart';
 import 'ui/tokens.dart';
 import 'xtream.dart';
 
-const _sections = ['Hesap', 'Oynatıcı', 'İçerik', 'Telefonu kumanda yap', 'Görünüm', 'Kısayollar'];
+const _sections = ['Hesap', 'Oynatıcı', 'İçerik', 'Telefonu kumanda yap', 'Görünüm', 'İndirmeler', 'Kısayollar'];
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key, required this.info, required this.account, required this.client, required this.onLogout});
@@ -77,7 +82,7 @@ class _SettingsPageState extends State<SettingsPage> {
   Widget build(BuildContext context) {
     final s = AppSettings.instance;
     return ListenableBuilder(
-      listenable: Listenable.merge([s, PhoneRemote.instance, PlayerSession.instance]),
+      listenable: Listenable.merge([s, PhoneRemote.instance, PlayerSession.instance, DownloadManager.instance]),
       builder: (context, _) {
         final mode = layoutModeOf(context);
         final phone = mode != AppLayoutMode.desktop;
@@ -248,8 +253,12 @@ class _SettingsPageState extends State<SettingsPage> {
                   onChanged: (v) => s.update(tvMode: v),
                 ),
             ]),
+            _Section(key: _keys[5], title: 'İndirmeler', children: [
+              _downloadsLocationRow(s, isIos: isIos, narrow: narrow),
+              _downloadsStorageRow(narrow: narrow),
+            ]),
             if (showShortcuts)
-              _Section(key: _keys[5], title: 'Kısayollar', children: const [
+              _Section(key: _keys[6], title: 'Kısayollar', children: const [
                 _KeyRow('Boşluk', 'Oynat / duraklat'),
                 _KeyRow('← / →', 'Geri / ileri sar'),
                 _KeyRow('↑ / ↓', 'Ses aç / kıs'),
@@ -387,6 +396,124 @@ class _SettingsPageState extends State<SettingsPage> {
           AppButton(label: 'Kullanıcı değiştir', icon: Icons.logout_rounded, width: double.infinity, onPressed: widget.onLogout),
         ],
       ),
+    );
+  }
+
+  Future<void> _editDownloadDir() async {
+    final s = AppSettings.instance;
+    final ctrl = TextEditingController(text: s.downloadDir.isEmpty ? DownloadManager.instance.baseDir : s.downloadDir);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('İndirme klasörü'),
+        content: SizedBox(
+          width: 440,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text('Yeni indirilecek film ve dizi bölümleri bu klasöre kaydedilir.', style: AppText.meta(13.5)),
+              const SizedBox(height: 12),
+              RemoteTextField(
+                controller: ctrl,
+                autocorrect: false,
+                enableSuggestions: false,
+                decoration: InputDecoration(
+                  hintText: resolveDesktopDownloadDirectory(),
+                  filled: true,
+                  fillColor: AppColors.surfaceAlt,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          AppButton(label: 'Varsayılan', onPressed: () => Navigator.pop(ctx, '')),
+          AppButton(label: 'İptal', onPressed: () => Navigator.pop(ctx, null)),
+          AppButton(label: 'Kaydet', variant: AppButtonVariant.primary, onPressed: () => Navigator.pop(ctx, ctrl.text.trim())),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (result == null) return;
+    await s.update(downloadDir: result);
+  }
+
+  Widget _downloadsLocationRow(AppSettings s, {required bool isIos, required bool narrow}) {
+    final mgr = DownloadManager.instance;
+    final isDesktop = !kIsWeb && !isIos && (Platform.isLinux || Platform.isMacOS || Platform.isWindows);
+    if (isIos) {
+      return const _ChoiceRow(
+        title: 'Kayıt konumu',
+        desc: 'Dosyalar (Files) → iPhone\'umda → IPTV · Arka planda indirme desteklenir, iCloud yedeğinden hariç tutulur.',
+        narrow: false,
+        control: null,
+      );
+    }
+    return KeyedSubtree(
+      key: const ValueKey('setting-downloadDir'),
+      child: _ChoiceRow(
+        title: 'İndirme klasörü',
+        desc: mgr.baseDir,
+        narrow: true,
+        control: Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            AppButton(
+              dense: true,
+              height: 36,
+              icon: Icons.edit_rounded,
+              label: 'Değiştir',
+              onPressed: _editDownloadDir,
+            ),
+            if (isDesktop)
+              AppButton(
+                dense: true,
+                height: 36,
+                icon: Icons.folder_open_rounded,
+                label: 'Klasörü aç',
+                onPressed: () => mgr.openDownloadFolder(),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _downloadsStorageRow({required bool narrow}) {
+    final mgr = DownloadManager.instance;
+    final desc = mgr.entries.isEmpty
+        ? 'Henüz indirilen içerik yok'
+        : '${mgr.completedCount} hazır${mgr.activeCount > 0 ? ', ${mgr.activeCount} kuyrukta' : ''} · ${formatBytes(mgr.totalStorageBytes)}';
+    return _ChoiceRow(
+      title: 'Çevrimdışı depolama',
+      desc: desc,
+      narrow: narrow && mgr.hasAny,
+      control: !mgr.hasAny
+          ? null
+          : AppButton(
+              dense: true,
+              height: 36,
+              variant: AppButtonVariant.danger,
+              icon: Icons.delete_outline_rounded,
+              label: 'Tümünü sil',
+              onPressed: () async {
+                final ok = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('Tüm indirilenler silinsin mi?'),
+                    content: Text('${mgr.entries.length} öğe ve dosyaları (${formatBytes(mgr.totalStorageBytes)}) silinecek.'),
+                    actions: [
+                      AppButton(label: 'İptal', autofocus: true, onPressed: () => Navigator.pop(ctx, false)),
+                      AppButton(label: 'Tümünü sil', variant: AppButtonVariant.danger, onPressed: () => Navigator.pop(ctx, true)),
+                    ],
+                  ),
+                );
+                if (ok == true) await mgr.deleteAll();
+              },
+            ),
     );
   }
 

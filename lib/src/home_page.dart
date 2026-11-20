@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'detail_page.dart';
+import 'downloads.dart';
+import 'downloads_page.dart';
 import 'epg_widgets.dart';
 import 'library.dart';
 import 'mini_player.dart';
@@ -34,12 +36,13 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-// Navigation tabs: 0 home, 1 live, 2 movies, 3 series, 4 favorites, 5 settings
+// Navigation tabs: 0 home, 1 live, 2 movies, 3 series, 4 favorites, 5 settings, 6 downloads
 enum _Sort { provider, added, name, year }
 
 const _homeTab = 0;
 const _favoritesTab = 4;
 const _settingsTab = 5;
+const _downloadsTab = 6;
 
 class _HomePageState extends State<HomePage> {
   int _tab = 0;
@@ -55,6 +58,20 @@ class _HomePageState extends State<HomePage> {
   Kind? get _kind => _tab >= 1 && _tab <= 3 ? Kind.values[_tab - 1] : null;
 
   late final EpgCache _epg = EpgCache(widget.client);
+
+  @override
+  void initState() {
+    super.initState();
+    DownloadManager.instance.setAccount(widget.account);
+  }
+
+  @override
+  void didUpdateWidget(HomePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.account.key != widget.account.key) {
+      DownloadManager.instance.setAccount(widget.account);
+    }
+  }
 
   Future<void> _ensureLoaded(Kind kind) async {
     if (_items.containsKey(kind) || _loading.contains(kind)) return;
@@ -525,7 +542,7 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: Listenable.merge([AppSettings.instance, Library.instance, PlayerSession.instance]),
+      listenable: Listenable.merge([AppSettings.instance, Library.instance, PlayerSession.instance, DownloadManager.instance]),
       // Back (TV remote) never lands on the profile page: it steps back to "Tümü", then to Ana Sayfa,
       // then leaves the app. Switching user goes through Ayarlar (Navigator.pop ignores this PopScope).
       builder: (context, _) {
@@ -616,19 +633,50 @@ class _HomePageState extends State<HomePage> {
 
   // ─── Phone Portrait & Landscape shells ─────────────────────
 
-  List<Widget> _phoneHeaderEndActions() => [
-        PhoneIconButton(
-          key: const ValueKey('nav-settings'),
-          icon: Icons.tune_rounded,
-          tooltip: 'Ayarlar',
-          active: _tab == _settingsTab,
-          onTap: () => _select(_tab == _settingsTab ? _homeTab : _settingsTab),
-        ),
-        PhoneAccountAvatar(
-          name: widget.account.name,
-          onTap: _logout,
-        ),
-      ];
+  List<Widget> _phoneHeaderEndActions() {
+    final activeDownloads = DownloadManager.instance.activeCount;
+    return [
+      Stack(
+        clipBehavior: Clip.none,
+        children: [
+          PhoneIconButton(
+            key: const ValueKey('nav-downloads'),
+            icon: Icons.download_for_offline_rounded,
+            tooltip: 'İndirilenler',
+            active: _tab == _downloadsTab,
+            onTap: () => _select(_tab == _downloadsTab ? _lastMainTab : _downloadsTab),
+          ),
+          if (activeDownloads > 0)
+            Positioned(
+              right: 2,
+              top: 2,
+              child: IgnorePointer(
+                child: Container(
+                  width: 9,
+                  height: 9,
+                  decoration: BoxDecoration(
+                    color: _tab == _downloadsTab ? AppColors.onAccent : AppColors.accent,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: AppColors.ground, width: 1.5),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+      PhoneIconButton(
+        key: const ValueKey('nav-settings'),
+        icon: Icons.tune_rounded,
+        tooltip: 'Ayarlar',
+        active: _tab == _settingsTab,
+        onTap: () => _select(_tab == _settingsTab ? _homeTab : _settingsTab),
+      ),
+      PhoneAccountAvatar(
+        name: widget.account.name,
+        onTap: _logout,
+      ),
+    ];
+  }
 
   Widget _phoneSortButton({required double height}) {
     final label = _sort == _Sort.provider ? 'Sırala' : _sortLabels[_sort]!;
@@ -695,6 +743,30 @@ class _HomePageState extends State<HomePage> {
               account: widget.account,
               client: widget.client,
               onLogout: _logout,
+            ),
+          ),
+        ],
+      );
+    }
+    if (_tab == _downloadsTab) {
+      final mgr = DownloadManager.instance;
+      final sub = mgr.completedCount > 0 || mgr.activeCount > 0
+          ? [if (mgr.completedCount > 0) '${mgr.completedCount} hazır', if (mgr.activeCount > 0) '${mgr.activeCount} iniyor'].join(' · ')
+          : null;
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          PhoneTopBar(title: 'İndirilenler', subtitle: sub, actions: _phoneHeaderEndActions()),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+            child: SearchField(key: ValueKey('search$_tab'), hint: 'İndirilenlerde ara', onChanged: (v) => setState(() => _query = v)),
+          ),
+          Expanded(
+            child: DownloadsPage(
+              account: widget.account,
+              client: widget.client,
+              embedded: true,
+              query: _query,
             ),
           ),
         ],
@@ -777,6 +849,33 @@ class _HomePageState extends State<HomePage> {
               account: widget.account,
               client: widget.client,
               onLogout: _logout,
+            ),
+          ),
+        ],
+      );
+    }
+    if (_tab == _downloadsTab) {
+      final mgr = DownloadManager.instance;
+      final sub = mgr.completedCount > 0 || mgr.activeCount > 0
+          ? [if (mgr.completedCount > 0) '${mgr.completedCount} hazır', if (mgr.activeCount > 0) '${mgr.activeCount} iniyor'].join(' · ')
+          : null;
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          PhoneTopBar(
+            title: 'İndirilenler',
+            subtitle: sub,
+            landscape: true,
+            actions: [
+              SearchField(key: ValueKey('search$_tab'), hint: 'İndirilenlerde ara', width: 220, onChanged: (v) => setState(() => _query = v)),
+            ],
+          ),
+          Expanded(
+            child: DownloadsPage(
+              account: widget.account,
+              client: widget.client,
+              embedded: true,
+              query: _query,
             ),
           ),
         ],
@@ -1252,6 +1351,21 @@ class _HomePageState extends State<HomePage> {
       return _page(
         const PageHeader(title: 'Ayarlar', actions: [ClockPill()]),
         SettingsPage(info: widget.info, account: widget.account, client: widget.client, onLogout: _logout),
+      );
+    }
+    if (_tab == _downloadsTab) {
+      final mgr = DownloadManager.instance;
+      final sub = mgr.completedCount > 0 || mgr.activeCount > 0
+          ? [if (mgr.completedCount > 0) '${mgr.completedCount} hazır', if (mgr.activeCount > 0) '${mgr.activeCount} kuyrukta'].join(' · ')
+          : null;
+      return _page(
+        PageHeader(title: 'İndirilenler', subtitle: sub, actions: [_searchField('İndirilenlerde ara'), const ClockPill()]),
+        DownloadsPage(
+          account: widget.account,
+          client: widget.client,
+          embedded: true,
+          query: _query,
+        ),
       );
     }
     if (_tab == _favoritesTab) {

@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:io' show File;
 
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
+import 'downloads.dart';
 import 'library.dart';
 import 'settings.dart';
 import 'system_pip.dart';
@@ -11,7 +13,7 @@ import 'xtream.dart';
 
 /// One playable thing: a channel, a movie or an episode.
 class PlayerEntry {
-  const PlayerEntry({required this.url, required this.title, this.logo = '', this.group, this.epg, this.item});
+  const PlayerEntry({required this.url, required this.title, this.logo = '', this.group, this.epg, this.item, this.localPath});
 
   final String url;
   final String title;
@@ -25,6 +27,10 @@ class PlayerEntry {
 
   /// Backing catalog item (movie or parent series) for navigating to [DetailPage].
   final Item? item;
+
+  /// Optional explicit local file path for offline playback; even when omitted,
+  /// [PlayerSession] automatically plays from disk if [url] is already downloaded.
+  final String? localPath;
 }
 
 /// Persistent playback session that stays alive across Full Player, the iPhone
@@ -55,6 +61,7 @@ class PlayerSession extends ChangeNotifier with WidgetsBindingObserver {
   bool _active = false;
   bool _minimized = false;
   bool _systemPipActive = false;
+  bool _playingLocal = false;
   bool _debugPreview = false;
   bool _debugPlaying = true;
   Duration _debugPosition = Duration.zero;
@@ -85,6 +92,7 @@ class PlayerSession extends ChangeNotifier with WidgetsBindingObserver {
   bool get active => _active;
   bool get minimized => _minimized;
   bool get systemPipActive => _systemPipActive;
+  bool get isPlayingLocal => _playingLocal;
   bool get isMiniVisible => _active && _minimized && !_systemPipActive;
   BoxFit get fit => _fit;
   Future<List<Programme>>? get epg => _epg;
@@ -258,11 +266,27 @@ class PlayerSession extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  String? _resolveLocalPath(PlayerEntry e) {
+    final explicit = e.localPath;
+    if (explicit != null && explicit.isNotEmpty) {
+      try {
+        if (File(explicit).existsSync()) return explicit;
+      } catch (_) {}
+    }
+    return DownloadManager.instance.localPathForUrl(e.url, account: _client?.acc);
+  }
+
   Future<void> _openCurrent() async {
     final p = _player;
     final e = entry;
     if (p == null || e == null) return;
-    await p.open(Media(e.url, httpHeaders: const {'User-Agent': _userAgent}));
+    final local = _resolveLocalPath(e);
+    _playingLocal = local != null;
+    if (local != null) {
+      await p.open(Media(local));
+    } else {
+      await p.open(Media(e.url, httpHeaders: const {'User-Agent': _userAgent}));
+    }
   }
 
   Future<void> _afterOpen({Duration? resumeOverride}) async {
@@ -398,6 +422,10 @@ class PlayerSession extends ChangeNotifier with WidgetsBindingObserver {
           return;
         }
       }
+      if (_playingLocal) {
+        error.value = 'İndirilen dosya açılamadı.\n\n$message';
+        return;
+      }
       final info = await _accountInfo();
       if (!_active || _systemPipActive || gen != _gen) return;
       if (info != null && info.limitReached) {
@@ -472,6 +500,7 @@ class PlayerSession extends ChangeNotifier with WidgetsBindingObserver {
     _active = false;
     _minimized = false;
     _systemPipActive = false;
+    _playingLocal = false;
     _debugPreview = false;
     _queue = const [];
     _index = 0;
@@ -498,9 +527,10 @@ class PlayerSession extends ChangeNotifier with WidgetsBindingObserver {
     if (!_active || _debugPreview || !SystemPip.instance.isSupported) return;
     final e = entry;
     if (e == null) return;
+    final local = _resolveLocalPath(e);
     final playing = playingOverride ?? isPlaying;
     SystemPip.instance.configure(
-      url: e.url,
+      url: local != null ? Uri.file(local).toString() : e.url,
       title: e.title,
       live: live,
       playing: playing,
@@ -615,6 +645,7 @@ class PlayerSession extends ChangeNotifier with WidgetsBindingObserver {
     _active = false;
     _minimized = false;
     _systemPipActive = false;
+    _playingLocal = false;
     _debugPreview = false;
     _queue = const [];
     _index = 0;

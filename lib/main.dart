@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 
 import 'src/app_nav.dart';
+import 'src/downloads.dart';
 import 'src/login_page.dart';
 import 'src/phone_remote.dart';
 import 'src/player_page.dart';
@@ -25,6 +26,7 @@ Future<void> main() async {
     await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   }
   await AppSettings.instance.load();
+  await DownloadManager.instance.load();
   if (AppSettings.instance.phoneRemote) PhoneRemote.instance.setEnabled(true);
   PlayerSession.instance.onRequestExpandFromPip = () {
     final nav = appNavigatorKey.currentState;

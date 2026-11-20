@@ -68,6 +68,11 @@ String? sfSymbolForIcon(IconData icon) {
   if (icon == Icons.live_tv_rounded) return 'tv.fill';
   if (icon == Icons.movie_rounded) return 'film.fill';
   if (icon == Icons.video_library_rounded) return 'play.square.stack.fill';
+  if (icon == Icons.download_rounded) return 'arrow.down.circle';
+  if (icon == Icons.download_for_offline_rounded) return 'arrow.down.circle.fill';
+  if (icon == Icons.download_done_rounded) return 'checkmark.circle.fill';
+  if (icon == Icons.folder_open_rounded) return 'folder';
+  if (icon == Icons.delete_outline_rounded) return 'trash';
   return null;
 }
 

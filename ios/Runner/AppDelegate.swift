@@ -16,6 +16,7 @@ import UIKit
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
     LiquidGlassPlugin.register(with: engineBridge.pluginRegistry)
     SystemPipPlugin.register(with: engineBridge.pluginRegistry)
+    BackgroundDownloadPlugin.register(with: engineBridge.pluginRegistry)
   }
 
   private func configureAudioSession() {

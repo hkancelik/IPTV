@@ -25,6 +25,7 @@ class AppSettings extends ChangeNotifier {
   bool phoneRemote = false; // control the app from a phone's browser (local network)
   bool tvMode = !kIsWeb && Platform.isAndroid; // remote-control friendly UI
   double uiScale = !kIsWeb && Platform.isAndroid ? 0.7 : 1.0; // whole-UI zoom
+  String downloadDir = ''; // empty = platform default (PC: ~/Downloads/IPTV, iOS: Documents/IPTV)
   Set<String> hiddenGroups = {}; // "kind:group"
   Map<String, List<String>> groupOrder = {}; // kind name -> category names, user's order
 
@@ -44,6 +45,7 @@ class AppSettings extends ChangeNotifier {
     phoneRemote = p.getBool('phoneRemote') ?? phoneRemote;
     tvMode = p.getBool('tvMode') ?? tvMode;
     uiScale = p.getDouble('uiScale') ?? uiScale;
+    downloadDir = p.getString('downloadDir') ?? downloadDir;
     if (!kIsWeb && Platform.isIOS) {
       tvMode = false;
       if (uiScale < 0.8 || uiScale > 1.0) uiScale = 1.0;
@@ -60,7 +62,7 @@ class AppSettings extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> update({String? audioLang, String? subLang, double? subtitleScale, bool? hwdec, int? cacheSecs, int? skipSecs, bool? hideAdult, bool? resume, bool? autoNext, bool? autoPipOnLeave, bool? dedupe, bool? tvMode, bool? phoneRemote, double? uiScale, Set<String>? hiddenGroups, Map<String, List<String>>? groupOrder}) async {
+  Future<void> update({String? audioLang, String? subLang, double? subtitleScale, bool? hwdec, int? cacheSecs, int? skipSecs, bool? hideAdult, bool? resume, bool? autoNext, bool? autoPipOnLeave, bool? dedupe, bool? tvMode, bool? phoneRemote, double? uiScale, String? downloadDir, Set<String>? hiddenGroups, Map<String, List<String>>? groupOrder}) async {
     this.audioLang = audioLang ?? this.audioLang;
     this.subLang = subLang ?? this.subLang;
     this.subtitleScale = subtitleScale ?? this.subtitleScale;
@@ -75,6 +77,7 @@ class AppSettings extends ChangeNotifier {
     this.tvMode = tvMode ?? this.tvMode;
     this.phoneRemote = phoneRemote ?? this.phoneRemote;
     this.uiScale = uiScale ?? this.uiScale;
+    this.downloadDir = downloadDir ?? this.downloadDir;
     this.hiddenGroups = hiddenGroups ?? this.hiddenGroups;
     this.groupOrder = groupOrder ?? this.groupOrder;
     notifyListeners();
@@ -93,6 +96,7 @@ class AppSettings extends ChangeNotifier {
     await p.setBool('tvMode', this.tvMode);
     await p.setBool('phoneRemote', this.phoneRemote);
     await p.setDouble('uiScale', this.uiScale);
+    await p.setString('downloadDir', this.downloadDir);
     await p.setStringList('hiddenGroups', this.hiddenGroups.toList());
     await p.setString('groupOrder', jsonEncode(this.groupOrder));
   }

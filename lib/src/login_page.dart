@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import 'accounts.dart';
+import 'downloads.dart';
+import 'downloads_page.dart';
 import 'home_page.dart';
 import 'library.dart';
 import 'remote_entry.dart';
@@ -123,6 +125,31 @@ class _LoginPageState extends State<LoginPage> {
 
   void _cancelAuto() => setState(() => _auto = null);
 
+  Future<void> _openOfflineDownloads() async {
+    if (_auto != null) setState(() => _auto = null);
+    final acc = _ordered.firstOrNull;
+    if (acc != null) {
+      await Library.instance.use(acc);
+    }
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      appRoute(context, (_) => DownloadsPage.offline(account: acc)),
+    );
+  }
+
+  Widget _offlineDownloadsButton({bool dense = false, bool emphasize = false}) {
+    final count = DownloadManager.instance.completedCount;
+    final label = count > 0 ? 'İndirilenler ($count)' : 'İndirilenler';
+    return AppButton(
+      key: const ValueKey('login-offline-downloads'),
+      variant: emphasize && count > 0 ? AppButtonVariant.primary : AppButtonVariant.onPage,
+      dense: dense,
+      icon: Icons.download_for_offline_rounded,
+      label: label,
+      onPressed: _openOfflineDownloads,
+    );
+  }
+
   Future<void> _confirmDelete(Account a) async {
     // The cards' "Sil" tags step aside while the dialog asks, so the dialog's key is the only "Sil".
     setState(() => _confirming = a.key);
@@ -182,18 +209,23 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     if (!_loaded) return const Scaffold();
-    final mode = layoutModeOf(context);
-    if (mode != AppLayoutMode.desktop) return _buildPhone(context, mode == AppLayoutMode.phoneLandscape);
-    return Scaffold(
-      body: Stack(children: [
-        Center(
-          child: _auto != null
-              ? _splash(_auto!)
-              : SingleChildScrollView(padding: const EdgeInsets.fromLTRB(20, 90, 20, 30), child: _showForm ? _form() : _profiles()),
-        ),
-        const Positioned(left: 28, top: 26, child: BrandMark()),
-        const Positioned(right: 28, top: 26, child: ClockPill()),
-      ]),
+    return ListenableBuilder(
+      listenable: DownloadManager.instance,
+      builder: (context, _) {
+        final mode = layoutModeOf(context);
+        if (mode != AppLayoutMode.desktop) return _buildPhone(context, mode == AppLayoutMode.phoneLandscape);
+        return Scaffold(
+          body: Stack(children: [
+            Center(
+              child: _auto != null
+                  ? _splash(_auto!)
+                  : SingleChildScrollView(padding: const EdgeInsets.fromLTRB(20, 90, 20, 30), child: _showForm ? _form() : _profiles()),
+            ),
+            const Positioned(left: 28, top: 26, child: BrandMark()),
+            const Positioned(right: 28, top: 26, child: ClockPill()),
+          ]),
+        );
+      },
     );
   }
 
@@ -263,11 +295,19 @@ class _LoginPageState extends State<LoginPage> {
         if (_error != null)
           Padding(padding: const EdgeInsets.only(bottom: 12), child: Text(_error!, textAlign: TextAlign.center, style: AppText.label(14, color: AppColors.liveText))),
         if (_busy) const Padding(padding: EdgeInsets.only(bottom: 12), child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.5))),
-        AppButton(
-          variant: AppButtonVariant.onPage,
-          icon: _editing ? Icons.check_rounded : Icons.edit_rounded,
-          label: _editing ? 'Bitti' : 'Kullanıcıları düzenle',
-          onPressed: () => setState(() => _editing = !_editing),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          alignment: WrapAlignment.center,
+          children: [
+            AppButton(
+              variant: AppButtonVariant.onPage,
+              icon: _editing ? Icons.check_rounded : Icons.edit_rounded,
+              label: _editing ? 'Bitti' : 'Kullanıcıları düzenle',
+              onPressed: () => setState(() => _editing = !_editing),
+            ),
+            if (!_editing) _offlineDownloadsButton(emphasize: _error != null),
+          ],
         ),
       ]);
     });
@@ -303,6 +343,10 @@ class _LoginPageState extends State<LoginPage> {
                     label: _editing ? 'Bitti' : 'Kullanıcıları düzenle',
                     onPressed: () => setState(() => _editing = !_editing),
                   ),
+                  if (!_editing) ...[
+                    const SizedBox(height: 8),
+                    _offlineDownloadsButton(dense: true, emphasize: _error != null),
+                  ],
                 ],
               ),
             ),
@@ -562,6 +606,10 @@ class _LoginPageState extends State<LoginPage> {
             SizedBox(width: 220, child: ClipRRect(borderRadius: BorderRadius.circular(3), child: const LinearProgressIndicator(minHeight: 6))),
             const SizedBox(height: 24),
             AppButton(label: 'Vazgeç / kullanıcı değiştir', autofocus: AppSettings.instance.tvMode, onPressed: _cancelAuto),
+            if (DownloadManager.instance.completedCount > 0) ...[
+              const SizedBox(height: 10),
+              _offlineDownloadsButton(emphasize: true),
+            ],
           ]),
         ),
       );
@@ -596,11 +644,19 @@ class _LoginPageState extends State<LoginPage> {
         if (_error != null)
           Padding(padding: const EdgeInsets.only(bottom: 14), child: Text(_error!, textAlign: TextAlign.center, style: AppText.label(15, color: AppColors.liveText))),
         if (_busy) const Padding(padding: EdgeInsets.only(bottom: 14), child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.5))),
-        AppButton(
-          variant: AppButtonVariant.onPage,
-          icon: _editing ? Icons.check_rounded : Icons.edit_rounded,
-          label: _editing ? 'Bitti' : 'Kullanıcıları düzenle',
-          onPressed: () => setState(() => _editing = !_editing),
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          alignment: WrapAlignment.center,
+          children: [
+            AppButton(
+              variant: AppButtonVariant.onPage,
+              icon: _editing ? Icons.check_rounded : Icons.edit_rounded,
+              label: _editing ? 'Bitti' : 'Kullanıcıları düzenle',
+              onPressed: () => setState(() => _editing = !_editing),
+            ),
+            if (!_editing) _offlineDownloadsButton(emphasize: _error != null),
+          ],
         ),
       ]),
     );

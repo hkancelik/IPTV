@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'downloads.dart';
 import 'library.dart';
 import 'mini_player.dart';
 import 'player_page.dart';
@@ -82,6 +83,232 @@ class _DetailPageState extends State<DetailPage> {
       context,
       (_) => PlayerPage(queue: queue, index: index, kind: widget.item.kind, client: widget.client),
     ));
+  }
+
+  void _showNotice(String text) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(text)));
+  }
+
+  void _warnIfStreamingOnline() {
+    if (PlayerSession.instance.active && !PlayerSession.instance.isPlayingLocal) {
+      _showNotice('İndirme başladı. Tek bağlantılı aboneliklerde aynı anda canlı yayın/video izlemek bağlantıyı kesebilir.');
+    }
+  }
+
+  Future<void> _handleMovieDownload() async {
+    final url = widget.item.url;
+    if (url == null || url.isEmpty) return;
+    final mgr = DownloadManager.instance;
+    final existing = mgr.entryForUrl(url, account: widget.client.acc);
+    if (existing == null) {
+      final res = await mgr.enqueueMovie(widget.item, widget.client.acc);
+      if (res.error != null) {
+        _showNotice(res.error!);
+      } else if (res.added > 0) {
+        if (PlayerSession.instance.active && !PlayerSession.instance.isPlayingLocal) {
+          _warnIfStreamingOnline();
+        } else {
+          _showNotice('İndirme kuyruğuna eklendi');
+        }
+      }
+      return;
+    }
+    if (existing.isDownloading || existing.isQueued) {
+      await mgr.pause(existing.id);
+      _showNotice('İndirme duraklatıldı');
+    } else if (existing.isPaused || existing.isFailed) {
+      await mgr.resume(existing.id, account: widget.client.acc);
+      _warnIfStreamingOnline();
+    } else if (existing.isCompleted) {
+      await _confirmDeleteDownload(existing);
+    }
+  }
+
+  Future<void> _handleEpisodeDownload(Episode e) async {
+    final mgr = DownloadManager.instance;
+    final existing = mgr.entryForUrl(e.url, account: widget.client.acc);
+    if (existing == null) {
+      final res = await mgr.enqueueEpisode(widget.item, e, widget.client.acc);
+      if (res.error != null) {
+        _showNotice(res.error!);
+      } else if (res.added > 0) {
+        if (PlayerSession.instance.active && !PlayerSession.instance.isPlayingLocal) {
+          _warnIfStreamingOnline();
+        } else {
+          _showNotice('${e.number}. bölüm indirme kuyruğuna eklendi');
+        }
+      }
+      return;
+    }
+    if (existing.isDownloading || existing.isQueued) {
+      await mgr.pause(existing.id);
+    } else if (existing.isPaused || existing.isFailed) {
+      await mgr.resume(existing.id, account: widget.client.acc);
+      _warnIfStreamingOnline();
+    } else if (existing.isCompleted) {
+      await _confirmDeleteDownload(existing);
+    }
+  }
+
+  Future<void> _handleSeasonDownload(List<Episode> episodes) async {
+    if (episodes.isEmpty) return;
+    final res = await DownloadManager.instance.enqueueSeason(widget.item, episodes, widget.client.acc);
+    if (res.error != null) {
+      _showNotice(res.error!);
+    } else if (res.added > 0) {
+      if (PlayerSession.instance.active && !PlayerSession.instance.isPlayingLocal) {
+        _warnIfStreamingOnline();
+      } else {
+        _showNotice('${res.added} bölüm indirme kuyruğuna eklendi');
+      }
+    } else {
+      _showNotice('Bu sezondaki tüm bölümler zaten indirildi veya kuyrukta');
+    }
+  }
+
+  Future<void> _confirmDeleteDownload(DownloadEntry e) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('İndirilen silinsin mi?'),
+        content: Text('"${e.title}" cihazdan silinecek (${formatBytes(e.effectiveBytes)}).'),
+        actions: [
+          AppButton(label: 'İptal', autofocus: true, onPressed: () => Navigator.pop(ctx, false)),
+          AppButton(label: 'Sil', variant: AppButtonVariant.danger, onPressed: () => Navigator.pop(ctx, true)),
+        ],
+      ),
+    );
+    if (ok == true) {
+      await DownloadManager.instance.delete(e.id);
+      _showNotice('İndirilen dosya silindi');
+    }
+  }
+
+  Widget _movieDownloadButton({bool fullWidth = false, bool iconOnly = false, double height = AppSizes.primaryHeight}) {
+    final url = widget.item.url ?? '';
+    final dl = DownloadManager.instance.entryForUrl(url, account: widget.client.acc);
+    final IconData icon;
+    final String label;
+    final String tooltip;
+    AppButtonVariant variant = AppButtonVariant.secondary;
+
+    if (dl == null) {
+      icon = Icons.download_rounded;
+      label = 'İndir';
+      tooltip = 'Çevrimdışı izlemek için indir';
+    } else if (dl.isCompleted) {
+      icon = Icons.download_done_rounded;
+      label = 'İndirildi (${formatBytes(dl.effectiveBytes)})';
+      tooltip = 'İndirildi · silmek için dokun';
+    } else if (dl.isDownloading) {
+      icon = Icons.pause_rounded;
+      final pct = dl.totalBytes > 0 ? '%${(dl.progress * 100).round()}' : '...';
+      label = 'İndiriliyor $pct';
+      tooltip = 'İndirmeyi duraklat';
+    } else if (dl.isQueued) {
+      icon = Icons.schedule_rounded;
+      label = 'Sırada';
+      tooltip = 'Duraklat';
+    } else if (dl.isPaused) {
+      icon = Icons.play_arrow_rounded;
+      label = 'Devam et (%${(dl.progress * 100).round()})';
+      tooltip = 'İndirmeye devam et';
+    } else {
+      icon = Icons.refresh_rounded;
+      label = 'Tekrar dene';
+      tooltip = dl.error ?? 'İndirme başarısız · tekrar dene';
+      variant = AppButtonVariant.danger;
+    }
+
+    return AppButton(
+      key: const ValueKey('detail-download-movie'),
+      variant: variant,
+      height: height,
+      width: fullWidth ? double.infinity : null,
+      icon: icon,
+      label: iconOnly ? null : label,
+      tooltip: tooltip,
+      onPressed: () {
+        AppHaptics.selection(context);
+        _handleMovieDownload();
+      },
+    );
+  }
+
+  Widget _episodeDownloadControl(Episode e, {double size = 34}) {
+    final dl = DownloadManager.instance.entryForUrl(e.url, account: widget.client.acc);
+    final IconData icon;
+    final Color fg;
+    final String tooltip;
+    if (dl == null) {
+      icon = Icons.download_rounded;
+      fg = AppColors.ink2;
+      tooltip = '${e.number}. bölümü indir';
+    } else if (dl.isCompleted) {
+      icon = Icons.download_done_rounded;
+      fg = AppColors.accentInk;
+      tooltip = 'İndirildi · silmek için dokun';
+    } else if (dl.isDownloading) {
+      icon = Icons.pause_rounded;
+      fg = AppColors.accentInk;
+      tooltip = 'İndiriliyor %${(dl.progress * 100).round()} · duraklat';
+    } else if (dl.isQueued) {
+      icon = Icons.schedule_rounded;
+      fg = AppColors.ink2;
+      tooltip = 'Sırada · duraklat';
+    } else if (dl.isFailed) {
+      icon = Icons.refresh_rounded;
+      fg = AppColors.liveText;
+      tooltip = 'Tekrar dene';
+    } else {
+      icon = Icons.play_arrow_rounded;
+      fg = AppColors.warnInk;
+      tooltip = 'Devam et';
+    }
+
+    return Tooltip(
+      message: tooltip,
+      child: GestureDetector(
+        key: ValueKey('episode-download-${e.season}-${e.number}'),
+        behavior: HitTestBehavior.opaque,
+        onTap: () {
+          AppHaptics.selection(context);
+          _handleEpisodeDownload(e);
+        },
+        child: SizedBox(
+          width: size,
+          height: size,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Container(
+                width: size,
+                height: size,
+                decoration: BoxDecoration(
+                  color: dl != null && (dl.isCompleted || dl.isDownloading) ? AppColors.accentSoft : AppColors.surfaceAlt,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              if (dl != null && dl.isDownloading)
+                SizedBox(
+                  width: size - 4,
+                  height: size - 4,
+                  child: CircularProgressIndicator(
+                    value: dl.totalBytes > 0 ? dl.progress : null,
+                    strokeWidth: 2.2,
+                    color: AppColors.accent,
+                    backgroundColor: AppColors.line,
+                  ),
+                ),
+              Icon(icon, size: size * 0.54, color: fg),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   /// Season shown below the info card; chosen once the episodes are known.
@@ -182,7 +409,7 @@ class _DetailPageState extends State<DetailPage> {
     final loading = state != ConnectionState.done;
     final details = d ?? Details();
     return ListenableBuilder(
-      listenable: Library.instance,
+      listenable: Listenable.merge([Library.instance, DownloadManager.instance]),
       builder: (context, _) {
         final seasons = <int, List<Episode>>{};
         for (final e in episodes ?? const <Episode>[]) {
@@ -344,6 +571,10 @@ class _DetailPageState extends State<DetailPage> {
                         const SizedBox(height: 18),
                         _primaryCta(queue, position, resumeEpisode, fullWidth: true),
                         const SizedBox(height: 10),
+                        if (!_isSeries) ...[
+                          _movieDownloadButton(fullWidth: true, height: 44),
+                          const SizedBox(height: 10),
+                        ],
                         fav
                             ? AppButton(
                                 variant: AppButtonVariant.danger,
@@ -455,8 +686,21 @@ class _DetailPageState extends State<DetailPage> {
                             ),
                           ),
                         ),
-                        const SizedBox(width: 10),
-                        Text('${seasons[_season]?.length ?? 0} bölüm', style: AppText.meta(13)),
+                        const SizedBox(width: 8),
+                        AppButton(
+                          key: const ValueKey('detail-download-season'),
+                          dense: true,
+                          height: 36,
+                          variant: AppButtonVariant.onPage,
+                          icon: Icons.download_rounded,
+                          label: 'Sezonu indir',
+                          onPressed: shownEpisodes.isEmpty
+                              ? null
+                              : () {
+                                  AppHaptics.selection(context);
+                                  _handleSeasonDownload(shownEpisodes);
+                                },
+                        ),
                       ],
                     ),
                   ),
@@ -619,6 +863,10 @@ class _DetailPageState extends State<DetailPage> {
                   const SizedBox(height: 10),
                   Row(children: [
                     Expanded(child: _primaryCta(queue, position, resumeEpisode)),
+                    if (!_isSeries) ...[
+                      const SizedBox(width: 8),
+                      _movieDownloadButton(iconOnly: true),
+                    ],
                     const SizedBox(width: 8),
                     NativeGlassButton(
                       sfSymbol: fav ? 'heart.fill' : 'heart',
@@ -680,8 +928,21 @@ class _DetailPageState extends State<DetailPage> {
                                 ),
                               ),
                             ),
-                            const SizedBox(width: 10),
-                            Text('${seasons[_season]?.length ?? 0} bölüm', style: AppText.meta(13)),
+                            const SizedBox(width: 8),
+                            AppButton(
+                              key: const ValueKey('detail-download-season'),
+                              dense: true,
+                              height: 34,
+                              variant: AppButtonVariant.onPage,
+                              icon: Icons.download_rounded,
+                              label: 'Sezonu indir',
+                              onPressed: shownEpisodes.isEmpty
+                                  ? null
+                                  : () {
+                                      AppHaptics.selection(context);
+                                      _handleSeasonDownload(shownEpisodes);
+                                    },
+                            ),
                           ],
                         ),
                         const SizedBox(height: 10),
@@ -801,6 +1062,8 @@ class _DetailPageState extends State<DetailPage> {
               ),
             ),
             const SizedBox(width: 6),
+            _episodeDownloadControl(e, size: 34),
+            const SizedBox(width: 6),
             Container(
               width: 34,
               height: 34,
@@ -817,7 +1080,7 @@ class _DetailPageState extends State<DetailPage> {
     final loading = state != ConnectionState.done;
     final details = d ?? Details();
     return ListenableBuilder(
-      listenable: Library.instance,
+      listenable: Listenable.merge([Library.instance, DownloadManager.instance]),
       builder: (context, _) {
         // Everything in the order shown, so the player can move on to the next episode (and into the next season).
         final seasons = <int, List<Episode>>{};
@@ -979,6 +1242,7 @@ class _DetailPageState extends State<DetailPage> {
                     const SizedBox(height: 18),
                     Wrap(spacing: 12, runSpacing: 12, children: [
                       primary,
+                      if (!_isSeries) _movieDownloadButton(),
                       fav
                           ? AppButton(
                               variant: AppButtonVariant.danger,
@@ -1004,23 +1268,36 @@ class _DetailPageState extends State<DetailPage> {
     );
   }
 
-  Widget _seasonRow(Map<int, List<Episode>> seasons) => Padding(
-        padding: const EdgeInsets.only(top: 22, bottom: 16),
-        child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
-          Expanded(
-            child: Wrap(spacing: 8, runSpacing: 8, children: [
-              for (final s in seasons.keys)
-                AppButton(
-                  label: '$s. sezon',
-                  variant: s == _season ? AppButtonVariant.primary : AppButtonVariant.onPage,
-                  onPressed: () => setState(() => _season = s),
-                ),
-            ]),
-          ),
-          const SizedBox(width: 12),
-          Text('${seasons[_season]?.length ?? 0} bölüm', style: AppText.meta(15)),
-        ]),
-      );
+  Widget _seasonRow(Map<int, List<Episode>> seasons) {
+    final currentEpisodes = seasons[_season] ?? const <Episode>[];
+    return Padding(
+      padding: const EdgeInsets.only(top: 22, bottom: 16),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+        Expanded(
+          child: Wrap(spacing: 8, runSpacing: 8, children: [
+            for (final s in seasons.keys)
+              AppButton(
+                label: '$s. sezon',
+                variant: s == _season ? AppButtonVariant.primary : AppButtonVariant.onPage,
+                onPressed: () => setState(() => _season = s),
+              ),
+          ]),
+        ),
+        const SizedBox(width: 12),
+        Text('${currentEpisodes.length} bölüm', style: AppText.meta(15)),
+        const SizedBox(width: 12),
+        AppButton(
+          key: const ValueKey('detail-download-season'),
+          dense: true,
+          height: 38,
+          variant: AppButtonVariant.onPage,
+          icon: Icons.download_rounded,
+          label: 'Sezonu indir',
+          onPressed: currentEpisodes.isEmpty ? null : () => _handleSeasonDownload(currentEpisodes),
+        ),
+      ]),
+    );
+  }
 
   Widget _episodeCard(Episode e, VoidCallback onTap) {
     final saved = Library.instance.positionFor(e.url);
@@ -1057,6 +1334,7 @@ class _DetailPageState extends State<DetailPage> {
               child: Stack(fit: StackFit.expand, children: [
                 PosterImage(e.image.isNotEmpty ? e.image : widget.item.logo),
                 Positioned(left: 10, top: 10, child: Pill('${e.number}. bölüm', tone: PillTone.onImage, height: 26)),
+                Positioned(right: 8, top: 8, child: _episodeDownloadControl(e, size: 32)),
                 if (known) Positioned(left: 12, right: 12, bottom: 10, child: ProgressBar(value: h.progress, height: 4, onImage: true)),
               ]),
             ),
