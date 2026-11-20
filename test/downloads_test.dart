@@ -61,7 +61,7 @@ class _NoopEngine implements DownloadEngine {
   Future<String?> defaultBaseDirectory() async => '/tmp/iptv_noop_dl';
 
   @override
-  Future<void> start({required String id, required String url, required String destinationPath, required String userAgent}) async {
+  Future<void> start({required String id, required String url, required String destinationPath, required String userAgent, int totalBytes = 0}) async {
     startedIds.add(id);
   }
 
@@ -331,6 +331,65 @@ void main() {
       final res = await DownloadManager.instance.enqueueMovie(hlsItem, account);
       expect(res.added, 0);
       expect(res.error, contains('.m3u8'));
+    });
+
+    test('automatically recovers from mid-stream drop across 302 redirect using HTTP Range', () async {
+      final engine = DartDownloadEngine()..debugRetryDelay = const Duration(milliseconds: 20);
+      DownloadManager.instance.debugEngine = engine;
+      final payload = List<int>.generate(96 * 1024, (i) => (i * 13) % 256);
+      final cdnRanges = <String?>[];
+      var cdnHits = 0;
+
+      server.listen((req) async {
+        // Simulate IPTV panel 302 redirect to a fresh CDN token URL on every request.
+        if (req.uri.path.startsWith('/movie/')) {
+          cdnHits++;
+          req.response.statusCode = HttpStatus.found;
+          req.response.headers.set(HttpHeaders.locationHeader, '/cdn/token_$cdnHits/55.mkv');
+          await req.response.close();
+          return;
+        }
+        final range = req.headers.value(HttpHeaders.rangeHeader);
+        cdnRanges.add(range);
+        if (range == null) {
+          // Drop TCP socket abruptly halfway through (simulates Wi-Fi -> Cellular switch).
+          final socket = await req.response.detachSocket(writeHeaders: false);
+          socket.write(
+            'HTTP/1.1 200 OK\r\n'
+            'Content-Length: ${payload.length}\r\n'
+            'Connection: close\r\n\r\n',
+          );
+          socket.add(payload.sublist(0, 40 * 1024));
+          await socket.flush();
+          socket.destroy();
+          return;
+        }
+        final start = int.parse(range.substring(6, range.indexOf('-')));
+        final rest = payload.sublist(start);
+        req.response.statusCode = HttpStatus.partialContent;
+        req.response.headers.set(HttpHeaders.contentRangeHeader, 'bytes $start-${payload.length - 1}/${payload.length}');
+        req.response.contentLength = rest.length;
+        req.response.add(rest);
+        await req.response.close();
+      });
+
+      final movie = Item(
+        id: 'm55',
+        name: 'Redirect Drop Film',
+        logo: '',
+        group: 'Test',
+        kind: Kind.movie,
+        url: '${account.host}/movie/${account.username}/${account.password}/55.mkv',
+      );
+
+      await DownloadManager.instance.enqueueMovie(movie, account);
+      await _waitUntil(() => DownloadManager.instance.completedCount == 1);
+
+      final entry = DownloadManager.instance.entries.first;
+      expect(cdnRanges.length, 2);
+      expect(cdnRanges.first, isNull);
+      expect(cdnRanges.last, 'bytes=${40 * 1024}-');
+      expect(File(entry.filePath).readAsBytesSync(), payload);
     });
   });
 

@@ -272,6 +272,7 @@ abstract class DownloadEngine {
     required String url,
     required String destinationPath,
     required String userAgent,
+    int totalBytes = 0,
   });
 
   Future<void> pause({required String id, required String destinationPath});
@@ -288,8 +289,13 @@ abstract class DownloadEngine {
 /// Writes to `<destination>.part`, supports HTTP `Range` resume when paused or
 /// interrupted, and atomically moves the completed file into place.
 class DartDownloadEngine implements DownloadEngine {
+  static const _maxNetworkRetries = 3;
+
   DownloadEngineCallbacks? _cb;
   final Map<String, _DartActiveTask> _tasks = {};
+
+  @visibleForTesting
+  Duration? debugRetryDelay;
 
   @override
   void bind(DownloadEngineCallbacks callbacks) {
@@ -307,6 +313,7 @@ class DartDownloadEngine implements DownloadEngine {
     required String url,
     required String destinationPath,
     required String userAgent,
+    int totalBytes = 0,
   }) async {
     if (_tasks.containsKey(id)) return;
     final task = _DartActiveTask(id: id, destinationPath: destinationPath);
@@ -314,165 +321,243 @@ class DartDownloadEngine implements DownloadEngine {
     unawaited(_run(task, url, userAgent));
   }
 
-  Future<void> _run(_DartActiveTask task, String url, String userAgent) async {
-    final partFile = File('${task.destinationPath}.part');
-    final finalFile = File(task.destinationPath);
-    IOSink? sink;
-    HttpClient? client;
-    try {
-      await finalFile.parent.create(recursive: true);
-      var existingBytes = 0;
-      if (await partFile.exists()) {
-        existingBytes = await partFile.length();
-      }
-
-      final uri = Uri.tryParse(url);
-      if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https')) {
-        throw const FormatException('Geçersiz indirme adresi');
-      }
-
-      client = HttpClient()
-        ..connectionTimeout = const Duration(seconds: 30)
-        ..idleTimeout = const Duration(seconds: 30);
-      task.client = client;
-
-      final req = await client.getUrl(uri);
-      req.followRedirects = true;
-      req.maxRedirects = 8;
+  /// Opens [uri] following up to 8 HTTP redirects manually so `Range` and
+  /// `User-Agent` headers are always preserved across IPTV cross-host CDN redirects.
+  Future<HttpClientResponse> _getFollowingRedirects(
+    HttpClient client,
+    Uri uri, {
+    required String userAgent,
+    required int existingBytes,
+  }) async {
+    var current = uri;
+    for (var hops = 0; hops < 8; hops++) {
+      final req = await client.getUrl(current);
+      req.followRedirects = false;
       req.headers.set(HttpHeaders.userAgentHeader, userAgent);
       if (existingBytes > 0) {
         req.headers.set(HttpHeaders.rangeHeader, 'bytes=$existingBytes-');
       }
-
       final res = await req.close();
-      if (task.paused || task.cancelled) return;
-
-      if (res.statusCode == HttpStatus.requestedRangeNotSatisfiable && existingBytes > 0) {
-        // File might already be completely downloaded or changed on server; restart cleanly.
-        existingBytes = 0;
-        if (await partFile.exists()) await partFile.delete();
-        client.close(force: true);
-        _tasks.remove(task.id);
-        await start(id: task.id, url: url, destinationPath: task.destinationPath, userAgent: userAgent);
-        return;
+      final isRedirect = res.statusCode == HttpStatus.movedPermanently ||
+          res.statusCode == HttpStatus.found ||
+          res.statusCode == HttpStatus.seeOther ||
+          res.statusCode == HttpStatus.temporaryRedirect ||
+          res.statusCode == HttpStatus.permanentRedirect;
+      final loc = res.headers.value(HttpHeaders.locationHeader);
+      if (isRedirect && loc != null && loc.isNotEmpty) {
+        await res.drain<void>().catchError((_) {});
+        current = current.resolve(loc);
+        continue;
       }
+      return res;
+    }
+    throw const _FatalHttpException('Çok fazla yönlendirme (redirect) alındı');
+  }
 
-      final isPartial = res.statusCode == HttpStatus.partialContent;
-      if (res.statusCode != HttpStatus.ok && !isPartial) {
-        final msg = switch (res.statusCode) {
-          401 || 403 || 509 => 'Sunucu indirmeyi reddetti (HTTP ${res.statusCode} — bağlantı sınırı dolu veya hesap yetkisiz olabilir)',
-          404 => 'Dosya sunucuda bulunamadı (HTTP 404)',
-          _ => 'Sunucu HTTP ${res.statusCode} döndürdü',
-        };
-        throw HttpException(msg);
-      }
+  Future<void> _run(_DartActiveTask task, String url, String userAgent) async {
+    final partFile = File('${task.destinationPath}.part');
+    final finalFile = File(task.destinationPath);
+    var retries = 0;
 
-      int totalBytes = 0;
-      int downloaded = 0;
-      if (isPartial) {
-        downloaded = existingBytes;
-        final contentRange = res.headers.value(HttpHeaders.contentRangeHeader);
-        final parsedTotal = _parseContentRangeTotal(contentRange);
-        if (parsedTotal != null && parsedTotal > 0) {
-          totalBytes = parsedTotal;
-        } else if (res.contentLength > 0) {
-          totalBytes = existingBytes + res.contentLength;
+    while (!task.paused && !task.cancelled) {
+      IOSink? sink;
+      HttpClient? client;
+      try {
+        await finalFile.parent.create(recursive: true);
+        var existingBytes = 0;
+        if (await partFile.exists()) {
+          existingBytes = await partFile.length();
         }
-        sink = partFile.openWrite(mode: FileMode.append);
-      } else {
-        // Server ignored Range header and sent full content.
-        downloaded = 0;
-        totalBytes = res.contentLength > 0 ? res.contentLength : 0;
-        sink = partFile.openWrite(mode: FileMode.write);
-      }
 
-      var lastEmit = DateTime.now();
-      var lastBytes = downloaded;
-      _cb?.onProgress(task.id, downloaded, totalBytes, 0);
+        final uri = Uri.tryParse(url);
+        if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https')) {
+          throw const FormatException('Geçersiz indirme adresi');
+        }
 
-      final completer = Completer<void>();
-      late final StreamSubscription<List<int>> sub;
-      sub = res.listen(
-        (chunk) {
-          if (task.paused || task.cancelled) {
-            sub.cancel();
-            if (!completer.isCompleted) completer.complete();
+        client = HttpClient()
+          ..connectionTimeout = const Duration(seconds: 30)
+          ..idleTimeout = const Duration(seconds: 30);
+        task.client = client;
+
+        final res = await _getFollowingRedirects(
+          client,
+          uri,
+          userAgent: userAgent,
+          existingBytes: existingBytes,
+        );
+        if (task.paused || task.cancelled) return;
+
+        if (res.statusCode == HttpStatus.requestedRangeNotSatisfiable && existingBytes > 0) {
+          final parsedTotal = _parseContentRangeTotal(res.headers.value(HttpHeaders.contentRangeHeader));
+          await res.drain<void>().catchError((_) {});
+          if (parsedTotal != null && parsedTotal > 0 && existingBytes >= parsedTotal) {
+            // Already downloaded completely into .part.
+            if (await finalFile.exists()) await finalFile.delete();
+            await partFile.rename(finalFile.path);
+            final finalSize = await finalFile.length();
+            _tasks.remove(task.id);
+            _cb?.onCompleted(task.id, finalFile.path, finalSize);
             return;
           }
-          sink!.add(chunk);
-          downloaded += chunk.length;
-          final now = DateTime.now();
-          final dtMs = now.difference(lastEmit).inMilliseconds;
-          if (dtMs >= 250) {
-            final speed = ((downloaded - lastBytes) * 1000 / dtMs).round().clamp(0, 1 << 62);
-            lastEmit = now;
-            lastBytes = downloaded;
-            _cb?.onProgress(task.id, downloaded, totalBytes, speed);
-          }
-        },
-        onDone: () {
-          if (!completer.isCompleted) completer.complete();
-        },
-        onError: (Object err, StackTrace st) {
-          if (!completer.isCompleted) completer.completeError(err, st);
-        },
-        cancelOnError: true,
-      );
-      task.subscription = sub;
-
-      await completer.future;
-      await sink.flush();
-      await sink.close();
-      sink = null;
-
-      if (task.cancelled) {
-        if (await partFile.exists()) await partFile.delete();
-        return;
-      }
-      if (task.paused) {
-        _cb?.onPaused(task.id);
-        return;
-      }
-
-      if (totalBytes > 0 && downloaded < totalBytes) {
-        throw const HttpException('Bağlantı indirme bitmeden kesildi');
-      }
-
-      if (await finalFile.exists()) {
-        await finalFile.delete();
-      }
-      try {
-        await partFile.rename(finalFile.path);
-      } on FileSystemException {
-        await partFile.copy(finalFile.path);
-        if (await partFile.exists()) await partFile.delete();
-      }
-      final finalSize = await finalFile.length();
-      _tasks.remove(task.id);
-      _cb?.onCompleted(task.id, finalFile.path, finalSize);
-    } catch (e) {
-      try {
-        await sink?.close();
-      } catch (_) {}
-      _tasks.remove(task.id);
-      if (task.cancelled) {
-        try {
+          // File changed on server; restart cleanly from 0.
           if (await partFile.exists()) await partFile.delete();
+          client.close(force: true);
+          continue;
+        }
+
+        final isPartial = res.statusCode == HttpStatus.partialContent;
+        if (res.statusCode != HttpStatus.ok && !isPartial) {
+          final msg = switch (res.statusCode) {
+            401 || 403 || 509 => 'Sunucu indirmeyi reddetti (HTTP ${res.statusCode} — bağlantı sınırı dolu veya hesap yetkisiz olabilir)',
+            404 => 'Dosya sunucuda bulunamadı (HTTP 404)',
+            _ => 'Sunucu HTTP ${res.statusCode} döndürdü',
+          };
+          throw _FatalHttpException(msg);
+        }
+
+        int totalBytes = 0;
+        int downloaded = 0;
+        if (isPartial) {
+          downloaded = existingBytes;
+          final contentRange = res.headers.value(HttpHeaders.contentRangeHeader);
+          final parsedTotal = _parseContentRangeTotal(contentRange);
+          if (parsedTotal != null && parsedTotal > 0) {
+            totalBytes = parsedTotal;
+          } else if (res.contentLength > 0) {
+            totalBytes = existingBytes + res.contentLength;
+          }
+          sink = partFile.openWrite(mode: FileMode.append);
+        } else {
+          // Server ignored Range header and sent full content.
+          downloaded = 0;
+          totalBytes = res.contentLength > 0 ? res.contentLength : 0;
+          sink = partFile.openWrite(mode: FileMode.write);
+        }
+
+        var lastEmit = DateTime.now();
+        var lastBytes = downloaded;
+        var receivedNewBytes = false;
+        _cb?.onProgress(task.id, downloaded, totalBytes, 0);
+
+        final completer = Completer<void>();
+        late final StreamSubscription<List<int>> sub;
+        sub = res.listen(
+          (chunk) {
+            if (task.paused || task.cancelled) {
+              sub.cancel();
+              if (!completer.isCompleted) completer.complete();
+              return;
+            }
+            if (chunk.isNotEmpty) receivedNewBytes = true;
+            sink!.add(chunk);
+            downloaded += chunk.length;
+            final now = DateTime.now();
+            final dtMs = now.difference(lastEmit).inMilliseconds;
+            if (dtMs >= 250) {
+              final speed = ((downloaded - lastBytes) * 1000 / dtMs).round().clamp(0, 1 << 62);
+              lastEmit = now;
+              lastBytes = downloaded;
+              _cb?.onProgress(task.id, downloaded, totalBytes, speed);
+            }
+          },
+          onDone: () {
+            if (!completer.isCompleted) completer.complete();
+          },
+          onError: (Object err, StackTrace st) {
+            if (!completer.isCompleted) completer.completeError(err, st);
+          },
+          cancelOnError: true,
+        );
+        task.subscription = sub;
+
+        await completer.future;
+        await sink.flush();
+        await sink.close();
+        sink = null;
+
+        if (task.cancelled) {
+          if (await partFile.exists()) await partFile.delete();
+          return;
+        }
+        if (task.paused) {
+          _cb?.onPaused(task.id);
+          return;
+        }
+
+        if (totalBytes > 0 && downloaded < totalBytes) {
+          if (receivedNewBytes) retries = 0;
+          throw const _RecoverableNetworkException('Bağlantı indirme bitmeden kesildi');
+        }
+
+        if (await finalFile.exists()) {
+          await finalFile.delete();
+        }
+        try {
+          await partFile.rename(finalFile.path);
+        } on FileSystemException {
+          await partFile.copy(finalFile.path);
+          if (await partFile.exists()) await partFile.delete();
+        }
+        final finalSize = await finalFile.length();
+        _tasks.remove(task.id);
+        _cb?.onCompleted(task.id, finalFile.path, finalSize);
+        return;
+      } catch (e) {
+        try {
+          await sink?.flush();
+          await sink?.close();
         } catch (_) {}
+        try {
+          client?.close(force: true);
+        } catch (_) {}
+
+        if (task.cancelled) {
+          _tasks.remove(task.id);
+          try {
+            if (await partFile.exists()) await partFile.delete();
+          } catch (_) {}
+          return;
+        }
+        if (task.paused) {
+          _tasks.remove(task.id);
+          _cb?.onPaused(task.id);
+          return;
+        }
+
+        final recoverable = e is _RecoverableNetworkException ||
+            e is SocketException ||
+            e is HandshakeException ||
+            e is TimeoutException ||
+            e is HttpException;
+        if (recoverable && retries < _maxNetworkRetries) {
+          retries++;
+          final delay = debugRetryDelay ?? Duration(seconds: retries * 2);
+          await Future<void>.delayed(delay);
+          if (task.paused || task.cancelled) {
+            _tasks.remove(task.id);
+            if (task.paused) _cb?.onPaused(task.id);
+            return;
+          }
+          continue;
+        }
+
+        _tasks.remove(task.id);
+        final msg = e is _FatalHttpException
+            ? e.message
+            : (e is _RecoverableNetworkException
+                ? e.message
+                : (e is HttpException
+                    ? e.message
+                    : (e is FormatException ? e.message : 'İndirme başarısız: $e')));
+        _cb?.onFailed(task.id, msg);
         return;
+      } finally {
+        try {
+          client?.close(force: true);
+        } catch (_) {}
       }
-      if (task.paused) {
-        _cb?.onPaused(task.id);
-        return;
-      }
-      final msg = e is HttpException ? e.message : (e is FormatException ? e.message : 'İndirme başarısız: $e');
-      _cb?.onFailed(task.id, msg);
-    } finally {
-      _tasks.remove(task.id);
-      try {
-        client?.close(force: true);
-      } catch (_) {}
     }
+    _tasks.remove(task.id);
   }
 
   static int? _parseContentRangeTotal(String? header) {
@@ -522,6 +607,16 @@ class DartDownloadEngine implements DownloadEngine {
     }
     _tasks.clear();
   }
+}
+
+class _FatalHttpException implements Exception {
+  const _FatalHttpException(this.message);
+  final String message;
+}
+
+class _RecoverableNetworkException implements Exception {
+  const _RecoverableNetworkException(this.message);
+  final String message;
 }
 
 class _DartActiveTask {
@@ -592,6 +687,7 @@ class IosBackgroundDownloadEngine implements DownloadEngine {
     required String url,
     required String destinationPath,
     required String userAgent,
+    int totalBytes = 0,
   }) async {
     try {
       await _channel.invokeMethod<void>('start', {
@@ -599,6 +695,7 @@ class IosBackgroundDownloadEngine implements DownloadEngine {
         'url': url,
         'destination': destinationPath,
         'userAgent': userAgent,
+        'totalBytes': totalBytes,
       });
     } on MissingPluginException {
       _cb?.onFailed(id, 'iOS arka plan indirme eklentisi kullanılamıyor');
@@ -813,7 +910,7 @@ class DownloadManager extends ChangeNotifier {
             // Re-resolve path from relativePath when iOS container path shifts.
             if (!e.fileExistsSync() && e.relativePath.isNotEmpty && _baseDir.isNotEmpty) {
               final candidate = '$_baseDir${Platform.pathSeparator}${e.relativePath}';
-              if (File(candidate).existsSync()) {
+              if (File(candidate).existsSync() || File('$candidate.part').existsSync()) {
                 e.filePath = candidate;
                 dirty = true;
               }
@@ -834,17 +931,22 @@ class DownloadManager extends ChangeNotifier {
                 dirty = true;
                 continue;
               }
-            } else if (e.isDownloading) {
-              // If the process restarted, mark in-flight downloads paused until
-              // syncTasks confirms a live iOS background task.
-              e.status = DownloadStatus.paused;
-              e.speedBytesPerSec = 0;
-              // Refresh partial size if .part exists on PC.
+            } else {
+              if (e.isDownloading) {
+                // If the process restarted, mark in-flight downloads paused until
+                // syncTasks confirms a live iOS background task.
+                e.status = DownloadStatus.paused;
+                e.speedBytesPerSec = 0;
+                dirty = true;
+              }
               final part = File('${e.filePath}.part');
               if (part.existsSync()) {
-                e.downloadedBytes = part.lengthSync();
+                final partLen = part.lengthSync();
+                if (partLen != e.downloadedBytes) {
+                  e.downloadedBytes = partLen;
+                  dirty = true;
+                }
               }
-              dirty = true;
             }
             _entries.add(e);
           } catch (_) {
@@ -1176,6 +1278,7 @@ class DownloadManager extends ChangeNotifier {
       url: url,
       destinationPath: next.filePath,
       userAgent: _userAgent,
+      totalBytes: next.totalBytes,
     );
   }
 
