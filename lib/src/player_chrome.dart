@@ -584,7 +584,9 @@ class PhonePlayerOverlay extends StatelessWidget {
     required this.playing,
     required this.title,
     this.subtitle,
-    required this.onBack,
+    this.onBack,
+    this.onMinimize,
+    this.onSystemPip,
     required this.onPlayPause,
     required this.onToggleOrientation,
     required this.onToggleFit,
@@ -630,7 +632,14 @@ class PhonePlayerOverlay extends StatelessWidget {
   final bool playing;
   final String title;
   final String? subtitle;
-  final VoidCallback onBack;
+  final VoidCallback? onBack;
+
+  /// Minimizes the phone player into the in-app Mini Player glass bar.
+  /// When provided, the top-left button shows a downward chevron (`⌄`).
+  final VoidCallback? onMinimize;
+
+  /// Triggers native iOS System Picture-in-Picture when supported.
+  final VoidCallback? onSystemPip;
   final VoidCallback onPlayPause;
   final VoidCallback onToggleOrientation;
   final VoidCallback onToggleFit;
@@ -735,10 +744,11 @@ class PhonePlayerOverlay extends StatelessWidget {
                 key: const ValueKey('phone-player-top-bar'),
                 children: [
                   PhoneIconButton(
-                    icon: Icons.chevron_left_rounded,
-                    tooltip: 'Geri',
+                    key: onMinimize != null ? const ValueKey('phone-player-minimize') : null,
+                    icon: onMinimize != null ? Icons.keyboard_arrow_down_rounded : Icons.chevron_left_rounded,
+                    tooltip: onMinimize != null ? 'Küçük oynatıcıya al' : 'Geri',
                     translucent: true,
-                    onTap: onBack,
+                    onTap: onMinimize ?? onBack ?? () {},
                   ),
                   const SizedBox(width: 8),
                   Expanded(
@@ -804,6 +814,16 @@ class PhonePlayerOverlay extends StatelessWidget {
                       tooltip: coverFit ? 'Ekrana sığdır' : 'Ekranı doldur',
                       translucent: true,
                       onTap: onToggleFit,
+                    ),
+                    const SizedBox(width: 4),
+                  ],
+                  if (onSystemPip != null) ...[
+                    PhoneIconButton(
+                      key: const ValueKey('phone-player-pip'),
+                      icon: Icons.picture_in_picture_alt_rounded,
+                      tooltip: 'Yüzen pencere (PiP)',
+                      translucent: true,
+                      onTap: onSystemPip!,
                     ),
                     const SizedBox(width: 4),
                   ],

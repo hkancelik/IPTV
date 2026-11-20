@@ -5,9 +5,10 @@ import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
-import 'library.dart';
 import 'player_chrome.dart';
+import 'player_session.dart';
 import 'settings.dart';
+import 'system_pip.dart';
 import 'ui/basics.dart';
 import 'ui/controls.dart';
 import 'ui/format.dart';
@@ -16,23 +17,38 @@ import 'ui/liquid_glass.dart';
 import 'ui/tokens.dart';
 import 'xtream.dart';
 
-/// One playable thing: a channel, a movie or an episode.
-class PlayerEntry {
-  const PlayerEntry({required this.url, required this.title, this.logo = '', this.group, this.epg});
+export 'player_session.dart' show PlayerEntry, PlayerSession;
 
-  final String url;
-  final String title;
-  final String logo;
+/// Smooth vertical slide-up route for expanding the iPhone Mini Player bar into [PlayerPage].
+Route<void> expandMiniPlayerRoute() => PageRouteBuilder<void>(
+      pageBuilder: (_, _, _) => const PlayerPage.fromSession(),
+      transitionDuration: const Duration(milliseconds: 280),
+      reverseTransitionDuration: const Duration(milliseconds: 240),
+      transitionsBuilder: (_, animation, _, child) {
+        final curved = CurvedAnimation(parent: animation, curve: Curves.easeOutCubic, reverseCurve: Curves.easeInCubic);
+        return SlideTransition(
+          position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero).animate(curved),
+          child: child,
+        );
+      },
+    );
 
-  /// Category shown under "Canlı TV" in the title pill (live channels).
-  final String? group;
-
-  /// Loads now/next programmes (live channels only).
-  final Future<List<Programme>> Function()? epg;
+/// Expands the active minimized [PlayerSession] into a full [PlayerPage].
+void expandMiniPlayer(BuildContext context) {
+  if (!PlayerSession.instance.active) return;
+  Navigator.of(context).push(expandMiniPlayerRoute());
 }
 
 class PlayerPage extends StatefulWidget {
-  const PlayerPage({super.key, required this.queue, this.index = 0, this.kind = Kind.movie, this.client});
+  const PlayerPage({super.key, required this.queue, this.index = 0, this.kind = Kind.movie, this.client}) : resumeSession = false;
+
+  /// Re-opens the already running [PlayerSession] without interrupting playback.
+  const PlayerPage.fromSession({super.key})
+      : queue = const [],
+        index = 0,
+        kind = Kind.movie,
+        client = null,
+        resumeSession = true;
 
   /// What can be reached with next/previous (channels of the list, episodes of the series). [index] is the one to start.
   final List<PlayerEntry> queue;
@@ -42,7 +58,10 @@ class PlayerPage extends StatefulWidget {
   /// Used to tell "connection limit reached" apart from other failures.
   final XtreamClient? client;
 
-  bool get live => kind == Kind.live;
+  /// True when expanding from the in-app Mini Player or restoring from iOS System PiP.
+  final bool resumeSession;
+
+  bool get live => resumeSession ? PlayerSession.instance.live : kind == Kind.live;
 
   /// Locks the player to landscape or portrait without an automatic reset timer.
   /// Clearing preferred orientations on a timer causes iOS to snap back to
@@ -66,140 +85,32 @@ class PlayerPage extends StatefulWidget {
 
 class _PlayerPageState extends State<PlayerPage> {
   final GlobalKey<VideoState> _videoKey = GlobalKey<VideoState>();
-  late final Player _player = Player();
-  late final VideoController _controller = VideoController(_player);
-  Timer? _saveTimer;
-  final ValueNotifier<String?> _error = ValueNotifier(null);
-  final List<StreamSubscription<dynamic>> _subs = [];
-  int _retries = 0;
-  int _gen = 0; // bumped on every channel/episode change so stale retries are dropped
-  int _progress = 0; // bumped whenever the playback position moves
-  int? _errorGen; // the [_gen] whose error is being handled right now
-  String? _ignoredError; // an error after which playback went on
-  bool _saveable = false; // the player's position is the one to remember (not while opening / before the resume seek)
-  late int _index = widget.index;
-  Future<List<Programme>>? _epg;
-  late final ValueNotifier<PlayerEntry> _current = ValueNotifier(_entry);
-  final ValueNotifier<int?> _countdown = ValueNotifier(null); // seconds until the next episode starts
-  Timer? _countdownTimer;
+  final PlayerSession _session = PlayerSession.instance;
   final ValueNotifier<String> _digits = ValueNotifier(''); // channel number being typed
   Timer? _digitsTimer;
-  BoxFit _fit = BoxFit.contain;
   bool _immersive = false;
-
-  PlayerEntry get _entry => widget.queue[_index];
-  bool get _hasNext => _index < widget.queue.length - 1;
-  bool get _hasPrev => _index > 0;
+  bool _isPhone = false;
+  bool _closingExplicitly = false;
 
   @override
   void initState() {
     super.initState();
-    _epg = _entry.epg?.call();
-    // The lists behind the player hold decoded posters; release them while a video plays.
-    PaintingBinding.instance.imageCache
-      ..clear()
-      ..clearLiveImages();
-    _start();
-  }
-
-  Future<void> _start() async {
-    final s = AppSettings.instance;
-    // mpv options (media_kit exposes them on the native platform player)
-    final native = _player.platform as dynamic;
-    Future<void> set(String k, String v) async {
-      try {
-        await native.setProperty(k, v);
-      } catch (_) {
-        // property not supported on this platform: ignore
-      }
-    }
-
-    await set('hwdec', s.hwdec ? 'auto-safe' : 'no');
-    await set('cache-secs', '${s.cacheSecs}');
-    await set('demuxer-readahead-secs', '${s.cacheSecs}');
-    if (s.tvMode) {
-      // TV sticks have ~1 GB RAM: mpv's default demuxer cache (150 MiB forward + 150 MiB back) makes
-      // the system swap. Keep it small and seek to the nearest keyframe (much faster than exact seeks).
-      await set('demuxer-max-bytes', '48MiB');
-      await set('demuxer-max-back-bytes', '16MiB');
-      await set('hr-seek', 'no');
-    }
-    if (s.alang.isNotEmpty) await set('alang', s.alang);
-    if (s.slang.isNotEmpty) {
-      await set('slang', s.slang);
-      await set('sid', 'auto');
-    }
-    if (!mounted) return; // left again while the options were being set: the player is already disposed
-
-    Library.instance.touch(url: _entry.url, title: _entry.title, logo: _entry.logo, kind: widget.kind);
-
-    _subs.add(_player.stream.error.listen((message) => _onError(message)));
-    // Only a moving position proves that the stream plays: media_kit reports playing=true as soon as open()
-    // is called, before any data has arrived, so that must not reset the retry counter or hide the error.
-    var last = Duration.zero;
-    _subs.add(_player.stream.position.listen((position) {
-      if (position == Duration.zero || position == last) return;
-      last = position;
-      _progress++;
-      _retries = 0;
-      if (_error.value != null) _error.value = null;
-    }));
-    if (widget.live) {
-      // A live stream that "ends" has dropped: reconnect.
-      _subs.add(_player.stream.completed.listen((done) {
-        if (done) _onError('stream ended', stopped: true);
-      }));
+    _session.addListener(_onSessionChange);
+    if (widget.resumeSession) {
+      _session.markExpanded();
     } else {
-      _subs.add(_player.stream.completed.listen((done) {
-        if (done) _onCompleted();
-      }));
+      _session.open(queue: widget.queue, index: widget.index, kind: widget.kind, client: widget.client);
     }
-
-    await _open();
-    await _afterOpen();
   }
 
-  Future<void> _afterOpen() async {
-    if (widget.live) return;
-    final gen = _gen;
-    if (AppSettings.instance.resume) {
-      final saved = Library.instance.positionFor(_entry.url);
-      if (saved != null) {
-        try {
-          await _player.stream.duration.firstWhere((d) => d > Duration.zero);
-        } catch (_) {
-          return; // the player was closed before the video loaded
-        }
-        if (gen != _gen || !mounted) return;
-        await _player.seek(saved);
-        if (gen != _gen || !mounted) return;
-      }
+  void _onSessionChange() {
+    if (!mounted) return;
+    if (!_session.active) {
+      // Session was closed externally (e.g. user dismissed System PiP with ×).
+      Navigator.of(context).maybePop();
+      return;
     }
-    _saveable = true;
-    _saveTimer?.cancel();
-    _saveTimer = Timer.periodic(const Duration(seconds: 10), (_) => _save());
-  }
-
-  Future<void> _open() => _player.open(Media(_entry.url, httpHeaders: const {'User-Agent': 'VLC/3.0.20 LibVLC/3.0.20'}));
-
-  /// Moves to another channel/episode of the queue without leaving the player.
-  Future<void> _switchTo(int i) async {
-    if (i < 0 || i >= widget.queue.length || i == _index) return;
-    _cancelCountdown();
-    _saveTimer?.cancel();
-    _save();
-    _saveable = false;
-    _gen++;
-    _retries = 0;
-    _error.value = null;
-    _ignoredError = null;
-    _index = i;
-    final e = _entry;
-    _epg = e.epg?.call();
-    _current.value = e;
-    Library.instance.touch(url: e.url, title: e.title, logo: e.logo, kind: widget.kind);
-    await _open();
-    if (mounted) await _afterOpen();
+    setState(() {});
   }
 
   /// Digit keys on live TV: type a channel number (position in the list, 1-based), jump after a short pause.
@@ -210,121 +121,8 @@ class _PlayerPageState extends State<PlayerPage> {
     _digitsTimer = Timer(const Duration(milliseconds: 1500), () {
       final n = int.tryParse(_digits.value);
       _digits.value = '';
-      if (n != null && n >= 1 && n <= widget.queue.length) _switchTo(n - 1);
+      if (n != null && n >= 1 && n <= _session.queue.length) _session.switchTo(n - 1);
     });
-  }
-
-  void _next() => _switchTo(_index + 1);
-  void _prev() => _switchTo(_index - 1);
-
-  /// An episode ended: count down 10 s (like YouTube's autoplay) and then start the next one.
-  void _onCompleted() {
-    if (!mounted) return;
-    _save();
-    // mpv also reports a connection that died for good as the end of the file. If an error was let pass because
-    // the buffered part still played, and this "end" is far from the real one, it was that connection.
-    final ignored = _ignoredError;
-    final state = _player.state;
-    if (ignored != null && state.duration - state.position > const Duration(seconds: 60)) {
-      _error.value = 'Yayın yarıda kesildi.\n\n$ignored';
-      return;
-    }
-    if (!AppSettings.instance.autoNext || !_hasNext) return;
-    _countdownTimer?.cancel();
-    _countdown.value = 10;
-    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (t) {
-      final left = (_countdown.value ?? 1) - 1;
-      if (left <= 0) {
-        _next();
-      } else {
-        _countdown.value = left;
-      }
-    });
-  }
-
-  void _cancelCountdown() {
-    _countdownTimer?.cancel();
-    _countdownTimer = null;
-    _countdown.value = null;
-  }
-
-  Future<AccountInfo?> _accountInfo() async {
-    try {
-      return await widget.client?.authenticate().timeout(const Duration(seconds: 8));
-    } catch (_) {
-      return null;
-    }
-  }
-
-  /// [stopped]: playback is known to have ended. Otherwise the error may be a passing decoder hiccup, which mpv
-  /// reports the same way, so it only counts if the position stops moving.
-  Future<void> _onError(String message, {bool stopped = false}) async {
-    final gen = _gen;
-    // mpv logs several lines for one failure: one recovery per channel/episode at a time.
-    if (!mounted || _errorGen == gen) return;
-    _errorGen = gen;
-    try {
-      if (!stopped) {
-        final before = _progress;
-        await Future<void>.delayed(const Duration(seconds: 2));
-        if (!mounted || gen != _gen) return;
-        if (_progress != before) {
-          _ignoredError = message;
-          return;
-        }
-      }
-      // Is the account's connection limit used up (e.g. watching on the PC and the TV stick at once)?
-      final info = await _accountInfo();
-      if (!mounted || gen != _gen) return; // the user moved on to another channel/episode meanwhile
-      if (info != null && info.limitReached) {
-        final n = '${info.activeConnections}/${info.maxConnections}';
-        if (widget.live && _retries < 3) {
-          // The server may still count our own dropped connection for a few seconds: wait and retry.
-          _retries++;
-          _error.value = 'Bağlantı sınırı dolu ($n). Başka bir cihazda izleme açık olabilir ya da önceki bağlantın henüz kapanmadı. Yeniden deneniyor ($_retries/3)...';
-          await Future<void>.delayed(Duration(seconds: 4 * _retries));
-          if (mounted && gen == _gen) _open();
-          return;
-        }
-        _error.value = 'Bağlantı sınırı dolu ($n).\n\nHesabın aynı anda en fazla ${info.maxConnections} cihazda izlemeye izin veriyor. '
-            'Başka bir cihazda (TV, telefon, bilgisayar) açık yayını kapat, birkaç saniye bekle ve Tekrar dene.';
-        return;
-      }
-      if (widget.live && _retries < 3) {
-        _retries++;
-        _error.value = 'Bağlantı koptu, yeniden deneniyor ($_retries/3)...';
-        await Future<void>.delayed(Duration(seconds: 2 * _retries));
-        if (mounted && gen == _gen) _open();
-        return;
-      }
-      final refused = RegExp(r'(401|403|404|509|884|forbidden|unauthorized)', caseSensitive: false).hasMatch(message);
-      _error.value = refused
-          ? 'Yayın açılamadı. Sağlayıcı isteği reddetti (hesap süresi dolmuş ya da bağlantı sınırı olabilir).\n\n$message'
-          : 'Yayın açılamadı.\n\n$message';
-    } finally {
-      if (_errorGen == gen) _errorGen = null;
-    }
-  }
-
-  /// "Tekrar dene": opens the current channel/episode again (a movie continues from the saved position).
-  Future<void> _retry() async {
-    _gen++; // drops a recovery or a resume that still waits on the failed attempt
-    _retries = 0;
-    _error.value = null;
-    _ignoredError = null;
-    _saveTimer?.cancel();
-    _saveable = false;
-    await _open();
-    if (mounted) await _afterOpen();
-  }
-
-  void _save() {
-    if (widget.live || !_saveable) return;
-    Library.instance.savePosition(_entry.url, _player.state.position, _player.state.duration);
-  }
-
-  void _toggleFit() {
-    setState(() => _fit = _fit == BoxFit.contain ? BoxFit.cover : BoxFit.contain);
   }
 
   Future<void> _toggleOrientation(bool currentlyLandscape) =>
@@ -336,24 +134,42 @@ class _PlayerPageState extends State<PlayerPage> {
     SystemChrome.setEnabledSystemUIMode(on ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge);
   }
 
+  void _minimizeToBar() {
+    if (_immersive) _setImmersive(false);
+    SystemChrome.setPreferredOrientations(const []);
+    _session.minimize();
+    Navigator.of(context).pop();
+  }
+
+  void _stopAndClose() {
+    _closingExplicitly = true;
+    if (_immersive) _setImmersive(false);
+    SystemChrome.setPreferredOrientations(const []);
+    _session.close();
+    Navigator.of(context).pop();
+  }
+
+  Future<void> _triggerSystemPip() async {
+    await _session.startSystemPip();
+  }
+
   @override
   void dispose() {
+    _session.removeListener(_onSessionChange);
     if (_immersive) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     }
     SystemChrome.setPreferredOrientations(const []);
-    _saveTimer?.cancel();
-    _countdownTimer?.cancel();
     _digitsTimer?.cancel();
     _digits.dispose();
-    for (final sub in _subs) {
-      sub.cancel();
+    if (_session.active) {
+      if (_isPhone && !_closingExplicitly) {
+        // Defer listener notification until after widget tree teardown.
+        Future.microtask(_session.minimize);
+      } else {
+        Future.microtask(_session.close);
+      }
     }
-    _save();
-    _error.dispose();
-    _current.dispose();
-    _countdown.dispose();
-    _player.dispose();
     super.dispose();
   }
 
@@ -361,11 +177,11 @@ class _PlayerPageState extends State<PlayerPage> {
   Widget build(BuildContext context) {
     // The remote's Back key first cancels a running next-episode countdown, then leaves the player.
     return ValueListenableBuilder<int?>(
-      valueListenable: _countdown,
+      valueListenable: _session.countdown,
       builder: (_, left, child) => PopScope(
         canPop: left == null,
         onPopInvokedWithResult: (didPop, _) {
-          if (!didPop) _cancelCountdown();
+          if (!didPop) _session.cancelCountdown();
         },
         child: child!,
       ),
@@ -375,12 +191,20 @@ class _PlayerPageState extends State<PlayerPage> {
 
   Widget _scaffold() {
     final mode = layoutModeOf(context);
+    _isPhone = mode != AppLayoutMode.desktop;
+    final entry = _session.entry;
+    final player = _session.player;
+    final controller = _session.controller;
+    if (!_session.active || entry == null || player == null || controller == null) {
+      return const Scaffold(backgroundColor: AppColors.video);
+    }
+
     if (mode == AppLayoutMode.desktop) {
       if (_immersive) _setImmersive(false);
       return Scaffold(
         backgroundColor: AppColors.video,
         body: Stack(children: [
-          Positioned.fill(child: _video(mode)),
+          Positioned.fill(child: _video(mode, player, controller, entry)),
           Positioned(
             top: 92,
             right: 28,
@@ -398,11 +222,11 @@ class _PlayerPageState extends State<PlayerPage> {
     if (mode == AppLayoutMode.phoneLandscape) {
       return Scaffold(
         backgroundColor: AppColors.video,
-        body: _video(mode),
+        body: _video(mode, player, controller, entry),
       );
     }
 
-    // Phone Portrait: 16:9 edge-to-edge video below Dynamic Island + rich interactive companion panel below.
+    // Phone Portrait: 16:9 edge-to-edge video below Dynamic Island (swipe down to minimize) + companion panel below.
     if (_immersive) _setImmersive(false);
     return Scaffold(
       backgroundColor: AppColors.video,
@@ -411,24 +235,30 @@ class _PlayerPageState extends State<PlayerPage> {
         children: [
           SafeArea(
             bottom: false,
-            child: AspectRatio(aspectRatio: 16 / 9, child: _video(mode)),
+            child: GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onVerticalDragEnd: (details) {
+                if ((details.primaryVelocity ?? 0) > 320) {
+                  AppHaptics.light(context);
+                  _minimizeToBar();
+                }
+              },
+              child: AspectRatio(aspectRatio: 16 / 9, child: _video(mode, player, controller, entry)),
+            ),
           ),
           Expanded(
-            child: ValueListenableBuilder<PlayerEntry>(
-              valueListenable: _current,
-              builder: (_, entry, _) => _PhoneCompanionHost(
-                player: _player,
-                live: widget.live,
-                entry: entry,
-                index: _index,
-                queue: widget.queue,
-                epg: entry.epg == null ? null : _epg,
-                coverFit: _fit == BoxFit.cover,
-                onSelectQueue: _switchTo,
-                onToggleFit: _toggleFit,
-                onToggleOrientation: () => _toggleOrientation(false),
-                onCancelCountdown: _cancelCountdown,
-              ),
+            child: _PhoneCompanionHost(
+              player: player,
+              live: _session.live,
+              entry: entry,
+              index: _session.index,
+              queue: _session.queue,
+              epg: entry.epg == null ? null : _session.epg,
+              coverFit: _session.fit == BoxFit.cover,
+              onSelectQueue: _session.switchTo,
+              onToggleFit: _session.toggleFit,
+              onToggleOrientation: () => _toggleOrientation(false),
+              onCancelCountdown: _session.cancelCountdown,
             ),
           ),
         ],
@@ -436,46 +266,49 @@ class _PlayerPageState extends State<PlayerPage> {
     );
   }
 
-  Widget _video(AppLayoutMode mode) {
+  Widget _video(AppLayoutMode mode, Player player, VideoController controller, PlayerEntry entry) {
+    final queue = _session.queue;
+    final idx = _session.index;
+    final isPhone = mode != AppLayoutMode.desktop;
     return Video(
       key: _videoKey,
-      controller: _controller,
-      fit: _fit,
+      controller: controller,
+      fit: _session.fit,
       subtitleViewConfiguration: SubtitleViewConfiguration(
         style: AppText.label(18, color: AppColors.ink).copyWith(
           shadows: const [Shadow(blurRadius: 6, color: Colors.black)],
         ),
         padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
       ),
-      controls: (state) => ValueListenableBuilder<PlayerEntry>(
-        valueListenable: _current,
-        builder: (_, entry, _) => _Controls(
-          state: state,
-          player: _player,
-          mode: mode,
-          title: entry.title,
-          logo: entry.logo,
-          group: entry.group,
-          index: _index,
-          queue: widget.queue,
-          live: widget.live,
-          error: _error,
-          onRetry: _retry,
-          epg: entry.epg == null ? null : _epg,
-          onPrev: _hasPrev ? _prev : null,
-          onNext: _hasNext ? _next : null,
-          onSelectQueue: _switchTo,
-          queued: widget.queue.length > 1,
-          countdown: _countdown,
-          nextTitle: _hasNext ? widget.queue[_index + 1].title : null,
-          prevTitle: _hasPrev ? widget.queue[_index - 1].title : null,
-          onCancelCountdown: _cancelCountdown,
-          onDigit: widget.live && widget.queue.length > 1 ? _typeDigit : null,
-          coverFit: _fit == BoxFit.cover,
-          onToggleFit: _toggleFit,
-          onToggleOrientation: () => _toggleOrientation(mode == AppLayoutMode.phoneLandscape),
-          onImmersiveChange: _setImmersive,
-        ),
+      controls: (state) => _Controls(
+        state: state,
+        player: player,
+        mode: mode,
+        title: entry.title,
+        logo: entry.logo,
+        group: entry.group,
+        index: idx,
+        queue: queue,
+        live: _session.live,
+        error: _session.error,
+        onRetry: _session.retry,
+        epg: entry.epg == null ? null : _session.epg,
+        onPrev: _session.hasPrev ? _session.prev : null,
+        onNext: _session.hasNext ? _session.next : null,
+        onSelectQueue: _session.switchTo,
+        queued: queue.length > 1,
+        countdown: _session.countdown,
+        nextTitle: _session.hasNext ? queue[idx + 1].title : null,
+        prevTitle: _session.hasPrev ? queue[idx - 1].title : null,
+        onCancelCountdown: _session.cancelCountdown,
+        onDigit: _session.live && queue.length > 1 ? _typeDigit : null,
+        coverFit: _session.fit == BoxFit.cover,
+        onToggleFit: _session.toggleFit,
+        onToggleOrientation: () => _toggleOrientation(mode == AppLayoutMode.phoneLandscape),
+        onImmersiveChange: _setImmersive,
+        onMinimize: isPhone ? _minimizeToBar : null,
+        onSystemPip: isPhone && SystemPip.instance.isSupported ? _triggerSystemPip : null,
+        onStopAndClose: isPhone ? _stopAndClose : null,
       ),
     );
   }
@@ -537,6 +370,9 @@ class _Controls extends StatefulWidget {
     this.logo = '',
     this.group,
     this.onDigit,
+    this.onMinimize,
+    this.onSystemPip,
+    this.onStopAndClose,
   });
 
   final VideoState state;
@@ -564,6 +400,9 @@ class _Controls extends StatefulWidget {
   final VoidCallback onToggleFit;
   final VoidCallback onToggleOrientation;
   final ValueChanged<bool> onImmersiveChange;
+  final VoidCallback? onMinimize;
+  final VoidCallback? onSystemPip;
+  final VoidCallback? onStopAndClose;
 
   @override
   State<_Controls> createState() => _ControlsState();
@@ -1103,6 +942,13 @@ class _ControlsState extends State<_Controls> {
               icon: Icons.skip_next_rounded,
               selected: autoNext,
             ),
+          if (widget.onStopAndClose != null)
+            const GlassMenuItem(
+              id: 'stop',
+              title: 'Yayını durdur ve kapat',
+              sfSymbol: 'stop.circle',
+              icon: Icons.stop_circle_outlined,
+            ),
         ],
       ),
     ];
@@ -1141,6 +987,9 @@ class _ControlsState extends State<_Controls> {
       AppSettings.instance.update(autoNext: next);
       if (!next) widget.onCancelCountdown();
       _flash('Otomatik sonraki: ${next ? 'açık' : 'kapalı'}');
+    } else if (id == 'stop') {
+      widget.onStopAndClose?.call();
+      return;
     }
     _poke();
   }
@@ -1371,6 +1220,8 @@ class _ControlsState extends State<_Controls> {
                                         title: title,
                                         subtitle: sub,
                                         onBack: () => Navigator.of(context).maybePop(),
+                                        onMinimize: widget.onMinimize,
+                                        onSystemPip: widget.onSystemPip,
                                         onPlayPause: () {
                                           p.playOrPause();
                                           _poke();

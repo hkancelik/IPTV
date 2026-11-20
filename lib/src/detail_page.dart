@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'library.dart';
+import 'mini_player.dart';
 import 'player_page.dart';
 import 'title_utils.dart';
 import 'poster_card.dart';
@@ -89,16 +90,40 @@ class _DetailPageState extends State<DetailPage> {
   Widget build(BuildContext context) {
     final mode = layoutModeOf(context);
     if (mode != AppLayoutMode.desktop) {
+      final landscape = mode == AppLayoutMode.phoneLandscape;
+      final pad = MediaQuery.paddingOf(context);
       return Scaffold(
-        body: _isSeries
-            ? FutureBuilder<SeriesData>(
-                future: _series,
-                builder: (context, snap) => _buildPhone(context, mode == AppLayoutMode.phoneLandscape, snap.connectionState, snap.error, snap.data?.details, snap.data?.episodes),
+        body: Stack(
+          children: [
+            Positioned.fill(
+              child: _isSeries
+                  ? FutureBuilder<SeriesData>(
+                      future: _series,
+                      builder: (context, snap) => _buildPhone(context, landscape, snap.connectionState, snap.error, snap.data?.details, snap.data?.episodes),
+                    )
+                  : FutureBuilder<Details>(
+                      future: _movie,
+                      builder: (context, snap) => _buildPhone(context, landscape, snap.connectionState, snap.error, snap.data, null),
+                    ),
+            ),
+            if (landscape)
+              Positioned(
+                left: pad.left > 0 ? pad.left : 14,
+                bottom: pad.bottom > 0 ? pad.bottom + 4 : 10,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 340),
+                  child: PhoneMiniPlayerSlot(compact: true, onExpand: () => expandMiniPlayer(context)),
+                ),
               )
-            : FutureBuilder<Details>(
-                future: _movie,
-                builder: (context, snap) => _buildPhone(context, mode == AppLayoutMode.phoneLandscape, snap.connectionState, snap.error, snap.data, null),
+            else
+              Positioned(
+                left: 14,
+                right: 14,
+                bottom: pad.bottom > 0 ? pad.bottom + 6 : 12,
+                child: PhoneMiniPlayerSlot(onExpand: () => expandMiniPlayer(context)),
               ),
+          ],
+        ),
       );
     }
     final name = parsedTitleOf(widget.item).title;

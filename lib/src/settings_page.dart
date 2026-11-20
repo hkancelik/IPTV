@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import 'phone_remote.dart';
+import 'player_session.dart';
 import 'settings.dart';
+import 'system_pip.dart';
 import 'ui/basics.dart';
 import 'ui/controls.dart';
 import 'ui/focus_ring.dart';
@@ -71,7 +73,7 @@ class _SettingsPageState extends State<SettingsPage> {
   Widget build(BuildContext context) {
     final s = AppSettings.instance;
     return ListenableBuilder(
-      listenable: Listenable.merge([s, PhoneRemote.instance]),
+      listenable: Listenable.merge([s, PhoneRemote.instance, PlayerSession.instance]),
       builder: (context, _) {
         final mode = layoutModeOf(context);
         final phone = mode != AppLayoutMode.desktop;
@@ -161,6 +163,17 @@ class _SettingsPageState extends State<SettingsPage> {
                 value: s.autoNext,
                 onChanged: (v) => s.update(autoNext: v),
               ),
+              if (Theme.of(context).platform == TargetPlatform.iOS)
+                _SwitchRow(
+                  key: const ValueKey('setting-autoPipOnLeave'),
+                  title: 'Uygulamadan çıkınca yüzen oynatıcı (PiP)',
+                  desc: 'Ana ekrana veya başka uygulamaya geçince izlediğin yayın yüzen pencerede devam eder',
+                  value: s.autoPipOnLeave,
+                  onChanged: (v) {
+                    s.update(autoPipOnLeave: v);
+                    SystemPip.instance.setAutoStart(v);
+                  },
+                ),
             ]),
             _Section(key: _keys[2], title: 'İçerik', children: [
               _SwitchRow(
@@ -419,7 +432,7 @@ Widget _texts(String title, String? desc) => Column(mainAxisSize: MainAxisSize.m
 
 /// A row with a switch: the whole row takes focus and toggles.
 class _SwitchRow extends StatelessWidget {
-  const _SwitchRow({required this.title, this.desc, required this.value, required this.onChanged});
+  const _SwitchRow({super.key, required this.title, this.desc, required this.value, required this.onChanged});
 
   final String title;
   final String? desc;

@@ -15,6 +15,7 @@ import UIKit
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
     LiquidGlassPlugin.register(with: engineBridge.pluginRegistry)
+    SystemPipPlugin.register(with: engineBridge.pluginRegistry)
   }
 
   private func configureAudioSession() {

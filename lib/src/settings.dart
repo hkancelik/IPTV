@@ -19,6 +19,7 @@ class AppSettings extends ChangeNotifier {
   bool hideAdult = false;
   bool resume = true;
   bool autoNext = true; // start the next episode 10 s after one ends
+  bool autoPipOnLeave = true; // iOS: enter system Picture-in-Picture automatically when leaving the app
   bool dedupe = true;
   bool phoneRemote = false; // control the app from a phone's browser (local network)
   bool tvMode = !kIsWeb && Platform.isAndroid; // remote-control friendly UI
@@ -36,6 +37,7 @@ class AppSettings extends ChangeNotifier {
     hideAdult = p.getBool('hideAdult') ?? hideAdult;
     resume = p.getBool('resume') ?? resume;
     autoNext = p.getBool('autoNext') ?? autoNext;
+    autoPipOnLeave = p.getBool('autoPipOnLeave') ?? autoPipOnLeave;
     dedupe = p.getBool('dedupe') ?? dedupe;
     phoneRemote = p.getBool('phoneRemote') ?? phoneRemote;
     tvMode = p.getBool('tvMode') ?? tvMode;
@@ -52,7 +54,7 @@ class AppSettings extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> update({String? audioLang, String? subLang, bool? hwdec, int? cacheSecs, int? skipSecs, bool? hideAdult, bool? resume, bool? autoNext, bool? dedupe, bool? tvMode, bool? phoneRemote, double? uiScale, Set<String>? hiddenGroups, Map<String, List<String>>? groupOrder}) async {
+  Future<void> update({String? audioLang, String? subLang, bool? hwdec, int? cacheSecs, int? skipSecs, bool? hideAdult, bool? resume, bool? autoNext, bool? autoPipOnLeave, bool? dedupe, bool? tvMode, bool? phoneRemote, double? uiScale, Set<String>? hiddenGroups, Map<String, List<String>>? groupOrder}) async {
     this.audioLang = audioLang ?? this.audioLang;
     this.subLang = subLang ?? this.subLang;
     this.hwdec = hwdec ?? this.hwdec;
@@ -61,6 +63,7 @@ class AppSettings extends ChangeNotifier {
     this.hideAdult = hideAdult ?? this.hideAdult;
     this.resume = resume ?? this.resume;
     this.autoNext = autoNext ?? this.autoNext;
+    this.autoPipOnLeave = autoPipOnLeave ?? this.autoPipOnLeave;
     this.dedupe = dedupe ?? this.dedupe;
     this.tvMode = tvMode ?? this.tvMode;
     this.phoneRemote = phoneRemote ?? this.phoneRemote;
@@ -77,6 +80,7 @@ class AppSettings extends ChangeNotifier {
     await p.setBool('hideAdult', this.hideAdult);
     await p.setBool('resume', this.resume);
     await p.setBool('autoNext', this.autoNext);
+    await p.setBool('autoPipOnLeave', this.autoPipOnLeave);
     await p.setBool('dedupe', this.dedupe);
     await p.setBool('tvMode', this.tvMode);
     await p.setBool('phoneRemote', this.phoneRemote);

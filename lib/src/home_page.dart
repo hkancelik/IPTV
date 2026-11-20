@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'detail_page.dart';
 import 'epg_widgets.dart';
 import 'library.dart';
+import 'mini_player.dart';
 import 'player_chrome.dart';
 import 'player_page.dart';
 import 'poster_card.dart';
@@ -485,14 +486,20 @@ class _HomePageState extends State<HomePage> {
     if (picked != null && mounted) setState(() => _sort = picked);
   }
 
+  void _logout() {
+    PlayerSession.instance.close();
+    Navigator.of(context).pop();
+  }
+
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: Listenable.merge([AppSettings.instance, Library.instance]),
+      listenable: Listenable.merge([AppSettings.instance, Library.instance, PlayerSession.instance]),
       // Back (TV remote) never lands on the profile page: it steps back to "Tümü", then to Ana Sayfa,
       // then leaves the app. Switching user goes through Ayarlar (Navigator.pop ignores this PopScope).
       builder: (context, _) {
         final mode = layoutModeOf(context);
+        final pad = MediaQuery.paddingOf(context);
         return PopScope(
           canPop: false,
           onPopInvokedWithResult: (didPop, _) {
@@ -509,7 +516,7 @@ class _HomePageState extends State<HomePage> {
             AppLayoutMode.desktop => Scaffold(
                 body: Row(
                   children: [
-                    SideMenu(selected: _tab, onSelect: _select, accountName: widget.account.name, onAccount: () => Navigator.of(context).pop()),
+                    SideMenu(selected: _tab, onSelect: _select, accountName: widget.account.name, onAccount: _logout),
                     const SizedBox(width: 8),
                     Expanded(child: _content()),
                   ],
@@ -524,7 +531,17 @@ class _HomePageState extends State<HomePage> {
                       left: 0,
                       right: 0,
                       bottom: 0,
-                      child: PhoneBottomBar(selected: _tab, lastMainTab: _lastMainTab, onSelect: _select),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
+                            child: PhoneMiniPlayerSlot(onExpand: () => expandMiniPlayer(context)),
+                          ),
+                          PhoneBottomBar(selected: _tab, lastMainTab: _lastMainTab, onSelect: _select),
+                        ],
+                      ),
                     ),
                   ],
                 ),
@@ -532,13 +549,30 @@ class _HomePageState extends State<HomePage> {
             AppLayoutMode.phoneLandscape => Scaffold(
                 body: Row(
                   children: [
-                    Expanded(child: _phoneLandscapeContent()),
+                    Expanded(
+                      child: Stack(
+                        children: [
+                          Positioned.fill(child: _phoneLandscapeContent()),
+                          Positioned(
+                            left: pad.left > 0 ? pad.left : 14,
+                            bottom: pad.bottom > 0 ? pad.bottom + 4 : 10,
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 340),
+                              child: PhoneMiniPlayerSlot(
+                                compact: true,
+                                onExpand: () => expandMiniPlayer(context),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                     const SizedBox(width: 6),
                     PhoneLandscapeRail(
                       selected: _tab,
                       onSelect: _select,
                       accountName: widget.account.name,
-                      onAccount: () => Navigator.of(context).pop(),
+                      onAccount: _logout,
                     ),
                   ],
                 ),
@@ -561,7 +595,7 @@ class _HomePageState extends State<HomePage> {
         ),
         PhoneAccountAvatar(
           name: widget.account.name,
-          onTap: () => Navigator.of(context).pop(),
+          onTap: _logout,
         ),
       ];
 
@@ -629,7 +663,7 @@ class _HomePageState extends State<HomePage> {
               info: widget.info,
               account: widget.account,
               client: widget.client,
-              onLogout: () => Navigator.of(context).pop(),
+              onLogout: _logout,
             ),
           ),
         ],
@@ -711,7 +745,7 @@ class _HomePageState extends State<HomePage> {
               info: widget.info,
               account: widget.account,
               client: widget.client,
-              onLogout: () => Navigator.of(context).pop(),
+              onLogout: _logout,
             ),
           ),
         ],
@@ -1162,7 +1196,7 @@ class _HomePageState extends State<HomePage> {
     if (_tab == _settingsTab) {
       return _page(
         const PageHeader(title: 'Ayarlar', actions: [ClockPill()]),
-        SettingsPage(info: widget.info, account: widget.account, client: widget.client, onLogout: () => Navigator.of(context).pop()),
+        SettingsPage(info: widget.info, account: widget.account, client: widget.client, onLogout: _logout),
       );
     }
     if (_tab == _favoritesTab) {

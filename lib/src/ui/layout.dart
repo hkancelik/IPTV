@@ -4,6 +4,8 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../mini_player.dart';
+import '../player_session.dart';
 import '../settings.dart';
 import 'liquid_glass.dart';
 import 'tokens.dart';
@@ -35,8 +37,10 @@ bool isPhoneLayout(BuildContext context) => layoutModeOf(context) != AppLayoutMo
 bool isPhonePortrait(BuildContext context) => layoutModeOf(context) == AppLayoutMode.phonePortrait;
 bool isPhoneLandscape(BuildContext context) => layoutModeOf(context) == AppLayoutMode.phoneLandscape;
 
-/// Height reserved beneath scrollable content so items clear the floating iPhone bottom bar.
-double phoneBottomClearance(BuildContext context) => 88 + MediaQuery.paddingOf(context).bottom;
+/// Height reserved beneath scrollable content so items clear the floating iPhone bottom bar
+/// (and the 2-button Mini Player glass bar whenever playback is minimized).
+double phoneBottomClearance(BuildContext context) =>
+    88 + MediaQuery.paddingOf(context).bottom + (PlayerSession.instance.isMiniVisible ? phoneMiniPlayerClearance : 0);
 
 /// Uses Cupertino swipe-back transitions on iOS / phone layouts and Material routes elsewhere.
 Route<T> appRoute<T>(BuildContext context, WidgetBuilder builder) {

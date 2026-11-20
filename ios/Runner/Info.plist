@@ -17,6 +17,10 @@
 	<string>Yerel ağ üzerinden QR ile giriş ve telefon kumandası bağlantısı için yerel ağ erişimi gerekir.</string>
 	<key>UIStatusBarStyle</key>
 	<string>UIStatusBarStyleLightContent</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
 	<key>UIUserInterfaceStyle</key>
 	<string>Dark</string>
 	<key>UIViewControllerBasedStatusBarAppearance</key>

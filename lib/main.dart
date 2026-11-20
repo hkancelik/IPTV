@@ -7,6 +7,7 @@ import 'package:media_kit/media_kit.dart';
 import 'src/app_nav.dart';
 import 'src/login_page.dart';
 import 'src/phone_remote.dart';
+import 'src/player_page.dart';
 import 'src/ui_scale.dart';
 import 'src/settings.dart';
 import 'src/ui/app_theme.dart';
@@ -25,6 +26,12 @@ Future<void> main() async {
   }
   await AppSettings.instance.load();
   if (AppSettings.instance.phoneRemote) PhoneRemote.instance.setEnabled(true);
+  PlayerSession.instance.onRequestExpandFromPip = () {
+    final nav = appNavigatorKey.currentState;
+    if (nav != null && PlayerSession.instance.active && PlayerSession.instance.minimized) {
+      nav.push(expandMiniPlayerRoute());
+    }
+  };
   runApp(const IptvApp());
 }
 
