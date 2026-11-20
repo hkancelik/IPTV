@@ -202,6 +202,20 @@ class _SettingsPageState extends State<SettingsPage> {
                 value: s.hwdec,
                 onChanged: (v) => s.update(hwdec: v),
               ),
+              _ChoiceRow(
+                title: 'Tarama giderme (Deinterlace)',
+                desc: 'Canlı TV yayınlarında yatay çizgilenme varsa Otomatik veya Açık seç',
+                narrow: narrow,
+                control: Segmented<String>(
+                  key: const ValueKey('setting-deinterlace'),
+                  value: AppSettings.normalizeDeinterlace(s.deinterlace),
+                  options: AppSettings.deinterlaceOptions,
+                  onChanged: (v) {
+                    AppHaptics.selection(context);
+                    s.update(deinterlace: v);
+                  },
+                ),
+              ),
               _SwitchRow(
                 title: 'Kaldığım yerden devam et',
                 desc: 'Film ve dizilerde son konumu hatırla',
@@ -293,6 +307,10 @@ class _SettingsPageState extends State<SettingsPage> {
                 _KeyRow('M', 'Sessiz'),
                 _KeyRow('F', 'Tam ekran'),
                 _KeyRow('Esc', 'Tam ekrandan çık / geri'),
+                _KeyRow('Z / X', 'Altyazı gecikmesi (−0.1 / +0.1 sn)'),
+                _KeyRow('J / K', 'Ses gecikmesi (−50 / +50 ms)'),
+                _KeyRow('D', 'Tarama giderme (Deinterlace)'),
+                _KeyRow('T', 'Uyku zamanlayıcısı'),
               ]),
           ]),
         );

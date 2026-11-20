@@ -111,6 +111,25 @@ final class SystemPipPlugin: NSObject, FlutterPlugin, AVPictureInPictureControll
         result(nil)
       case "start":
         result(self.startManualPip())
+      case "setPlaying":
+        let args = call.arguments as? [String: Any] ?? [:]
+        let playing = (args["playing"] as? Bool) ?? true
+        self.handleSetPlaying(playing)
+        result(nil)
+      case "seekTo":
+        let args = call.arguments as? [String: Any] ?? [:]
+        let posMs = (args["positionMs"] as? NSNumber)?.int64Value ?? 0
+        self.handleSeekTo(positionMs: posMs)
+        result(nil)
+      case "skipBy":
+        let args = call.arguments as? [String: Any] ?? [:]
+        let offsetMs = (args["offsetMs"] as? NSNumber)?.int64Value ?? 0
+        self.handleSkipBy(offsetMs: offsetMs)
+        result(nil)
+      case "switchStream":
+        let args = call.arguments as? [String: Any] ?? [:]
+        self.handleSwitchStream(args)
+        result(nil)
       case "stop":
         self.stopPip()
         result(nil)
@@ -190,6 +209,94 @@ final class SystemPipPlugin: NSObject, FlutterPlugin, AVPictureInPictureControll
       }
     }
     teardownAvPlayer()
+  }
+
+  private func emitPlaybackState() {
+    guard pipRunning else { return }
+    var posMs: Int64 = initialPositionMs
+    var durMs: Int64 = knownDurationMs
+    if !isLive {
+      if let current = avPlayer?.currentTime(), current.isNumeric {
+        let secs = CMTimeGetSeconds(current)
+        if secs.isFinite && secs >= 0 {
+          posMs = Int64(secs * 1000.0)
+        }
+      }
+      if let dur = avPlayer?.currentItem?.duration, dur.isNumeric {
+        let secs = CMTimeGetSeconds(dur)
+        if secs.isFinite && secs > 0 {
+          durMs = Int64(secs * 1000.0)
+        }
+      }
+    } else {
+      posMs = 0
+      durMs = 0
+    }
+    channel.invokeMethod("playbackState", arguments: [
+      "playing": pipPlaying,
+      "positionMs": posMs,
+      "durationMs": durMs,
+    ])
+  }
+
+  private func handleSetPlaying(_ playing: Bool) {
+    guard pipRunning else { return }
+    pipPlaying = playing
+    if playing {
+      avPlayer?.play()
+    } else {
+      avPlayer?.pause()
+    }
+    pipController?.invalidatePlaybackState()
+    emitPlaybackState()
+  }
+
+  private func handleSeekTo(positionMs: Int64) {
+    guard pipRunning, !isLive, let player = avPlayer else { return }
+    let clampedMs = max(Int64(0), positionMs)
+    let target = CMTime(value: clampedMs, timescale: 1000)
+    player.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] (_: Bool) in
+      DispatchQueue.main.async {
+        guard let self = self else { return }
+        self.pipController?.invalidatePlaybackState()
+        self.emitPlaybackState()
+      }
+    }
+  }
+
+  private func handleSkipBy(offsetMs: Int64) {
+    guard pipRunning, !isLive, let player = avPlayer else { return }
+    let current = player.currentTime()
+    let delta = CMTime(value: offsetMs, timescale: 1000)
+    var target = CMTimeAdd(current, delta)
+    if target < .zero {
+      target = .zero
+    }
+    player.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] (_: Bool) in
+      DispatchQueue.main.async {
+        guard let self = self else { return }
+        self.pipController?.invalidatePlaybackState()
+        self.emitPlaybackState()
+      }
+    }
+  }
+
+  private func handleSwitchStream(_ args: [String: Any]) {
+    guard pipRunning else { return }
+    streamUrl = args["url"] as? String
+    originalUrl = (args["originalUrl"] as? String) ?? streamUrl
+    streamTitle = (args["title"] as? String) ?? ""
+    isLive = (args["live"] as? Bool) ?? false
+    initialPositionMs = (args["positionMs"] as? NSNumber)?.int64Value ?? 0
+    knownDurationMs = (args["durationMs"] as? NSNumber)?.int64Value ?? 0
+    if let ua = args["userAgent"] as? String, !ua.isEmpty {
+      userAgent = ua
+    }
+    triedOriginalFallback = false
+    syncPipFlags()
+    if let url = streamUrl {
+      startAvPlayer(urlString: url)
+    }
   }
 
   // MARK: - Window & Controller Setup
@@ -277,10 +384,12 @@ final class SystemPipPlugin: NSObject, FlutterPlugin, AVPictureInPictureControll
               DispatchQueue.main.async {
                 self?.avPlayer?.play()
                 self?.pipController?.invalidatePlaybackState()
+                self?.emitPlaybackState()
               }
             }
           } else {
             self.avPlayer?.play()
+            self.emitPlaybackState()
           }
           self.startFramePump()
           self.pipController?.invalidatePlaybackState()
@@ -501,6 +610,7 @@ final class SystemPipPlugin: NSObject, FlutterPlugin, AVPictureInPictureControll
       avPlayer?.pause()
     }
     pictureInPictureController.invalidatePlaybackState()
+    emitPlaybackState()
   }
 
   func pictureInPictureControllerTimeRangeForPlayback(_ pictureInPictureController: AVPictureInPictureController) -> CMTimeRange {
@@ -541,9 +651,10 @@ final class SystemPipPlugin: NSObject, FlutterPlugin, AVPictureInPictureControll
     if target < .zero {
       target = .zero
     }
-    player.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero) { (_: Bool) in
+    player.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] (_: Bool) in
       DispatchQueue.main.async {
         pictureInPictureController.invalidatePlaybackState()
+        self?.emitPlaybackState()
         completionHandler()
       }
     }

@@ -1,8 +1,11 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
+import 'player_comfort.dart';
+import 'settings.dart';
 import 'title_utils.dart';
 import 'ui/basics.dart';
 import 'ui/controls.dart';
@@ -656,6 +659,8 @@ class PhonePlayerOverlay extends StatelessWidget {
     this.liveChannelLogo = '',
     this.programmes = const [],
     this.now,
+    this.sleepTimerLabel,
+    this.onOpenSleepTimer,
   });
 
   final bool landscape;
@@ -712,6 +717,8 @@ class PhonePlayerOverlay extends StatelessWidget {
   final String liveChannelLogo;
   final List<Programme> programmes;
   final DateTime Function()? now;
+  final String? sleepTimerLabel;
+  final VoidCallback? onOpenSleepTimer;
 
   @override
   Widget build(BuildContext context) {
@@ -856,6 +863,15 @@ class PhonePlayerOverlay extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 8),
+                  if (landscape && sleepTimerLabel != null && onOpenSleepTimer != null) ...[
+                    _MiniGlassChip(
+                      key: const ValueKey('phone-player-sleep-chip'),
+                      icon: Icons.bedtime_rounded,
+                      label: sleepTimerLabel!,
+                      onTap: onOpenSleepTimer!,
+                    ),
+                    const SizedBox(width: 6),
+                  ],
                   if (landscape && queued && onOpenQueue != null) ...[
                     _MiniGlassChip(
                       icon: Icons.queue_play_next_rounded,
@@ -1024,6 +1040,10 @@ class PhonePlayerOverlay extends StatelessWidget {
                               const Pill('Canlı', tone: PillTone.live, height: 24, leading: LiveDot(size: 7)),
                               const SizedBox(width: 8),
                               Text('#${liveChannelIndex + 1}', style: AppText.meta(12, color: AppColors.body)),
+                              if (sleepTimerLabel != null) ...[
+                                const SizedBox(width: 8),
+                                Pill(sleepTimerLabel!, tone: PillTone.accent, icon: Icons.bedtime_rounded, height: 24),
+                              ],
                             ],
                           ))
                     : Column(
@@ -1143,7 +1163,7 @@ class _TransportButton extends StatelessWidget {
 }
 
 class _MiniGlassChip extends StatelessWidget {
-  const _MiniGlassChip({required this.icon, required this.label, required this.onTap});
+  const _MiniGlassChip({super.key, required this.icon, required this.label, required this.onTap});
 
   final IconData icon;
   final String label;
@@ -1324,6 +1344,10 @@ class PhonePlayerCompanion extends StatelessWidget {
     required this.onToggleFit,
     this.autoNext,
     this.onToggleAutoNext,
+    this.hasDelayOffset = false,
+    this.onOpenSync,
+    this.sleepTimerLabel,
+    this.onOpenSleepTimer,
   });
 
   final bool live;
@@ -1351,6 +1375,10 @@ class PhonePlayerCompanion extends StatelessWidget {
   final VoidCallback onToggleFit;
   final bool? autoNext;
   final VoidCallback? onToggleAutoNext;
+  final bool hasDelayOffset;
+  final VoidCallback? onOpenSync;
+  final String? sleepTimerLabel;
+  final VoidCallback? onOpenSleepTimer;
 
   @override
   Widget build(BuildContext context) {
@@ -1456,6 +1484,30 @@ class PhonePlayerCompanion extends StatelessWidget {
                   label: coverFit ? 'Sığdır' : 'Doldur',
                   onPressed: onToggleFit,
                 ),
+                if (onOpenSync != null) ...[
+                  const SizedBox(width: 8),
+                  AppButton(
+                    key: const ValueKey('phone-companion-sync'),
+                    variant: hasDelayOffset ? AppButtonVariant.primary : AppButtonVariant.secondary,
+                    height: 38,
+                    dense: true,
+                    icon: Icons.tune_rounded,
+                    label: 'Senkron',
+                    onPressed: onOpenSync,
+                  ),
+                ],
+                if (onOpenSleepTimer != null) ...[
+                  const SizedBox(width: 8),
+                  AppButton(
+                    key: const ValueKey('phone-companion-sleep'),
+                    variant: sleepTimerLabel != null ? AppButtonVariant.primary : AppButtonVariant.secondary,
+                    height: 38,
+                    dense: true,
+                    icon: sleepTimerLabel != null ? Icons.bedtime_rounded : Icons.bedtime_outlined,
+                    label: sleepTimerLabel ?? 'Uyku',
+                    onPressed: onOpenSleepTimer,
+                  ),
+                ],
               ],
             ),
           ),
@@ -1612,6 +1664,847 @@ class _QueueItemRow extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Which device level [PhoneGestureHud] is currently displaying.
+enum PhoneGestureHudKind {
+  brightness,
+  volume,
+}
+
+/// Floating Liquid Glass pill meter shown during iPhone brightness and volume swipe gestures.
+class PhoneGestureHud extends StatelessWidget {
+  const PhoneGestureHud({
+    super.key,
+    required this.kind,
+    required this.value,
+    this.compact = false,
+  });
+
+  final PhoneGestureHudKind kind;
+  final double value;
+  final bool compact;
+
+  IconData _icon(double v) {
+    if (kind == PhoneGestureHudKind.brightness) {
+      if (v < 0.34) return Icons.brightness_low_rounded;
+      if (v < 0.67) return Icons.brightness_medium_rounded;
+      return Icons.brightness_high_rounded;
+    }
+    if (v <= 0.005) return Icons.volume_off_rounded;
+    if (v < 0.5) return Icons.volume_down_rounded;
+    return Icons.volume_up_rounded;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final clamped = value.clamp(0.0, 1.0).toDouble();
+    final pct = (clamped * 100).round();
+    final h = compact ? 28.0 : 38.0;
+    final w = compact ? 172.0 : 210.0;
+
+    return IgnorePointer(
+      child: GlassSurface(
+        key: const ValueKey('phone-gesture-hud'),
+        radius: h / 2,
+        nativeClear: true,
+        nativeShape: NativeGlassShape.capsule,
+        color: AppColors.videoGlass,
+        shadows: const [],
+        padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 14),
+        child: SizedBox(
+          width: w,
+          height: h,
+          child: Row(
+            children: [
+              Icon(_icon(clamped), size: compact ? 15 : 19, color: AppColors.accentInk),
+              SizedBox(width: compact ? 8 : 10),
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: SizedBox(
+                    height: compact ? 4.5 : 6,
+                    child: Stack(
+                      children: [
+                        const Positioned.fill(child: ColoredBox(color: AppColors.line)),
+                        FractionallySizedBox(
+                          widthFactor: clamped,
+                          heightFactor: 1,
+                          child: const ColoredBox(color: AppColors.accent),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              SizedBox(width: compact ? 8 : 10),
+              SizedBox(
+                width: compact ? 32 : 38,
+                child: Text(
+                  '%$pct',
+                  textAlign: TextAlign.right,
+                  style: AppText.label(compact ? 11.5 : 13).copyWith(
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Compact floating pill shown while press-and-holding VOD video at 2× speed.
+class SpeedHoldBadge extends StatelessWidget {
+  const SpeedHoldBadge({super.key, this.compact = false, this.glass = true});
+
+  final bool compact;
+  final bool glass;
+
+  @override
+  Widget build(BuildContext context) {
+    final h = compact ? 28.0 : 34.0;
+    final content = SizedBox(
+      height: h,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.fast_forward_rounded, size: compact ? 15 : 18, color: AppColors.accent),
+          const SizedBox(width: 6),
+          Text(
+            compact ? '2× Hızlı' : '2× Hızlı oynatma',
+            style: AppText.label(compact ? 12 : 13.5).copyWith(
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (!glass) {
+      return IgnorePointer(
+        child: Container(
+          key: const ValueKey('speed-hold-badge'),
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(h / 2),
+            boxShadow: AppShadows.overlay,
+          ),
+          child: content,
+        ),
+      );
+    }
+
+    return IgnorePointer(
+      child: GlassSurface(
+        key: const ValueKey('speed-hold-badge'),
+        radius: h / 2,
+        nativeClear: true,
+        nativeShape: NativeGlassShape.capsule,
+        color: AppColors.videoGlass,
+        shadows: const [],
+        padding: EdgeInsets.symmetric(horizontal: compact ? 12 : 14),
+        child: content,
+      ),
+    );
+  }
+}
+
+/// Clickable top-bar pill showing an active sleep timer on desktop player chrome.
+class SleepTimerPill extends StatelessWidget {
+  const SleepTimerPill({super.key, required this.label, required this.onTap});
+
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return FocusRing(
+      key: const ValueKey('sleep-timer-pill'),
+      radius: 22,
+      lift: false,
+      tooltip: 'Uyku zamanlayıcısı',
+      onTap: onTap,
+      child: Container(
+        height: 44,
+        padding: const EdgeInsets.symmetric(horizontal: 15),
+        decoration: BoxDecoration(
+          color: AppColors.accentSoft,
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: AppColors.accent.withValues(alpha: 0.45)),
+          boxShadow: AppShadows.chip,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.bedtime_rounded, size: 17, color: AppColors.accentInk),
+            const SizedBox(width: 7),
+            Text(
+              label,
+              style: AppText.label(14, color: AppColors.accentInk).copyWith(
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Unified touch gesture host for the iPhone/phone video surface:
+/// - Single tap: toggle player chrome
+/// - Double tap: left/right skip (VOD) or prev/next channel (Live), center play/pause (VOD)
+/// - Long press (VOD): temporary 2× playback speed while held + floating [SpeedHoldBadge]
+/// - Vertical drag:
+///   - Left zone: screen brightness + [PhoneGestureHud]
+///   - Right zone: system/player volume + [PhoneGestureHud]
+///   - Center zone (portrait): swipe down to minimize into the Mini Player
+class PhoneVideoGestureSurface extends StatefulWidget {
+  const PhoneVideoGestureSurface({
+    super.key,
+    required this.landscape,
+    required this.live,
+    required this.controlsVisible,
+    required this.enabled,
+    required this.brightnessEnabled,
+    required this.onTap,
+    required this.onDoubleTapZone,
+    required this.onSpeedHoldStart,
+    required this.onSpeedHoldEnd,
+    required this.readBrightness,
+    required this.writeBrightness,
+    required this.readVolume,
+    required this.writeVolume,
+    required this.child,
+    this.onMinimizeSwipe,
+    this.onVolumeGestureEnd,
+  });
+
+  final bool landscape;
+  final bool live;
+  final bool controlsVisible;
+  final bool enabled;
+  final bool brightnessEnabled;
+  final VoidCallback onTap;
+  final void Function(TapDownDetails details, double width) onDoubleTapZone;
+  final VoidCallback? onMinimizeSwipe;
+  final Future<bool> Function() onSpeedHoldStart;
+  final Future<void> Function() onSpeedHoldEnd;
+  final Future<double> Function() readBrightness;
+  final Future<void> Function(double value) writeBrightness;
+  final Future<double> Function() readVolume;
+  final Future<void> Function(double value) writeVolume;
+  final VoidCallback? onVolumeGestureEnd;
+  final Widget child;
+
+  @override
+  State<PhoneVideoGestureSurface> createState() => _PhoneVideoGestureSurfaceState();
+}
+
+class _PhoneVideoGestureSurfaceState extends State<PhoneVideoGestureSurface> {
+  TapDownDetails? _lastDoubleTap;
+  bool _holding2x = false;
+
+  PhoneVerticalGesture _activeDrag = PhoneVerticalGesture.none;
+  double _dragValue = 0.5;
+  double _pendingDy = 0.0;
+  bool _readingInitial = false;
+  int _dragToken = 0;
+  double _minimizeDy = 0.0;
+  int _lastBoundHit = 0; // -1 at 0%, 1 at 100%, 0 in between
+
+  PhoneGestureHudKind? _hudKind;
+  double _hudValue = 0.5;
+  Timer? _hudHideTimer;
+
+  @override
+  void didUpdateWidget(PhoneVideoGestureSurface oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_holding2x && (widget.live || !widget.enabled)) {
+      _stopSpeedHold();
+    }
+  }
+
+  @override
+  void dispose() {
+    _hudHideTimer?.cancel();
+    if (_holding2x) {
+      _holding2x = false;
+      widget.onSpeedHoldEnd();
+    }
+    super.dispose();
+  }
+
+  Future<void> _startSpeedHold() async {
+    if (!widget.enabled || widget.live || _activeDrag != PhoneVerticalGesture.none || _holding2x) {
+      return;
+    }
+    final accepted = await widget.onSpeedHoldStart();
+    if (!mounted || !accepted) return;
+    AppHaptics.medium(context);
+    setState(() => _holding2x = true);
+  }
+
+  void _stopSpeedHold() {
+    if (!_holding2x) return;
+    setState(() => _holding2x = false);
+    widget.onSpeedHoldEnd();
+  }
+
+  void _scheduleHudHide() {
+    _hudHideTimer?.cancel();
+    _hudHideTimer = Timer(const Duration(milliseconds: 900), () {
+      if (mounted) setState(() => _hudKind = null);
+    });
+  }
+
+  void _onVerticalDragStart(DragStartDetails details, Size size) {
+    if (!widget.enabled || _holding2x) {
+      _activeDrag = PhoneVerticalGesture.none;
+      return;
+    }
+    final kind = classifyPhoneVerticalGesture(
+      localPosition: details.localPosition,
+      size: size,
+      landscape: widget.landscape,
+      brightnessEnabled: widget.brightnessEnabled,
+      controlsVisible: widget.controlsVisible,
+      live: widget.live,
+    );
+    _activeDrag = kind;
+    _minimizeDy = 0.0;
+    _lastBoundHit = 0;
+
+    if (kind != PhoneVerticalGesture.brightness && kind != PhoneVerticalGesture.volume) {
+      return;
+    }
+
+    _hudHideTimer?.cancel();
+    final token = ++_dragToken;
+    _readingInitial = true;
+    _pendingDy = 0.0;
+    final hudKind = kind == PhoneVerticalGesture.brightness
+        ? PhoneGestureHudKind.brightness
+        : PhoneGestureHudKind.volume;
+
+    final future = kind == PhoneVerticalGesture.brightness
+        ? widget.readBrightness()
+        : widget.readVolume();
+    future.then((initial) {
+      if (!mounted || token != _dragToken || _activeDrag != kind) return;
+      _readingInitial = false;
+      final base = initial.clamp(0.0, 1.0).toDouble();
+      final next = _pendingDy == 0.0
+          ? base
+          : applyVerticalDragDelta(
+              currentValue: base,
+              deltaDy: _pendingDy,
+              viewportHeight: size.height,
+            );
+      _pendingDy = 0.0;
+      _dragValue = next;
+      setState(() {
+        _hudKind = hudKind;
+        _hudValue = next;
+      });
+      if (kind == PhoneVerticalGesture.brightness) {
+        widget.writeBrightness(next);
+      } else {
+        widget.writeVolume(next);
+      }
+    });
+  }
+
+  void _onVerticalDragUpdate(DragUpdateDetails details, Size size) {
+    if (_activeDrag == PhoneVerticalGesture.none) return;
+    if (_activeDrag == PhoneVerticalGesture.minimize) {
+      _minimizeDy += details.delta.dy;
+      return;
+    }
+    if (_readingInitial) {
+      _pendingDy += details.delta.dy;
+      return;
+    }
+    final next = applyVerticalDragDelta(
+      currentValue: _dragValue,
+      deltaDy: details.delta.dy,
+      viewportHeight: size.height,
+    );
+    if ((next - _dragValue).abs() < 0.0005) return;
+    _dragValue = next;
+
+    final bound = next <= 0.001 ? -1 : (next >= 0.999 ? 1 : 0);
+    if (bound != 0 && bound != _lastBoundHit) {
+      AppHaptics.selection(context);
+    }
+    _lastBoundHit = bound;
+
+    final hudKind = _activeDrag == PhoneVerticalGesture.brightness
+        ? PhoneGestureHudKind.brightness
+        : PhoneGestureHudKind.volume;
+    setState(() {
+      _hudKind = hudKind;
+      _hudValue = next;
+    });
+
+    if (_activeDrag == PhoneVerticalGesture.brightness) {
+      widget.writeBrightness(next);
+    } else {
+      widget.writeVolume(next);
+    }
+  }
+
+  void _finishVerticalDrag({double? velocity}) {
+    final drag = _activeDrag;
+    _activeDrag = PhoneVerticalGesture.none;
+    _readingInitial = false;
+    _pendingDy = 0.0;
+    _dragToken++;
+
+    if (drag == PhoneVerticalGesture.minimize) {
+      if ((velocity ?? 0) > 320 || _minimizeDy > 64) {
+        AppHaptics.light(context);
+        widget.onMinimizeSwipe?.call();
+      }
+      _minimizeDy = 0.0;
+      return;
+    }
+    if (drag == PhoneVerticalGesture.volume) {
+      widget.onVolumeGestureEnd?.call();
+    }
+    if (drag == PhoneVerticalGesture.brightness || drag == PhoneVerticalGesture.volume) {
+      _scheduleHudHide();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final safeTop = MediaQuery.paddingOf(context).top;
+    final topPad = widget.landscape ? (safeTop > 0 ? safeTop : 12.0) : 8.0;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final size = Size(constraints.maxWidth, constraints.maxHeight);
+        final centerSize = widget.landscape ? 60.0 : 52.0;
+        final badgeH = widget.landscape ? 38.0 : 28.0;
+        final double hudTop;
+        if (widget.controlsVisible) {
+          final topBarBottom = topPad + 42.0;
+          final centerTop = (size.height - centerSize) / 2;
+          final gap = centerTop - topBarBottom;
+          hudTop = gap >= badgeH + 2
+              ? topBarBottom + (gap - badgeH) / 2
+              : topBarBottom + 1;
+        } else {
+          hudTop = widget.landscape ? (safeTop > 0 ? safeTop + 14.0 : 22.0) : 14.0;
+        }
+        return GestureDetector(
+          key: const ValueKey('phone-video-gesture-surface'),
+          behavior: HitTestBehavior.opaque,
+          onTap: widget.onTap,
+          onDoubleTapDown: (d) => _lastDoubleTap = d,
+          onDoubleTap: () {
+            if (_lastDoubleTap != null) {
+              widget.onDoubleTapZone(_lastDoubleTap!, constraints.maxWidth);
+            }
+          },
+          onLongPressStart: !widget.live && widget.enabled ? (_) => _startSpeedHold() : null,
+          onLongPressEnd: !widget.live ? (_) => _stopSpeedHold() : null,
+          onLongPressCancel: _stopSpeedHold,
+          onVerticalDragStart: widget.enabled ? (d) => _onVerticalDragStart(d, size) : null,
+          onVerticalDragUpdate: widget.enabled ? (d) => _onVerticalDragUpdate(d, size) : null,
+          onVerticalDragEnd: widget.enabled ? (d) => _finishVerticalDrag(velocity: d.primaryVelocity) : null,
+          onVerticalDragCancel: () => _finishVerticalDrag(),
+          child: Stack(
+            children: [
+              widget.child,
+              if (_holding2x)
+                Positioned(
+                  top: hudTop,
+                  left: 16,
+                  right: 16,
+                  child: Center(child: SpeedHoldBadge(compact: !widget.landscape)),
+                ),
+              if (_hudKind != null)
+                Positioned(
+                  top: _holding2x ? hudTop + (widget.landscape ? 42 : 34) : hudTop,
+                  left: 16,
+                  right: 16,
+                  child: Center(
+                    child: PhoneGestureHud(
+                      kind: _hudKind!,
+                      value: _hudValue,
+                      compact: !widget.landscape,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Interactive synchronization and deinterlace panel for both iOS bottom sheets and Desktop/TV dialogs.
+class PlayerSyncPanel extends StatelessWidget {
+  const PlayerSyncPanel({
+    super.key,
+    required this.subDelayMs,
+    required this.audioDelayMs,
+    required this.deinterlace,
+    required this.onAdjustSubDelay,
+    required this.onResetSubDelay,
+    required this.onAdjustAudioDelay,
+    required this.onResetAudioDelay,
+    required this.onDeinterlaceChanged,
+    this.compact = false,
+  });
+
+  final int subDelayMs;
+  final int audioDelayMs;
+  final String deinterlace;
+  final ValueChanged<int> onAdjustSubDelay;
+  final VoidCallback onResetSubDelay;
+  final ValueChanged<int> onAdjustAudioDelay;
+  final VoidCallback onResetAudioDelay;
+  final ValueChanged<String> onDeinterlaceChanged;
+  final bool compact;
+
+  Widget _delaySection({
+    required BuildContext context,
+    required String title,
+    required String hint,
+    required int valueMs,
+    required Key valueKey,
+    required int coarseMs,
+    required int fineMs,
+    required String coarseNegLabel,
+    required String fineNegLabel,
+    required String finePosLabel,
+    required String coarsePosLabel,
+    required ValueChanged<int> onAdjust,
+    required VoidCallback onReset,
+    required Key resetKey,
+  }) {
+    final btnHeight = compact ? 38.0 : 42.0;
+    return AppCard(
+      radius: AppSizes.tileRadius,
+      shadows: const [],
+      color: AppColors.surface,
+      border: Border.all(color: AppColors.line),
+      padding: EdgeInsets.all(compact ? 12 : 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(title, style: AppText.title(15)),
+                    const SizedBox(height: 2),
+                    Text(hint, maxLines: 2, overflow: TextOverflow.ellipsis, style: AppText.meta(12)),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Pill(
+                formatDelayMs(valueMs),
+                key: valueKey,
+                tone: valueMs == 0 ? PillTone.neutral : PillTone.accent,
+                height: 28,
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              AppButton(
+                label: coarseNegLabel,
+                height: btnHeight,
+                dense: true,
+                onPressed: () {
+                  AppHaptics.selection(context);
+                  onAdjust(-coarseMs);
+                },
+              ),
+              AppButton(
+                label: fineNegLabel,
+                height: btnHeight,
+                dense: true,
+                onPressed: () {
+                  AppHaptics.selection(context);
+                  onAdjust(-fineMs);
+                },
+              ),
+              AppButton(
+                label: finePosLabel,
+                height: btnHeight,
+                dense: true,
+                onPressed: () {
+                  AppHaptics.selection(context);
+                  onAdjust(fineMs);
+                },
+              ),
+              AppButton(
+                label: coarsePosLabel,
+                height: btnHeight,
+                dense: true,
+                onPressed: () {
+                  AppHaptics.selection(context);
+                  onAdjust(coarseMs);
+                },
+              ),
+              AppButton(
+                key: resetKey,
+                label: 'Sıfırla',
+                height: btnHeight,
+                dense: true,
+                variant: valueMs == 0 ? AppButtonVariant.secondary : AppButtonVariant.danger,
+                onPressed: valueMs == 0
+                    ? null
+                    : () {
+                        AppHaptics.light(context);
+                        onReset();
+                      },
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final normDeint = AppSettings.normalizeDeinterlace(deinterlace);
+    return SingleChildScrollView(
+      padding: EdgeInsets.all(compact ? 14 : 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _delaySection(
+            context: context,
+            title: 'Altyazı gecikmesi',
+            hint: 'Altyazı erken geliyorsa +, geç geliyorsa −',
+            valueMs: subDelayMs,
+            valueKey: const ValueKey('sync-sub-delay-value'),
+            coarseMs: 500,
+            fineMs: 100,
+            coarseNegLabel: '−0.5 sn',
+            fineNegLabel: '−0.1 sn',
+            finePosLabel: '+0.1 sn',
+            coarsePosLabel: '+0.5 sn',
+            onAdjust: onAdjustSubDelay,
+            onReset: onResetSubDelay,
+            resetKey: const ValueKey('sync-sub-delay-reset'),
+          ),
+          const SizedBox(height: 12),
+          _delaySection(
+            context: context,
+            title: 'Ses gecikmesi',
+            hint: 'Ses görüntüden önceyse +, sonraysa −',
+            valueMs: audioDelayMs,
+            valueKey: const ValueKey('sync-audio-delay-value'),
+            coarseMs: 250,
+            fineMs: 50,
+            coarseNegLabel: '−250 ms',
+            fineNegLabel: '−50 ms',
+            finePosLabel: '+50 ms',
+            coarsePosLabel: '+250 ms',
+            onAdjust: onAdjustAudioDelay,
+            onReset: onResetAudioDelay,
+            resetKey: const ValueKey('sync-audio-delay-reset'),
+          ),
+          const SizedBox(height: 12),
+          AppCard(
+            radius: AppSizes.tileRadius,
+            shadows: const [],
+            color: AppColors.surface,
+            border: Border.all(color: AppColors.line),
+            padding: EdgeInsets.all(compact ? 12 : 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('Tarama giderme (Deinterlace)', style: AppText.title(15)),
+                const SizedBox(height: 2),
+                Text('Canlı TV yayınlarında yatay çizgilenmeyi giderir', style: AppText.meta(12)),
+                const SizedBox(height: 10),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  clipBehavior: Clip.none,
+                  child: Segmented<String>(
+                    key: const ValueKey('sync-deinterlace'),
+                    value: normDeint,
+                    options: AppSettings.deinterlaceOptions,
+                    onChanged: (v) {
+                      AppHaptics.selection(context);
+                      onDeinterlaceChanged(v);
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Interactive Sleep Timer picker rendered inside an iOS bottom sheet or Desktop/TV dialog.
+class SleepTimerPicker extends StatelessWidget {
+  const SleepTimerPicker({
+    super.key,
+    required this.state,
+    required this.live,
+    required this.isSeries,
+    required this.onSelectDuration,
+    required this.onSelectEndOfCurrent,
+    required this.onExtend15,
+    required this.onCancel,
+    this.useSheet = false,
+  });
+
+  final SleepTimerState state;
+  final bool live;
+  final bool isSeries;
+  final ValueChanged<Duration> onSelectDuration;
+  final VoidCallback onSelectEndOfCurrent;
+  final VoidCallback onExtend15;
+  final VoidCallback onCancel;
+  final bool useSheet;
+
+  @override
+  Widget build(BuildContext context) {
+    final endLabel = isSeries ? 'Bu bölüm bitince' : 'Bu film bitince';
+    final rows = <Widget>[
+      if (state.isActive)
+        Padding(
+          padding: EdgeInsets.fromLTRB(useSheet ? 12 : 0, useSheet ? 8 : 0, useSheet ? 12 : 0, 10),
+          child: Container(
+            key: const ValueKey('sleep-timer-active-banner'),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppColors.accentSoft,
+              borderRadius: BorderRadius.circular(AppSizes.tileRadius),
+              border: Border.all(color: AppColors.accent.withValues(alpha: 0.4)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.bedtime_rounded, size: 18, color: AppColors.accentInk),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        state.detailLabel(isSeries: isSeries),
+                        style: AppText.title(14.5, color: AppColors.accentInk),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    if (state.mode == SleepTimerMode.countdown)
+                      AppButton(
+                        key: const ValueKey('sleep-timer-extend'),
+                        label: '+15 dk uzat',
+                        height: 36,
+                        dense: true,
+                        variant: AppButtonVariant.primary,
+                        onPressed: onExtend15,
+                      ),
+                    AppButton(
+                      key: const ValueKey('sleep-timer-cancel'),
+                      label: 'Zamanlayıcıyı iptal et',
+                      height: 36,
+                      dense: true,
+                      variant: AppButtonVariant.danger,
+                      onPressed: onCancel,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      for (final mins in sleepTimerPresetsMinutes)
+        if (useSheet)
+          SheetOptionTile(
+            label: '$mins dakika',
+            leadingIcon: Icons.timer_outlined,
+            onTap: () => onSelectDuration(Duration(minutes: mins)),
+          )
+        else
+          SimpleDialogOption(
+            onPressed: () => onSelectDuration(Duration(minutes: mins)),
+            child: Row(
+              children: [
+                const Icon(Icons.timer_outlined, size: 18, color: AppColors.ink2),
+                const SizedBox(width: 12),
+                Expanded(child: Text('$mins dakika', style: AppText.label(15))),
+              ],
+            ),
+          ),
+      if (!live)
+        if (useSheet)
+          SheetOptionTile(
+            label: endLabel,
+            leadingIcon: Icons.flag_outlined,
+            selected: state.mode == SleepTimerMode.endOfCurrent,
+            onTap: onSelectEndOfCurrent,
+          )
+        else
+          SimpleDialogOption(
+            onPressed: onSelectEndOfCurrent,
+            child: Row(
+              children: [
+                Icon(
+                  Icons.flag_outlined,
+                  size: 18,
+                  color: state.mode == SleepTimerMode.endOfCurrent ? AppColors.accent : AppColors.ink2,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    endLabel,
+                    style: AppText.label(
+                      15,
+                      color: state.mode == SleepTimerMode.endOfCurrent ? AppColors.accentInk : AppColors.ink,
+                    ),
+                  ),
+                ),
+                if (state.mode == SleepTimerMode.endOfCurrent)
+                  const Icon(Icons.check_rounded, size: 18, color: AppColors.accent),
+              ],
+            ),
+          ),
+    ];
+
+    return ListView(
+      shrinkWrap: true,
+      padding: EdgeInsets.symmetric(vertical: useSheet ? 8 : 0),
+      children: rows,
     );
   }
 }

@@ -15,6 +15,8 @@
 		A1B2C3D42F00112200AA0002 /* LiquidGlassViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D42F00112200AA0001 /* LiquidGlassViews.swift */; };
 		A1B2C3D42F00112200BB0002 /* SystemPipPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D42F00112200BB0001 /* SystemPipPlugin.swift */; };
 		A1B2C3D42F00112200CC0002 /* BackgroundDownloadPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D42F00112200CC0001 /* BackgroundDownloadPlugin.swift */; };
+		A1B2C3D42F00112200DD0002 /* MediaControlsPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D42F00112200DD0001 /* MediaControlsPlugin.swift */; };
+		A1B2C3D42F00112200EE0002 /* DeviceControlsPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D42F00112200EE0001 /* DeviceControlsPlugin.swift */; };
 		78A318202AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage in Frameworks */ = {isa = PBXBuildFile; productRef = 78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */; };
 		97C146FC1CF9000F007C117D /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FA1CF9000F007C117D /* Main.storyboard */; };
 		97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FD1CF9000F007C117D /* Assets.xcassets */; };
@@ -56,6 +58,8 @@
 		A1B2C3D42F00112200AA0001 /* LiquidGlassViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiquidGlassViews.swift; sourceTree = "<group>"; };
 		A1B2C3D42F00112200BB0001 /* SystemPipPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemPipPlugin.swift; sourceTree = "<group>"; };
 		A1B2C3D42F00112200CC0001 /* BackgroundDownloadPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundDownloadPlugin.swift; sourceTree = "<group>"; };
+		A1B2C3D42F00112200DD0001 /* MediaControlsPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaControlsPlugin.swift; sourceTree = "<group>"; };
+		A1B2C3D42F00112200EE0001 /* DeviceControlsPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceControlsPlugin.swift; sourceTree = "<group>"; };
 		78E0A7A72DC9AD7400C4905E /* FlutterGeneratedPluginSwiftPackage */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = FlutterGeneratedPluginSwiftPackage; path = Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage; sourceTree = "<group>"; };
 		7AFA3C8E1D35360C0083082E /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = Release.xcconfig; path = Flutter/Release.xcconfig; sourceTree = "<group>"; };
 		9740EEB21CF90195004384FC /* Debug.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; name = Debug.xcconfig; path = Flutter/Debug.xcconfig; sourceTree = "<group>"; };
@@ -132,6 +136,8 @@
 				A1B2C3D42F00112200AA0001 /* LiquidGlassViews.swift */,
 				A1B2C3D42F00112200BB0001 /* SystemPipPlugin.swift */,
 				A1B2C3D42F00112200CC0001 /* BackgroundDownloadPlugin.swift */,
+				A1B2C3D42F00112200DD0001 /* MediaControlsPlugin.swift */,
+				A1B2C3D42F00112200EE0001 /* DeviceControlsPlugin.swift */,
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
 			);
 			path = Runner;
@@ -296,6 +302,8 @@
 				A1B2C3D42F00112200AA0002 /* LiquidGlassViews.swift in Sources */,
 				A1B2C3D42F00112200BB0002 /* SystemPipPlugin.swift in Sources */,
 				A1B2C3D42F00112200CC0002 /* BackgroundDownloadPlugin.swift in Sources */,
+				A1B2C3D42F00112200DD0002 /* MediaControlsPlugin.swift in Sources */,
+				A1B2C3D42F00112200EE0002 /* DeviceControlsPlugin.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -200,4 +200,48 @@ void main() {
       isNull,
     );
   });
+
+  test('saved audio and subtitle tracks persist across restarts and series episodes', () async {
+    await Library.instance.use(_a);
+    final loki = Item(id: 's99', name: 'Loki', logo: '', group: 'Diziler', kind: Kind.series);
+    final ep1Url = '${_a.host}/series/${_a.username}/${_a.password}/101.mkv';
+    final ep2Url = '${_a.host}/series/${_a.username}/${_a.password}/102.mkv';
+    final ep3Url = '${_a.host}/series/${_a.username}/${_a.password}/103.mkv';
+
+    await Library.instance.touch(url: ep1Url, title: 'Loki S01E01', logo: '', kind: Kind.series, item: loki);
+    await Library.instance.saveTracks(
+      ep1Url,
+      audio: const TrackPref(id: '2', language: 'tur', title: 'Türkçe'),
+      subtitle: const TrackPref(id: 'no'),
+      item: loki,
+    );
+
+    // Re-touching the same episode preserves saved track choices.
+    await Library.instance.touch(url: ep1Url, title: 'Loki S01E01', logo: '', kind: Kind.series, item: loki);
+    final sameEp = Library.instance.trackPreferencesFor(ep1Url, item: loki);
+    expect(sameEp.audio, const TrackPref(id: '2', language: 'tur', title: 'Türkçe'));
+    expect(sameEp.subtitle, const TrackPref(id: 'no'));
+
+    // Reloading from SharedPreferences (app restart) preserves saved track choices.
+    await Library.instance.use(_a);
+    final afterRestart = Library.instance.trackPreferencesFor(ep1Url, item: loki);
+    expect(afterRestart.audio, const TrackPref(id: '2', language: 'tur', title: 'Türkçe'));
+    expect(afterRestart.subtitle, const TrackPref(id: 'no'));
+
+    // Opening episode 2 of the same series inherits episode 1's track preferences.
+    final ep2Inherited = Library.instance.trackPreferencesFor(ep2Url, item: loki);
+    expect(ep2Inherited.audio, const TrackPref(id: '2', language: 'tur', title: 'Türkçe'));
+    expect(ep2Inherited.subtitle, const TrackPref(id: 'no'));
+
+    // Overriding subtitle on episode 2 applies to episode 3, while keeping Turkish audio.
+    await Library.instance.touch(url: ep2Url, title: 'Loki S01E02', logo: '', kind: Kind.series, item: loki);
+    await Library.instance.saveTracks(
+      ep2Url,
+      subtitle: const TrackPref(id: '4', language: 'tur', title: 'Türkçe Altyazı'),
+      item: loki,
+    );
+    final ep3Inherited = Library.instance.trackPreferencesFor(ep3Url, item: loki);
+    expect(ep3Inherited.audio, const TrackPref(id: '2', language: 'tur', title: 'Türkçe'));
+    expect(ep3Inherited.subtitle, const TrackPref(id: '4', language: 'tur', title: 'Türkçe Altyazı'));
+  });
 }

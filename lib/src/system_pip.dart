@@ -21,6 +21,19 @@ class SystemPipStopEvent {
   final bool wasPlaying;
 }
 
+/// Live playback state update emitted by the native iOS PiP `AVPlayer`.
+class SystemPipPlaybackState {
+  const SystemPipPlaybackState({
+    required this.playing,
+    required this.positionMs,
+    required this.durationMs,
+  });
+
+  final bool playing;
+  final int positionMs;
+  final int durationMs;
+}
+
 /// Bridges Flutter playback state with Apple's native `AVPictureInPictureController`
 /// (`ios/Runner/SystemPipPlugin.swift`).
 ///
@@ -45,6 +58,9 @@ class SystemPip {
 
   /// Fired if the native AVPlayer could not play the stream format (e.g. MKV).
   ValueChanged<String>? onFailed;
+
+  /// Fired when PiP playback play/pause/position changes (e.g. PiP controls or remote commands).
+  ValueChanged<SystemPipPlaybackState>? onPlaybackState;
 
   @visibleForTesting
   static bool? debugSupportedOverride;
@@ -93,6 +109,15 @@ class SystemPip {
       case 'failed':
         final args = (call.arguments as Map?)?.cast<String, dynamic>() ?? const <String, dynamic>{};
         onFailed?.call('${args['reason'] ?? 'Bilinmeyen PiP hatası'}');
+      case 'playbackState':
+        final args = (call.arguments as Map?)?.cast<String, dynamic>() ?? const <String, dynamic>{};
+        onPlaybackState?.call(
+          SystemPipPlaybackState(
+            playing: args['playing'] == true,
+            positionMs: (args['positionMs'] as num?)?.toInt() ?? 0,
+            durationMs: (args['durationMs'] as num?)?.toInt() ?? 0,
+          ),
+        );
     }
   }
 
@@ -152,6 +177,65 @@ class SystemPip {
     } catch (_) {
       return false;
     }
+  }
+
+  /// Updates play/pause state on the active native PiP `AVPlayer` (used by Lock Screen / AirPods).
+  Future<void> setPlaying(bool playing) async {
+    if (!isSupported) return;
+    try {
+      await _channel.invokeMethod<void>('setPlaying', {'playing': playing});
+    } on MissingPluginException {
+      // Safe no-op.
+    } catch (_) {}
+  }
+
+  /// Seeks the active native PiP `AVPlayer` to an absolute VOD position.
+  Future<void> seekTo(Duration position) async {
+    if (!isSupported) return;
+    try {
+      await _channel.invokeMethod<void>('seekTo', {
+        'positionMs': position.inMilliseconds < 0 ? 0 : position.inMilliseconds,
+      });
+    } on MissingPluginException {
+      // Safe no-op.
+    } catch (_) {}
+  }
+
+  /// Skips the active native PiP `AVPlayer` forward or backward by [offset].
+  Future<void> skipBy(Duration offset) async {
+    if (!isSupported) return;
+    try {
+      await _channel.invokeMethod<void>('skipBy', {
+        'offsetMs': offset.inMilliseconds,
+      });
+    } on MissingPluginException {
+      // Safe no-op.
+    } catch (_) {}
+  }
+
+  /// Switches the active native PiP `AVPlayer` to a new channel or episode in place.
+  Future<void> switchStream({
+    required String url,
+    required String title,
+    required bool live,
+    Duration position = Duration.zero,
+    Duration duration = Duration.zero,
+    String userAgent = 'VLC/3.0.20 LibVLC/3.0.20',
+  }) async {
+    if (!isSupported) return;
+    try {
+      await _channel.invokeMethod<void>('switchStream', {
+        'url': pipPlayableUrl(url, live: live),
+        'originalUrl': url,
+        'title': title,
+        'live': live,
+        'positionMs': position.inMilliseconds,
+        'durationMs': duration.inMilliseconds,
+        'userAgent': userAgent,
+      });
+    } on MissingPluginException {
+      // Safe no-op.
+    } catch (_) {}
   }
 
   /// Stops an active System PiP session if one is currently shown.

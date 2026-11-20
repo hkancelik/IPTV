@@ -15,6 +15,7 @@ class AppSettings extends ChangeNotifier {
   String subLang = 'off'; // off | tr | en
   double subtitleScale = 1.0; // subtitle size multiplier: 0.85 | 1.0 | 1.25 | 1.5
   bool hwdec = true;
+  String deinterlace = 'auto'; // no | auto | yes
   int cacheSecs = !kIsWeb && Platform.isAndroid ? 15 : 30;
   int skipSecs = 10;
   bool hideAdult = false;
@@ -35,6 +36,7 @@ class AppSettings extends ChangeNotifier {
     subLang = p.getString('subLang') ?? subLang;
     subtitleScale = p.getDouble('subtitleScale') ?? subtitleScale;
     hwdec = p.getBool('hwdec') ?? hwdec;
+    deinterlace = normalizeDeinterlace(p.getString('deinterlace') ?? deinterlace);
     cacheSecs = p.getInt('cacheSecs') ?? cacheSecs;
     skipSecs = p.getInt('skipSecs') ?? skipSecs;
     hideAdult = p.getBool('hideAdult') ?? hideAdult;
@@ -62,11 +64,12 @@ class AppSettings extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> update({String? audioLang, String? subLang, double? subtitleScale, bool? hwdec, int? cacheSecs, int? skipSecs, bool? hideAdult, bool? resume, bool? autoNext, bool? autoPipOnLeave, bool? dedupe, bool? tvMode, bool? phoneRemote, double? uiScale, String? downloadDir, Set<String>? hiddenGroups, Map<String, List<String>>? groupOrder}) async {
+  Future<void> update({String? audioLang, String? subLang, double? subtitleScale, bool? hwdec, String? deinterlace, int? cacheSecs, int? skipSecs, bool? hideAdult, bool? resume, bool? autoNext, bool? autoPipOnLeave, bool? dedupe, bool? tvMode, bool? phoneRemote, double? uiScale, String? downloadDir, Set<String>? hiddenGroups, Map<String, List<String>>? groupOrder}) async {
     this.audioLang = audioLang ?? this.audioLang;
     this.subLang = subLang ?? this.subLang;
     this.subtitleScale = subtitleScale ?? this.subtitleScale;
     this.hwdec = hwdec ?? this.hwdec;
+    this.deinterlace = deinterlace == null ? this.deinterlace : normalizeDeinterlace(deinterlace);
     this.cacheSecs = cacheSecs ?? this.cacheSecs;
     this.skipSecs = skipSecs ?? this.skipSecs;
     this.hideAdult = hideAdult ?? this.hideAdult;
@@ -86,6 +89,7 @@ class AppSettings extends ChangeNotifier {
     await p.setString('subLang', this.subLang);
     await p.setDouble('subtitleScale', this.subtitleScale);
     await p.setBool('hwdec', this.hwdec);
+    await p.setString('deinterlace', this.deinterlace);
     await p.setInt('cacheSecs', this.cacheSecs);
     await p.setInt('skipSecs', this.skipSecs);
     await p.setBool('hideAdult', this.hideAdult);
@@ -123,6 +127,20 @@ class AppSettings extends ChangeNotifier {
     1.25: 'Büyük',
     1.5: 'Çok büyük',
   };
+
+  static const deinterlaceOptions = <String, String>{
+    'no': 'Kapalı',
+    'auto': 'Otomatik',
+    'yes': 'Açık',
+  };
+
+  static String normalizeDeinterlace(String raw) => deinterlaceOptions.containsKey(raw) ? raw : 'auto';
+
+  static String nextDeinterlace(String current) => switch (normalizeDeinterlace(current)) {
+        'no' => 'auto',
+        'auto' => 'yes',
+        _ => 'no',
+      };
 
   static final iosUiScaleOptions = <double, String>{0.8: '%80', 0.9: '%90', 1.0: '%100'};
   static final fullUiScaleOptions = <double, String>{

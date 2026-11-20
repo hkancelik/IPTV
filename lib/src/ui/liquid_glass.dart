@@ -73,6 +73,9 @@ String? sfSymbolForIcon(IconData icon) {
   if (icon == Icons.download_done_rounded) return 'checkmark.circle.fill';
   if (icon == Icons.folder_open_rounded) return 'folder';
   if (icon == Icons.delete_outline_rounded) return 'trash';
+  if (icon == Icons.bedtime_rounded) return 'moon.fill';
+  if (icon == Icons.bedtime_outlined) return 'moon';
+  if (icon == Icons.fast_forward_rounded) return 'forward.fill';
   return null;
 }
 

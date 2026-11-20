@@ -9,6 +9,8 @@ import 'package:media_kit_video/media_kit_video.dart';
 import 'detail_page.dart';
 import 'library.dart';
 import 'player_chrome.dart';
+import 'player_comfort.dart';
+import 'player_device_controls.dart';
 import 'player_session.dart';
 import 'settings.dart';
 import 'system_pip.dart';
@@ -326,21 +328,13 @@ class _PlayerPageState extends State<PlayerPage> {
         children: [
           SafeArea(
             bottom: false,
-            child: GestureDetector(
-              behavior: HitTestBehavior.translucent,
-              onVerticalDragEnd: (details) {
-                if ((details.primaryVelocity ?? 0) > 320) {
-                  AppHaptics.light(context);
-                  _minimizeToBar();
-                }
-              },
-              child: AspectRatio(aspectRatio: 16 / 9, child: _video(mode, player, controller, entry)),
-            ),
+            child: AspectRatio(aspectRatio: 16 / 9, child: _video(mode, player, controller, entry)),
           ),
           Expanded(
             child: _PhoneCompanionHost(
               player: player,
               live: _session.live,
+              isSeries: _session.kind == Kind.series,
               entry: entry,
               index: _session.index,
               queue: _session.queue,
@@ -395,6 +389,7 @@ class _PlayerPageState extends State<PlayerPage> {
             index: idx,
             queue: queue,
             live: _session.live,
+            isSeries: _session.kind == Kind.series,
             error: _session.error,
             onRetry: _session.retry,
             epg: entry.epg == null ? null : _session.epg,
@@ -460,6 +455,7 @@ class _Controls extends StatefulWidget {
     required this.index,
     required this.queue,
     required this.live,
+    this.isSeries = false,
     required this.error,
     required this.onRetry,
     required this.countdown,
@@ -493,6 +489,7 @@ class _Controls extends StatefulWidget {
   final int index; // position in the queue
   final List<PlayerEntry> queue;
   final bool live;
+  final bool isSeries;
   final ValueNotifier<String?> error;
   final VoidCallback onRetry;
   final Future<List<Programme>>? epg;
@@ -525,6 +522,7 @@ class _ControlsState extends State<_Controls> {
   int _osdToken = 0;
   bool _scrubbing = false;
   bool _menuOpen = false;
+  bool _desktopHolding2x = false;
   Duration? _scrubPos;
   String? _scrubOsd;
   Duration? _seekHold;
@@ -636,6 +634,7 @@ class _ControlsState extends State<_Controls> {
       _holdSeekTarget(target);
     });
     p.seek(target);
+    PlayerSession.instance.notifyUserSeek(target);
     _poke();
   }
 
@@ -661,11 +660,66 @@ class _ControlsState extends State<_Controls> {
   @override
   void initState() {
     super.initState();
+    PlayerSession.instance.comfortNotice.addListener(_onComfortNotice);
     _poke();
+  }
+
+  void _onComfortNotice() {
+    final msg = PlayerSession.instance.comfortNotice.value;
+    if (msg == null || !mounted) return;
+    PlayerSession.instance.comfortNotice.value = null;
+    _flash(msg);
+  }
+
+  Future<void> _startDesktopSpeedHold() async {
+    if (_tv || widget.live || _desktopHolding2x) return;
+    final ok = await PlayerSession.instance.beginTempSpeedHold();
+    if (mounted && ok) {
+      setState(() => _desktopHolding2x = true);
+    }
+  }
+
+  void _endDesktopSpeedHold() {
+    if (!_desktopHolding2x) return;
+    setState(() => _desktopHolding2x = false);
+    PlayerSession.instance.endTempSpeedHold();
+  }
+
+  Future<void> _openSync() async {
+    _menuOpen = true;
+    _hideToken++;
+    try {
+      await showPlayerSyncModal(context, useSheet: _phone);
+    } finally {
+      _menuOpen = false;
+      _poke();
+    }
+  }
+
+  Future<void> _openSleepTimer() async {
+    _menuOpen = true;
+    _hideToken++;
+    try {
+      await showSleepTimerModal(
+        context,
+        useSheet: _phone,
+        live: widget.live,
+        isSeries: widget.isSeries,
+        onMessage: _flash,
+      );
+    } finally {
+      _menuOpen = false;
+      _poke();
+    }
   }
 
   @override
   void dispose() {
+    PlayerSession.instance.comfortNotice.removeListener(_onComfortNotice);
+    if (_desktopHolding2x) {
+      _desktopHolding2x = false;
+      PlayerSession.instance.endTempSpeedHold();
+    }
     _commitTimer?.cancel();
     _seekHoldTimer?.cancel();
     _tapSeekTimer?.cancel();
@@ -704,7 +758,10 @@ class _ControlsState extends State<_Controls> {
     _commitTimer?.cancel();
     final t = _pending.value;
     _pending.value = null;
-    if (t != null) p.seek(t);
+    if (t != null) {
+      p.seek(t);
+      PlayerSession.instance.notifyUserSeek(t);
+    }
   }
 
   void _enterBar() {
@@ -730,6 +787,7 @@ class _ControlsState extends State<_Controls> {
     );
     if (picked != null) {
       p.seek(picked);
+      PlayerSession.instance.notifyUserSeek(picked);
       _flash('→ ${_fmt(picked)}');
     }
     _poke();
@@ -745,6 +803,7 @@ class _ControlsState extends State<_Controls> {
     if (total > Duration.zero && target > total) target = total;
     setState(() => _holdSeekTarget(target));
     p.seek(target);
+    PlayerSession.instance.notifyUserSeek(target);
     _flash(_formatSignedDelta(_tapSeekDelta));
     _tapSeekTimer?.cancel();
     _tapSeekTimer = Timer(const Duration(milliseconds: 1100), () {
@@ -879,6 +938,25 @@ class _ControlsState extends State<_Controls> {
       _toggleMute();
     } else if (k == LogicalKeyboardKey.keyF) {
       widget.state.toggleFullscreen();
+    } else if (k == LogicalKeyboardKey.keyZ) {
+      PlayerSession.instance.adjustSubDelayMs(-100);
+      _flash('Altyazı gecikmesi: ${formatDelayMs(PlayerSession.instance.subDelayMs)}');
+    } else if (k == LogicalKeyboardKey.keyX) {
+      PlayerSession.instance.adjustSubDelayMs(100);
+      _flash('Altyazı gecikmesi: ${formatDelayMs(PlayerSession.instance.subDelayMs)}');
+    } else if (k == LogicalKeyboardKey.keyJ) {
+      PlayerSession.instance.adjustAudioDelayMs(-50);
+      _flash('Ses gecikmesi: ${formatDelayMs(PlayerSession.instance.audioDelayMs)}');
+    } else if (k == LogicalKeyboardKey.keyK) {
+      PlayerSession.instance.adjustAudioDelayMs(50);
+      _flash('Ses gecikmesi: ${formatDelayMs(PlayerSession.instance.audioDelayMs)}');
+    } else if (k == LogicalKeyboardKey.keyD) {
+      final next = AppSettings.nextDeinterlace(AppSettings.instance.deinterlace);
+      PlayerSession.instance.setDeinterlace(next);
+      _flash('Tarama giderme: ${AppSettings.deinterlaceOptions[next] ?? 'Otomatik'}');
+    } else if (k == LogicalKeyboardKey.keyT) {
+      _openSleepTimer();
+      return KeyEventResult.handled;
     } else if (k == LogicalKeyboardKey.escape) {
       // (Android's Back key is handled by the system; handling it here as well popped several routes at once.)
       if (widget.state.isFullscreen()) {
@@ -964,9 +1042,16 @@ class _ControlsState extends State<_Controls> {
 
   static const _rates = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
 
-  List<GlassMenuItem> _buildPhoneMenuItems(Tracks t, Track cur, double rate) {
+  List<GlassMenuItem> _buildPhoneMenuItems(Tracks t, Track cur, double rate, SleepTimerState sleep) {
     final autoNext = AppSettings.instance.autoNext;
     final subScale = AppSettings.instance.subtitleScale;
+    final deint = AppSettings.normalizeDeinterlace(AppSettings.instance.deinterlace);
+    final session = PlayerSession.instance;
+    final delayParts = <String>[
+      if (session.subDelayMs != 0) 'Altyazı ${formatDelayMs(session.subDelayMs)}',
+      if (session.audioDelayMs != 0) 'Ses ${formatDelayMs(session.audioDelayMs)}',
+    ];
+    final syncSubtitle = delayParts.isEmpty ? null : delayParts.join(' · ');
     final audioChildren = [
       for (var i = 0; i < t.audio.length; i++)
         GlassMenuItem(
@@ -997,6 +1082,37 @@ class _ControlsState extends State<_Controls> {
           id: 'rate:$r',
           title: r == 1.0 ? 'Normal (1x)' : '${r}x',
           selected: (r - rate).abs() < 0.01,
+        ),
+    ];
+    final deintChildren = [
+      for (final e in AppSettings.deinterlaceOptions.entries)
+        GlassMenuItem(
+          id: 'deint:${e.key}',
+          title: e.value,
+          selected: e.key == deint,
+        ),
+    ];
+    final sleepChildren = [
+      GlassMenuItem(
+        id: 'sleep:off',
+        title: 'Kapalı',
+        selected: !sleep.isActive,
+      ),
+      if (sleep.mode == SleepTimerMode.countdown)
+        const GlassMenuItem(
+          id: 'sleep:extend15',
+          title: '+15 dakika uzat',
+        ),
+      for (final mins in sleepTimerPresetsMinutes)
+        GlassMenuItem(
+          id: 'sleep:$mins',
+          title: '$mins dakika',
+        ),
+      if (!widget.live)
+        GlassMenuItem(
+          id: 'sleep:end',
+          title: widget.isSeries ? 'Bu bölüm bitince' : 'Bu film bitince',
+          selected: sleep.mode == SleepTimerMode.endOfCurrent,
         ),
     ];
     return [
@@ -1037,10 +1153,34 @@ class _ControlsState extends State<_Controls> {
           children: rateChildren,
         ),
       GlassMenuItem(
+        id: 'menu-deint',
+        title: 'Tarama giderme',
+        subtitle: AppSettings.deinterlaceOptions[deint] ?? 'Otomatik',
+        sfSymbol: 'sparkles.tv',
+        icon: Icons.auto_fix_high_rounded,
+        children: deintChildren,
+      ),
+      GlassMenuItem(
+        id: 'menu-sleep',
+        title: 'Uyku zamanlayıcısı',
+        subtitle: sleep.menuSubtitle(isSeries: widget.isSeries),
+        sfSymbol: sleep.isActive ? 'moon.fill' : 'moon.zzz',
+        icon: sleep.isActive ? Icons.bedtime_rounded : Icons.bedtime_outlined,
+        children: sleepChildren,
+      ),
+      GlassMenuItem(
         id: 'menu-actions',
         title: '',
         inline: true,
         children: [
+          GlassMenuItem(
+            id: 'sync',
+            title: 'Ses / Altyazı senkronu',
+            subtitle: syncSubtitle,
+            sfSymbol: 'slider.horizontal.3',
+            icon: Icons.tune_rounded,
+            selected: session.hasDelayOffset,
+          ),
           if (!widget.live)
             const GlassMenuItem(
               id: 'goto',
@@ -1087,14 +1227,14 @@ class _ControlsState extends State<_Controls> {
       final idx = int.tryParse(id.substring(6));
       if (idx != null && idx >= 0 && idx < t.audio.length) {
         final track = t.audio[idx];
-        p.setAudioTrack(track);
+        PlayerSession.instance.setAudioTrack(track);
         _flash('Ses: ${_trackLabel(track.id, track.title, track.language)}');
       }
     } else if (id.startsWith('sub:')) {
       final idx = int.tryParse(id.substring(4));
       if (idx != null && idx >= 0 && idx < t.subtitle.length) {
         final track = t.subtitle[idx];
-        p.setSubtitleTrack(track);
+        PlayerSession.instance.setSubtitleTrack(track);
         _flash('Altyazı: ${_trackLabel(track.id, track.title, track.language)}');
       }
     } else if (id.startsWith('subsize:')) {
@@ -1109,6 +1249,28 @@ class _ControlsState extends State<_Controls> {
         p.setRate(r);
         _flash(r == 1.0 ? 'Hız: Normal' : 'Hız: ${r}x');
       }
+    } else if (id.startsWith('deint:')) {
+      final mode = id.substring(6);
+      PlayerSession.instance.setDeinterlace(mode);
+      _flash('Tarama giderme: ${AppSettings.deinterlaceOptions[mode] ?? 'Otomatik'}');
+    } else if (id == 'sleep:off') {
+      PlayerSession.instance.cancelSleepTimer();
+      _flash('Uyku zamanlayıcısı kapatıldı');
+    } else if (id == 'sleep:extend15') {
+      PlayerSession.instance.extendSleepTimer(const Duration(minutes: 15));
+      _flash('Uyku zamanlayıcısı +15 dk uzatıldı');
+    } else if (id == 'sleep:end') {
+      PlayerSession.instance.setSleepAtEndOfCurrent();
+      _flash(widget.isSeries ? 'Uyku: Bu bölüm bitince' : 'Uyku: Bu film bitince');
+    } else if (id.startsWith('sleep:')) {
+      final mins = int.tryParse(id.substring(6));
+      if (mins != null && mins > 0) {
+        PlayerSession.instance.setSleepTimer(Duration(minutes: mins));
+        _flash('Uyku zamanlayıcısı: $mins dk');
+      }
+    } else if (id == 'sync') {
+      _openSync();
+      return;
     } else if (id == 'goto') {
       _goTo();
     } else if (id == 'queue') {
@@ -1169,6 +1331,9 @@ class _ControlsState extends State<_Controls> {
             _poke();
           },
           onDoubleTap: () => widget.state.toggleFullscreen(),
+          onLongPressStart: !_tv && !widget.live ? (_) => _startDesktopSpeedHold() : null,
+          onLongPressEnd: !_tv && !widget.live ? (_) => _endDesktopSpeedHold() : null,
+          onLongPressCancel: !_tv && !widget.live ? _endDesktopSpeedHold : null,
           child: Stack(children: [
             // buffering indicator
             Center(
@@ -1203,7 +1368,14 @@ class _ControlsState extends State<_Controls> {
                 );
               },
             ),
-            if (_osd != null)
+            if (_desktopHolding2x)
+              const Positioned(
+                top: 92,
+                left: 0,
+                right: 0,
+                child: Center(child: SpeedHoldBadge(glass: false)),
+              )
+            else if (_osd != null)
               Positioned(
                 top: 92,
                 left: 0,
@@ -1267,17 +1439,29 @@ class _ControlsState extends State<_Controls> {
 
   Widget _buildPhoneControls(BuildContext context) {
     final (title, sub) = widget.live ? (widget.title, widget.group) : playerTitle(widget.title);
-    TapDownDetails? lastDoubleTap;
-    return LayoutBuilder(
-      builder: (context, constraints) => GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: _toggleVisible,
-        onDoubleTapDown: (d) => lastDoubleTap = d,
-        onDoubleTap: () {
-          if (lastDoubleTap != null) _onPhoneDoubleTap(lastDoubleTap!, constraints.maxWidth);
-        },
-        child: Stack(
-          children: [
+    return PhoneVideoGestureSurface(
+      landscape: _phoneLandscape,
+      live: widget.live,
+      controlsVisible: _visible,
+      enabled: !_scrubbing && !_menuOpen,
+      brightnessEnabled: PlayerDeviceControls.instance.isBrightnessSupported,
+      onTap: _toggleVisible,
+      onDoubleTapZone: _onPhoneDoubleTap,
+      onMinimizeSwipe: !_phoneLandscape ? widget.onMinimize : null,
+      onSpeedHoldStart: () => PlayerSession.instance.beginTempSpeedHold(),
+      onSpeedHoldEnd: () => PlayerSession.instance.endTempSpeedHold(),
+      readBrightness: () => PlayerDeviceControls.instance.getBrightness(),
+      writeBrightness: (v) => PlayerDeviceControls.instance.setBrightness(v),
+      readVolume: () => PlayerDeviceControls.instance.getVolume(fallbackPlayerVolume: p.state.volume),
+      writeVolume: (v) async {
+        final native = await PlayerDeviceControls.instance.setVolume(v);
+        if (!native) {
+          await p.setVolume((v * 100.0).clamp(0.0, 100.0).toDouble());
+        }
+      },
+      onVolumeGestureEnd: () => PlayerDeviceControls.instance.endVolumeGesture(),
+      child: Stack(
+        children: [
             // Buffering indicator
             Center(
               child: StreamBuilder<bool>(
@@ -1337,89 +1521,94 @@ class _ControlsState extends State<_Controls> {
                                   stream: p.stream.rate,
                                   builder: (_, rateSnap) => FutureBuilder<List<Programme>>(
                                     future: widget.epg,
-                                    builder: (_, epgSnap) {
-                                      final t = p.state.tracks;
-                                      final cur = p.state.track;
-                                      final rate = rateSnap.data ?? p.state.rate;
-                                      String short(String s) => s.length <= 10 ? s : '${s.substring(0, 9)}…';
-                                      final audioLbl = short(_trackLabel(cur.audio.id, cur.audio.title, cur.audio.language));
-                                      final subLbl = cur.subtitle.id == 'no'
-                                          ? 'Altyazı'
-                                          : short(_trackLabel(cur.subtitle.id, cur.subtitle.title, cur.subtitle.language));
-                                      final livePos = posSnap.data ?? p.state.position;
-                                      return PhonePlayerOverlay(
-                                        landscape: _phoneLandscape,
-                                        live: widget.live,
-                                        playing: playingSnap.data ?? p.state.playing,
-                                        title: title,
-                                        subtitle: sub,
-                                        onTitleTap: widget.onTitleTap,
-                                        onBack: () => Navigator.of(context).maybePop(),
-                                        onMinimize: widget.onMinimize,
-                                        onSystemPip: widget.onSystemPip,
-                                        onPlayPause: () {
-                                          p.playOrPause();
-                                          _poke();
-                                        },
-                                        onToggleOrientation: widget.onToggleOrientation,
-                                        onToggleFit: () {
-                                          widget.onToggleFit();
-                                          _flash(widget.coverFit ? 'Ekrana sığdırıldı' : 'Ekranı doldur');
-                                        },
-                                        coverFit: widget.coverFit,
-                                        skipSecs: _skip.inSeconds,
-                                        onSeekBack: widget.live
-                                            ? null
-                                            : () {
-                                                _seekBy(-_skip);
-                                                _poke();
-                                              },
-                                        onSeekForward: widget.live
-                                            ? null
-                                            : () {
-                                                _seekBy(_skip);
-                                                _poke();
-                                              },
-                                        onPrev: widget.onPrev,
-                                        onNext: widget.onNext,
-                                        queued: widget.queued,
-                                        position: _displayedPosition(livePos),
-                                        duration: durSnap.data ?? p.state.duration,
-                                        buffer: bufSnap.data ?? p.state.buffer,
-                                        pending: _pending.value != null || _scrubbing,
-                                        onSeek: _onScrubEnd,
-                                        onScrubStart: _onScrubStart,
-                                        onScrubUpdate: _onScrubUpdate,
-                                        onScrubEnd: _onScrubEnd,
-                                        onScrubCancel: _onScrubCancel,
-                                        onTimelineInteract: _poke,
-                                        osdText: _scrubOsd ?? _osd,
-                                        menuItems: _buildPhoneMenuItems(t, cur, rate),
-                                        onMenuSelected: (id) => _handlePhoneMenuSelection(id, t),
-                                        onMenuWillShow: () {
-                                          _menuOpen = true;
-                                          _hideToken++;
-                                        },
-                                        onMenuDidHide: () {
-                                          _menuOpen = false;
-                                          _poke();
-                                        },
-                                        audioLabel: audioLbl,
-                                        subtitleLabel: subLbl,
-                                        rateLabel: rate == 1.0 ? '1x' : '${rate}x',
-                                        onPickAudio: () => _pick<AudioTrack>('Ses', t.audio, cur.audio, (a) => _trackLabel(a.id, a.title, a.language), p.setAudioTrack),
-                                        onPickSubtitle: () => _pick<SubtitleTrack>('Altyazı', t.subtitle, cur.subtitle, (s) => _trackLabel(s.id, s.title, s.language), p.setSubtitleTrack),
-                                        onPickRate: widget.live
-                                            ? null
-                                            : () => _pick<double>('Oynatma hızı', const [0.5, 0.75, 1.0, 1.25, 1.5, 2.0], rate, (v) => v == 1.0 ? 'Normal' : '${v}x', p.setRate),
-                                        onGoTo: widget.live ? null : _goTo,
-                                        onOpenQueue: widget.queued ? _openQueueSheet : null,
-                                        liveChannelIndex: widget.index,
-                                        liveChannelName: widget.title,
-                                        liveChannelLogo: widget.logo,
-                                        programmes: epgSnap.data ?? const [],
-                                      );
-                                    },
+                                    builder: (_, epgSnap) => ValueListenableBuilder<SleepTimerState>(
+                                      valueListenable: PlayerSession.instance.sleepTimer,
+                                      builder: (_, sleep, _) {
+                                        final t = p.state.tracks;
+                                        final cur = p.state.track;
+                                        final rate = rateSnap.data ?? p.state.rate;
+                                        String short(String s) => s.length <= 10 ? s : '${s.substring(0, 9)}…';
+                                        final audioLbl = short(_trackLabel(cur.audio.id, cur.audio.title, cur.audio.language));
+                                        final subLbl = cur.subtitle.id == 'no'
+                                            ? 'Altyazı'
+                                            : short(_trackLabel(cur.subtitle.id, cur.subtitle.title, cur.subtitle.language));
+                                        final livePos = posSnap.data ?? p.state.position;
+                                        return PhonePlayerOverlay(
+                                          landscape: _phoneLandscape,
+                                          live: widget.live,
+                                          playing: playingSnap.data ?? p.state.playing,
+                                          title: title,
+                                          subtitle: sub,
+                                          onTitleTap: widget.onTitleTap,
+                                          onBack: () => Navigator.of(context).maybePop(),
+                                          onMinimize: widget.onMinimize,
+                                          onSystemPip: widget.onSystemPip,
+                                          onPlayPause: () {
+                                            p.playOrPause();
+                                            _poke();
+                                          },
+                                          onToggleOrientation: widget.onToggleOrientation,
+                                          onToggleFit: () {
+                                            widget.onToggleFit();
+                                            _flash(widget.coverFit ? 'Ekrana sığdırıldı' : 'Ekranı doldur');
+                                          },
+                                          coverFit: widget.coverFit,
+                                          skipSecs: _skip.inSeconds,
+                                          onSeekBack: widget.live
+                                              ? null
+                                              : () {
+                                                  _seekBy(-_skip);
+                                                  _poke();
+                                                },
+                                          onSeekForward: widget.live
+                                              ? null
+                                              : () {
+                                                  _seekBy(_skip);
+                                                  _poke();
+                                                },
+                                          onPrev: widget.onPrev,
+                                          onNext: widget.onNext,
+                                          queued: widget.queued,
+                                          position: _displayedPosition(livePos),
+                                          duration: durSnap.data ?? p.state.duration,
+                                          buffer: bufSnap.data ?? p.state.buffer,
+                                          pending: _pending.value != null || _scrubbing,
+                                          onSeek: _onScrubEnd,
+                                          onScrubStart: _onScrubStart,
+                                          onScrubUpdate: _onScrubUpdate,
+                                          onScrubEnd: _onScrubEnd,
+                                          onScrubCancel: _onScrubCancel,
+                                          onTimelineInteract: _poke,
+                                          osdText: _scrubOsd ?? _osd,
+                                          menuItems: _buildPhoneMenuItems(t, cur, rate, sleep),
+                                          onMenuSelected: (id) => _handlePhoneMenuSelection(id, t),
+                                          onMenuWillShow: () {
+                                            _menuOpen = true;
+                                            _hideToken++;
+                                          },
+                                          onMenuDidHide: () {
+                                            _menuOpen = false;
+                                            _poke();
+                                          },
+                                          audioLabel: audioLbl,
+                                          subtitleLabel: subLbl,
+                                          rateLabel: rate == 1.0 ? '1x' : '${rate}x',
+                                          onPickAudio: () => _pick<AudioTrack>('Ses', t.audio, cur.audio, (a) => _trackLabel(a.id, a.title, a.language), PlayerSession.instance.setAudioTrack),
+                                          onPickSubtitle: () => _pick<SubtitleTrack>('Altyazı', t.subtitle, cur.subtitle, (s) => _trackLabel(s.id, s.title, s.language), PlayerSession.instance.setSubtitleTrack),
+                                          onPickRate: widget.live
+                                              ? null
+                                              : () => _pick<double>('Oynatma hızı', const [0.5, 0.75, 1.0, 1.25, 1.5, 2.0], rate, (v) => v == 1.0 ? 'Normal' : '${v}x', p.setRate),
+                                          onGoTo: widget.live ? null : _goTo,
+                                          onOpenQueue: widget.queued ? _openQueueSheet : null,
+                                          liveChannelIndex: widget.index,
+                                          liveChannelName: widget.title,
+                                          liveChannelLogo: widget.logo,
+                                          programmes: epgSnap.data ?? const [],
+                                          sleepTimerLabel: sleep.isActive ? sleep.shortLabel(isSeries: widget.isSeries) : null,
+                                          onOpenSleepTimer: _openSleepTimer,
+                                        );
+                                      },
+                                    ),
                                   ),
                                 ),
                               ),
@@ -1477,7 +1666,6 @@ class _ControlsState extends State<_Controls> {
             ),
           ],
         ),
-      ),
     );
   }
 
@@ -1504,7 +1692,26 @@ class _ControlsState extends State<_Controls> {
           ),
         ),
       ),
-      const Positioned(right: 28, top: 30, child: ClockPill()),
+      Positioned(
+        right: 28,
+        top: 30,
+        child: ValueListenableBuilder<SleepTimerState>(
+          valueListenable: PlayerSession.instance.sleepTimer,
+          builder: (_, sleep, _) => Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (sleep.isActive) ...[
+                SleepTimerPill(
+                  label: sleep.shortLabel(isSeries: widget.isSeries),
+                  onTap: _openSleepTimer,
+                ),
+                const SizedBox(width: 10),
+              ],
+              const ClockPill(),
+            ],
+          ),
+        ),
+      ),
       Positioned(
         left: 28,
         right: 28,
@@ -1598,16 +1805,39 @@ class _ControlsState extends State<_Controls> {
           AppButton(
             label: short(_trackLabel(cur.audio.id, cur.audio.title, cur.audio.language)),
             tooltip: 'Ses parçası',
-            onPressed: () => _pick<AudioTrack>('Ses', t.audio, cur.audio, (a) => _trackLabel(a.id, a.title, a.language), p.setAudioTrack),
+            onPressed: () => _pick<AudioTrack>('Ses', t.audio, cur.audio, (a) => _trackLabel(a.id, a.title, a.language), PlayerSession.instance.setAudioTrack),
           ),
           const SizedBox(width: 8),
           AppButton(
             label: sub,
             tooltip: 'Altyazı',
-            onPressed: () => _pick<SubtitleTrack>('Altyazı', t.subtitle, cur.subtitle, (s) => _trackLabel(s.id, s.title, s.language), p.setSubtitleTrack),
+            onPressed: () => _pick<SubtitleTrack>('Altyazı', t.subtitle, cur.subtitle, (s) => _trackLabel(s.id, s.title, s.language), PlayerSession.instance.setSubtitleTrack),
           ),
         ]);
       },
+    );
+    final sleepButton = ValueListenableBuilder<SleepTimerState>(
+      valueListenable: PlayerSession.instance.sleepTimer,
+      builder: (_, sleep, _) => AppButton(
+        key: const ValueKey('desktop-player-sleep'),
+        variant: sleep.isActive ? AppButtonVariant.primary : AppButtonVariant.secondary,
+        icon: sleep.isActive ? Icons.bedtime_rounded : Icons.bedtime_outlined,
+        label: sleep.isActive ? sleep.shortLabel(isSeries: widget.isSeries) : null,
+        tooltip: sleep.isActive
+            ? 'Uyku zamanlayıcısı: ${sleep.shortLabel(isSeries: widget.isSeries)} (T)'
+            : 'Uyku zamanlayıcısı (T)',
+        onPressed: _openSleepTimer,
+      ),
+    );
+    final syncButton = ListenableBuilder(
+      listenable: PlayerSession.instance,
+      builder: (_, _) => AppButton(
+        key: const ValueKey('desktop-player-sync'),
+        variant: PlayerSession.instance.hasDelayOffset ? AppButtonVariant.primary : AppButtonVariant.secondary,
+        icon: Icons.tune_rounded,
+        tooltip: 'Ses / altyazı senkronu ve tarama giderme',
+        onPressed: _openSync,
+      ),
     );
     final fullscreen = AppButton(icon: Icons.fullscreen_rounded, tooltip: 'Tam ekran', onPressed: () => widget.state.toggleFullscreen());
 
@@ -1627,7 +1857,7 @@ class _ControlsState extends State<_Controls> {
           ],
         ]),
         const SizedBox(width: 16),
-        side(Alignment.centerRight, [tracks, fullscreen]),
+        side(Alignment.centerRight, [tracks, syncButton, sleepButton, fullscreen]),
       ]);
     }
 
@@ -1678,6 +1908,8 @@ class _ControlsState extends State<_Controls> {
           },
         ),
         tracks,
+        syncButton,
+        sleepButton,
         fullscreen,
       ]),
     ]);
@@ -1805,11 +2037,108 @@ class _GoToDialogState extends State<_GoToDialog> {
   }
 }
 
+/// Opens the live subtitle delay, audio delay, and deinterlace panel as a bottom sheet (iPhone)
+/// or dialog (Desktop / TV).
+Future<void> showPlayerSyncModal(BuildContext context, {required bool useSheet}) {
+  Widget body(bool compact) => ListenableBuilder(
+        listenable: Listenable.merge([PlayerSession.instance, AppSettings.instance]),
+        builder: (_, _) {
+          final session = PlayerSession.instance;
+          return PlayerSyncPanel(
+            subDelayMs: session.subDelayMs,
+            audioDelayMs: session.audioDelayMs,
+            deinterlace: AppSettings.instance.deinterlace,
+            onAdjustSubDelay: session.adjustSubDelayMs,
+            onResetSubDelay: () => session.setSubDelayMs(0),
+            onAdjustAudioDelay: session.adjustAudioDelayMs,
+            onResetAudioDelay: () => session.setAudioDelayMs(0),
+            onDeinterlaceChanged: session.setDeinterlace,
+            compact: compact,
+          );
+        },
+      );
+
+  if (useSheet) {
+    return showAppSheet<void>(
+      context: context,
+      title: 'Senkron ve görüntü',
+      subtitle: 'Değişiklikler anında yayına uygulanır',
+      builder: (_) => body(true),
+    );
+  }
+  return showDialog<void>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('Senkron ve görüntü'),
+      content: SizedBox(width: 480, child: body(false)),
+      actions: [
+        AppButton(label: 'Kapat', variant: AppButtonVariant.primary, autofocus: true, onPressed: () => Navigator.pop(ctx)),
+      ],
+    ),
+  );
+}
+
+/// Opens the live sleep timer picker as a bottom sheet (iPhone) or dialog (Desktop / TV).
+Future<void> showSleepTimerModal(
+  BuildContext context, {
+  required bool useSheet,
+  required bool live,
+  required bool isSeries,
+  ValueChanged<String>? onMessage,
+}) {
+  Widget body(BuildContext dialogCtx) => ValueListenableBuilder<SleepTimerState>(
+        valueListenable: PlayerSession.instance.sleepTimer,
+        builder: (_, sleep, _) => SleepTimerPicker(
+          state: sleep,
+          live: live,
+          isSeries: isSeries,
+          useSheet: useSheet,
+          onSelectDuration: (d) {
+            PlayerSession.instance.setSleepTimer(d);
+            onMessage?.call('Uyku zamanlayıcısı: ${d.inMinutes} dk');
+            Navigator.of(dialogCtx).pop();
+          },
+          onSelectEndOfCurrent: () {
+            PlayerSession.instance.setSleepAtEndOfCurrent();
+            onMessage?.call(isSeries ? 'Uyku: Bu bölüm bitince' : 'Uyku: Bu film bitince');
+            Navigator.of(dialogCtx).pop();
+          },
+          onExtend15: () {
+            PlayerSession.instance.extendSleepTimer(const Duration(minutes: 15));
+            onMessage?.call('Uyku zamanlayıcısı +15 dk uzatıldı');
+          },
+          onCancel: () {
+            PlayerSession.instance.cancelSleepTimer();
+            onMessage?.call('Uyku zamanlayıcısı kapatıldı');
+            Navigator.of(dialogCtx).pop();
+          },
+        ),
+      );
+
+  if (useSheet) {
+    return showAppSheet<void>(
+      context: context,
+      title: 'Uyku zamanlayıcısı',
+      subtitle: live ? 'Süre dolunca yayın kapatılır' : 'Süre dolunca oynatma duraklatılır',
+      builder: body,
+    );
+  }
+  return showDialog<void>(
+    context: context,
+    builder: (ctx) => SimpleDialog(
+      title: const Text('Uyku zamanlayıcısı'),
+      contentPadding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+      children: [SizedBox(width: 360, child: body(ctx))],
+    ),
+  );
+}
+
 /// Hosts [PhonePlayerCompanion] beneath the 16:9 video in iPhone portrait mode, wired to live mpv streams.
 class _PhoneCompanionHost extends StatelessWidget {
   const _PhoneCompanionHost({
     required this.player,
     required this.live,
+    this.isSeries = false,
     required this.entry,
     required this.index,
     required this.queue,
@@ -1824,6 +2153,7 @@ class _PhoneCompanionHost extends StatelessWidget {
 
   final Player player;
   final bool live;
+  final bool isSeries;
   final PlayerEntry entry;
   final int index;
   final List<PlayerEntry> queue;
@@ -1860,14 +2190,17 @@ class _PhoneCompanionHost extends StatelessWidget {
       context: context,
       builder: (_) => _GoToDialog(initial: player.state.position, total: player.state.duration),
     );
-    if (picked != null) player.seek(picked);
+    if (picked != null) {
+      player.seek(picked);
+      PlayerSession.instance.notifyUserSeek(picked);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final (title, sub) = live ? (entry.title, entry.group) : playerTitle(entry.title);
     return ListenableBuilder(
-      listenable: AppSettings.instance,
+      listenable: Listenable.merge([AppSettings.instance, PlayerSession.instance, PlayerSession.instance.sleepTimer]),
       builder: (context, _) => StreamBuilder<Tracks>(
         stream: player.stream.tracks,
         builder: (_, _) => StreamBuilder<double>(
@@ -1878,6 +2211,7 @@ class _PhoneCompanionHost extends StatelessWidget {
               final t = player.state.tracks;
               final cur = player.state.track;
               final rate = rateSnap.data ?? player.state.rate;
+              final sleep = PlayerSession.instance.sleepTimer.value;
               String short(String s) => s.length <= 12 ? s : '${s.substring(0, 11)}…';
               final audioLabel = short(_trackLabel(cur.audio.id, cur.audio.title, cur.audio.language));
               final subLabel = cur.subtitle.id == 'no' ? 'Altyazı: Kapalı' : short(_trackLabel(cur.subtitle.id, cur.subtitle.title, cur.subtitle.language));
@@ -1897,8 +2231,8 @@ class _PhoneCompanionHost extends StatelessWidget {
                 subtitleLabel: subLabel,
                 rateLabel: rate == 1.0 ? '1x' : '${rate}x',
                 coverFit: coverFit,
-                onPickAudio: () => _pickSheet<AudioTrack>(context, 'Ses parçası', t.audio, cur.audio, (a) => _trackLabel(a.id, a.title, a.language), player.setAudioTrack),
-                onPickSubtitle: () => _pickSheet<SubtitleTrack>(context, 'Altyazı', t.subtitle, cur.subtitle, (s) => _trackLabel(s.id, s.title, s.language), player.setSubtitleTrack),
+                onPickAudio: () => _pickSheet<AudioTrack>(context, 'Ses parçası', t.audio, cur.audio, (a) => _trackLabel(a.id, a.title, a.language), PlayerSession.instance.setAudioTrack),
+                onPickSubtitle: () => _pickSheet<SubtitleTrack>(context, 'Altyazı', t.subtitle, cur.subtitle, (s) => _trackLabel(s.id, s.title, s.language), PlayerSession.instance.setSubtitleTrack),
                 onPickRate: live
                     ? null
                     : () => _pickSheet<double>(context, 'Oynatma hızı', const [0.5, 0.75, 1.0, 1.25, 1.5, 2.0], rate, (v) => v == 1.0 ? 'Normal' : '${v}x', player.setRate),
@@ -1912,6 +2246,10 @@ class _PhoneCompanionHost extends StatelessWidget {
                         if (autoNext) onCancelCountdown();
                       }
                     : null,
+                hasDelayOffset: PlayerSession.instance.hasDelayOffset,
+                onOpenSync: () => showPlayerSyncModal(context, useSheet: true),
+                sleepTimerLabel: sleep.isActive ? sleep.shortLabel(isSeries: isSeries) : null,
+                onOpenSleepTimer: () => showSleepTimerModal(context, useSheet: true, live: live, isSeries: isSeries),
               );
             },
           ),

@@ -6,6 +6,41 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'title_utils.dart';
 import 'xtream.dart';
 
+/// Saved audio or subtitle track choice for a watched item.
+class TrackPref {
+  const TrackPref({required this.id, this.language, this.title});
+
+  final String id;
+  final String? language;
+  final String? title;
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        if (language != null && language!.isNotEmpty) 'lang': language,
+        if (title != null && title!.isNotEmpty) 'title': title,
+      };
+
+  static TrackPref? fromJson(Object? raw) {
+    if (raw is! Map<String, dynamic>) return null;
+    final id = raw['id'];
+    if (id is! String || id.isEmpty) return null;
+    final lang = raw['lang'];
+    final title = raw['title'];
+    return TrackPref(
+      id: id,
+      language: lang is String ? lang : null,
+      title: title is String ? title : null,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is TrackPref && other.id == id && other.language == language && other.title == title;
+
+  @override
+  int get hashCode => Object.hash(id, language, title);
+}
+
 /// One watched item (a live channel, a movie or a single episode).
 class HistoryEntry {
   HistoryEntry({
@@ -17,6 +52,8 @@ class HistoryEntry {
     this.positionMs = 0,
     this.durationMs = 0,
     required this.updatedMs,
+    this.audioTrack,
+    this.subtitleTrack,
   });
 
   final String url;
@@ -29,6 +66,8 @@ class HistoryEntry {
   int positionMs;
   int durationMs;
   int updatedMs;
+  TrackPref? audioTrack;
+  TrackPref? subtitleTrack;
 
   bool get resumable => kind != Kind.live && positionMs >= 20000 && (durationMs == 0 || durationMs - positionMs >= 60000);
   double get progress => durationMs <= 0 ? 0 : (positionMs / durationMs).clamp(0, 1).toDouble();
@@ -42,6 +81,8 @@ class HistoryEntry {
         'pos': positionMs,
         'dur': durationMs,
         'at': updatedMs,
+        if (audioTrack != null) 'audio': audioTrack!.toJson(),
+        if (subtitleTrack != null) 'sub': subtitleTrack!.toJson(),
       };
 
   factory HistoryEntry.fromJson(Map<String, dynamic> j) {
@@ -61,6 +102,8 @@ class HistoryEntry {
       positionMs: (j['pos'] ?? 0) as int,
       durationMs: (j['dur'] ?? 0) as int,
       updatedMs: (j['at'] ?? 0) as int,
+      audioTrack: TrackPref.fromJson(j['audio']),
+      subtitleTrack: TrackPref.fromJson(j['sub']),
     );
   }
 }
@@ -183,6 +226,46 @@ class Library extends ChangeNotifier {
   /// Backing catalog item stored for [url], if any.
   Item? itemFor(String url) => _find(url)?.item;
 
+  /// Saved audio and subtitle track preferences for [url], falling back to the
+  /// most recent episode of the same series ([item]) when [url] has none yet.
+  ({TrackPref? audio, TrackPref? subtitle}) trackPreferencesFor(String url, {Item? item}) {
+    final exact = _find(url);
+    var audio = exact?.audioTrack;
+    var subtitle = exact?.subtitleTrack;
+    final seriesId = item?.kind == Kind.series ? item!.id : (exact?.item?.kind == Kind.series ? exact!.item!.id : null);
+    if ((audio == null || subtitle == null) && seriesId != null) {
+      for (final h in _history) {
+        if (h.item?.id != seriesId) continue;
+        audio ??= h.audioTrack;
+        subtitle ??= h.subtitleTrack;
+        if (audio != null && subtitle != null) break;
+      }
+    }
+    return (audio: audio, subtitle: subtitle);
+  }
+
+  /// Persists the user's audio and/or subtitle track selection for [url].
+  Future<void> saveTracks(String url, {TrackPref? audio, TrackPref? subtitle, Item? item}) async {
+    final e = _find(url);
+    if (e == null) return;
+    var changed = false;
+    if (audio != null && e.audioTrack != audio) {
+      e.audioTrack = audio;
+      changed = true;
+    }
+    if (subtitle != null && e.subtitleTrack != subtitle) {
+      e.subtitleTrack = subtitle;
+      changed = true;
+    }
+    if (item != null && e.item == null) {
+      e.item = item;
+      changed = true;
+    }
+    if (!changed) return;
+    notifyListeners();
+    await _persist();
+  }
+
   /// Record that [url] was opened (moves it to the top of the history).
   Future<void> touch({required String url, required String title, required String logo, required Kind kind, Item? item}) async {
     final old = _find(url);
@@ -198,6 +281,8 @@ class Library extends ChangeNotifier {
         positionMs: old?.positionMs ?? 0,
         durationMs: old?.durationMs ?? 0,
         updatedMs: DateTime.now().millisecondsSinceEpoch,
+        audioTrack: old?.audioTrack,
+        subtitleTrack: old?.subtitleTrack,
       ),
     );
     if (_history.length > _maxHistory) _history.removeRange(_maxHistory, _history.length);

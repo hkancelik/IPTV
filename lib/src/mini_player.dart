@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
 import 'player_chrome.dart';
+import 'player_comfort.dart';
 import 'player_session.dart';
 import 'ui/basics.dart';
 import 'ui/layout.dart';
@@ -386,7 +387,7 @@ class PhoneMiniPlayerSlot extends StatelessWidget {
         final p = session.player;
         final (cleanTitle, vodSub) = session.live ? (entry.title, entry.group) : playerTitle(entry.title);
 
-        Widget buildBar(bool playing, Duration pos, Duration dur) {
+        Widget buildBar(bool playing, Duration pos, Duration dur, SleepTimerState sleep) {
           String subtitle;
           double progress;
           if (session.live) {
@@ -397,6 +398,10 @@ class PhoneMiniPlayerSlot extends StatelessWidget {
             final rem = _formatRemaining(pos, dur);
             subtitle = rem.isNotEmpty ? rem : (vodSub ?? '');
             progress = dur > Duration.zero ? (pos.inMilliseconds / dur.inMilliseconds).clamp(0.0, 1.0) : 0.0;
+          }
+          if (sleep.isActive) {
+            final tag = '☾ ${sleep.shortLabel(isSeries: session.kind == Kind.series)}';
+            subtitle = subtitle.isEmpty ? tag : '$subtitle · $tag';
           }
 
           return PhoneMiniPlayerBar(
@@ -414,23 +419,29 @@ class PhoneMiniPlayerSlot extends StatelessWidget {
           );
         }
 
-        if (p == null) {
-          return buildBar(session.isPlaying, session.position, session.duration);
-        }
+        return ValueListenableBuilder<SleepTimerState>(
+          valueListenable: session.sleepTimer,
+          builder: (_, sleep, _) {
+            if (p == null) {
+              return buildBar(session.isPlaying, session.position, session.duration, sleep);
+            }
 
-        return StreamBuilder<bool>(
-          stream: p.stream.playing,
-          builder: (_, playingSnap) => StreamBuilder<Duration>(
-            stream: p.stream.position,
-            builder: (_, posSnap) => StreamBuilder<Duration>(
-              stream: p.stream.duration,
-              builder: (_, durSnap) => buildBar(
-                playingSnap.data ?? p.state.playing,
-                posSnap.data ?? p.state.position,
-                durSnap.data ?? p.state.duration,
+            return StreamBuilder<bool>(
+              stream: p.stream.playing,
+              builder: (_, playingSnap) => StreamBuilder<Duration>(
+                stream: p.stream.position,
+                builder: (_, posSnap) => StreamBuilder<Duration>(
+                  stream: p.stream.duration,
+                  builder: (_, durSnap) => buildBar(
+                    playingSnap.data ?? p.state.playing,
+                    posSnap.data ?? p.state.position,
+                    durSnap.data ?? p.state.duration,
+                    sleep,
+                  ),
+                ),
               ),
-            ),
-          ),
+            );
+          },
         );
       },
     );
