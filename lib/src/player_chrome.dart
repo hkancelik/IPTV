@@ -1702,13 +1702,13 @@ class PhoneGestureHud extends StatelessWidget {
   Widget build(BuildContext context) {
     final clamped = value.clamp(0.0, 1.0).toDouble();
     final pct = (clamped * 100).round();
-    final h = compact ? 28.0 : 38.0;
-    final w = compact ? 172.0 : 210.0;
+    final h = compact ? 25.0 : 36.0;
+    final w = compact ? 168.0 : 210.0;
 
     return IgnorePointer(
       child: GlassSurface(
         key: const ValueKey('phone-gesture-hud'),
-        radius: h / 2,
+        radius: (h + 2) / 2,
         nativeClear: true,
         nativeShape: NativeGlassShape.capsule,
         color: AppColors.videoGlass,
@@ -2092,7 +2092,7 @@ class _PhoneVideoGestureSurfaceState extends State<PhoneVideoGestureSurface> {
       builder: (context, constraints) {
         final size = Size(constraints.maxWidth, constraints.maxHeight);
         final centerSize = widget.landscape ? 60.0 : 52.0;
-        final badgeH = widget.landscape ? 38.0 : 28.0;
+        final badgeH = widget.landscape ? 38.0 : 27.0;
         final double hudTop;
         if (widget.controlsVisible) {
           final topBarBottom = topPad + 42.0;
@@ -2193,13 +2193,13 @@ class PlayerSyncPanel extends StatelessWidget {
     required VoidCallback onReset,
     required Key resetKey,
   }) {
-    final btnHeight = compact ? 38.0 : 42.0;
+    final btnHeight = compact ? 36.0 : 40.0;
     return AppCard(
       radius: AppSizes.tileRadius,
       shadows: const [],
       color: AppColors.surface,
       border: Border.all(color: AppColors.line),
-      padding: EdgeInsets.all(compact ? 12 : 14),
+      padding: EdgeInsets.all(compact ? 11 : 14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
@@ -2224,61 +2224,73 @@ class PlayerSyncPanel extends StatelessWidget {
                 tone: valueMs == 0 ? PillTone.neutral : PillTone.accent,
                 height: 28,
               ),
+              if (valueMs != 0) ...[
+                const SizedBox(width: 6),
+                AppButton(
+                  key: resetKey,
+                  icon: Icons.restart_alt_rounded,
+                  tooltip: 'Sıfırla',
+                  height: 30,
+                  width: 30,
+                  dense: true,
+                  variant: AppButtonVariant.danger,
+                  onPressed: () {
+                    AppHaptics.light(context);
+                    onReset();
+                  },
+                ),
+              ],
             ],
           ),
           const SizedBox(height: 10),
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
+          Row(
             children: [
-              AppButton(
-                label: coarseNegLabel,
-                height: btnHeight,
-                dense: true,
-                onPressed: () {
-                  AppHaptics.selection(context);
-                  onAdjust(-coarseMs);
-                },
+              Expanded(
+                child: AppButton(
+                  label: coarseNegLabel,
+                  height: btnHeight,
+                  dense: true,
+                  onPressed: () {
+                    AppHaptics.selection(context);
+                    onAdjust(-coarseMs);
+                  },
+                ),
               ),
-              AppButton(
-                label: fineNegLabel,
-                height: btnHeight,
-                dense: true,
-                onPressed: () {
-                  AppHaptics.selection(context);
-                  onAdjust(-fineMs);
-                },
+              const SizedBox(width: 6),
+              Expanded(
+                child: AppButton(
+                  label: fineNegLabel,
+                  height: btnHeight,
+                  dense: true,
+                  onPressed: () {
+                    AppHaptics.selection(context);
+                    onAdjust(-fineMs);
+                  },
+                ),
               ),
-              AppButton(
-                label: finePosLabel,
-                height: btnHeight,
-                dense: true,
-                onPressed: () {
-                  AppHaptics.selection(context);
-                  onAdjust(fineMs);
-                },
+              const SizedBox(width: 6),
+              Expanded(
+                child: AppButton(
+                  label: finePosLabel,
+                  height: btnHeight,
+                  dense: true,
+                  onPressed: () {
+                    AppHaptics.selection(context);
+                    onAdjust(fineMs);
+                  },
+                ),
               ),
-              AppButton(
-                label: coarsePosLabel,
-                height: btnHeight,
-                dense: true,
-                onPressed: () {
-                  AppHaptics.selection(context);
-                  onAdjust(coarseMs);
-                },
-              ),
-              AppButton(
-                key: resetKey,
-                label: 'Sıfırla',
-                height: btnHeight,
-                dense: true,
-                variant: valueMs == 0 ? AppButtonVariant.secondary : AppButtonVariant.danger,
-                onPressed: valueMs == 0
-                    ? null
-                    : () {
-                        AppHaptics.light(context);
-                        onReset();
-                      },
+              const SizedBox(width: 6),
+              Expanded(
+                child: AppButton(
+                  label: coarsePosLabel,
+                  height: btnHeight,
+                  dense: true,
+                  onPressed: () {
+                    AppHaptics.selection(context);
+                    onAdjust(coarseMs);
+                  },
+                ),
               ),
             ],
           ),
