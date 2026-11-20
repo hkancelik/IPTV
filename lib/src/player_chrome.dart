@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'title_utils.dart';
 import 'ui/basics.dart';
 import 'ui/controls.dart';
+import 'ui/focus_ring.dart';
 import 'ui/format.dart';
 import 'ui/layout.dart';
 import 'ui/liquid_glass.dart';
@@ -22,27 +23,56 @@ import 'xtream.dart';
 
 /// White pill in the top left corner: back key, title, a line under it.
 class PlayerTitlePill extends StatelessWidget {
-  const PlayerTitlePill({super.key, required this.onBack, required this.title, this.subtitle});
+  const PlayerTitlePill({super.key, required this.onBack, required this.title, this.subtitle, this.onTitleTap});
 
   final VoidCallback onBack;
   final String title;
   final String? subtitle;
 
+  /// Optional tap action on the title/subtitle area (used for series to jump to the series detail page).
+  final VoidCallback? onTitleTap;
+
   @override
-  Widget build(BuildContext context) => Container(
-        height: 56,
-        padding: const EdgeInsets.fromLTRB(6, 0, 20, 0),
-        decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(28), boxShadow: AppShadows.overlay),
-        child: Row(mainAxisSize: MainAxisSize.min, children: [
-          AppButton(icon: Icons.chevron_left_rounded, tooltip: 'Geri', onPressed: onBack),
-          const SizedBox(width: 12),
-          Flexible(child: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.title(16))),
-          if (subtitle != null) ...[
-            const SizedBox(width: 12),
-            Flexible(child: Text(subtitle!, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.meta(14))),
-          ],
-        ]),
-      );
+  Widget build(BuildContext context) {
+    final labels = Row(mainAxisSize: MainAxisSize.min, children: [
+      Flexible(child: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.title(16))),
+      if (subtitle != null) ...[
+        const SizedBox(width: 12),
+        Flexible(child: Text(subtitle!, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.meta(14))),
+      ],
+      if (onTitleTap != null) ...[
+        const SizedBox(width: 4),
+        const Icon(Icons.chevron_right_rounded, size: 18, color: AppColors.ink2),
+      ],
+    ]);
+
+    return Container(
+      height: 56,
+      padding: EdgeInsets.fromLTRB(6, 0, onTitleTap != null ? 10 : 20, 0),
+      decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(28), boxShadow: AppShadows.overlay),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        AppButton(icon: Icons.chevron_left_rounded, tooltip: 'Geri', onPressed: onBack),
+        SizedBox(width: onTitleTap != null ? 4 : 12),
+        Flexible(
+          child: onTitleTap == null
+              ? labels
+              : FocusRing(
+                  key: const ValueKey('player-title-link'),
+                  radius: 20,
+                  lift: false,
+                  hoverColor: AppColors.surfaceAlt,
+                  tooltip: 'Dizi sayfasına git',
+                  semanticLabel: '$title, dizi sayfasına git',
+                  onTap: onTitleTap,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    child: labels,
+                  ),
+                ),
+        ),
+      ]),
+    );
+  }
 }
 
 /// The floating white card that holds the player's controls.
@@ -584,6 +614,7 @@ class PhonePlayerOverlay extends StatelessWidget {
     required this.playing,
     required this.title,
     this.subtitle,
+    this.onTitleTap,
     this.onBack,
     this.onMinimize,
     this.onSystemPip,
@@ -632,6 +663,9 @@ class PhonePlayerOverlay extends StatelessWidget {
   final bool playing;
   final String title;
   final String? subtitle;
+
+  /// Optional tap action on the top-left title pill (used for series to jump to the series detail page).
+  final VoidCallback? onTitleTap;
   final VoidCallback? onBack;
 
   /// Minimizes the phone player into the in-app Mini Player glass bar.
@@ -754,37 +788,71 @@ class PhonePlayerOverlay extends StatelessWidget {
                   Expanded(
                     child: Align(
                       alignment: Alignment.centerLeft,
-                      child: GlassSurface(
-                        radius: 21,
-                        nativeClear: true,
-                        nativeShape: NativeGlassShape.capsule,
-                        color: AppColors.videoGlass,
-                        shadows: const [],
-                        padding: EdgeInsets.symmetric(horizontal: landscape ? 14 : 12),
-                        child: SizedBox(
-                          height: 40,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                title,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: AppText.title(landscape ? 15.5 : 14),
-                              ),
-                              if (subtitle != null && subtitle!.isNotEmpty)
-                                Text(
-                                  subtitle!,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: AppText.meta(11, color: AppColors.body),
-                                ),
-                            ],
+                      child: () {
+                        final pill = GlassSurface(
+                          radius: 21,
+                          nativeClear: true,
+                          nativeShape: NativeGlassShape.capsule,
+                          interactive: onTitleTap != null,
+                          color: AppColors.videoGlass,
+                          shadows: const [],
+                          padding: EdgeInsets.only(
+                            left: landscape ? 14 : 12,
+                            right: onTitleTap != null ? (landscape ? 10 : 8) : (landscape ? 14 : 12),
                           ),
-                        ),
-                      ),
+                          child: SizedBox(
+                            height: 40,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Flexible(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        title,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: AppText.title(landscape ? 15.5 : 14),
+                                      ),
+                                      if (subtitle != null && subtitle!.isNotEmpty)
+                                        Text(
+                                          subtitle!,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: AppText.meta(11, color: AppColors.body),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                                if (onTitleTap != null) ...[
+                                  const SizedBox(width: 4),
+                                  const Icon(Icons.chevron_right_rounded, size: 16, color: AppColors.body),
+                                ],
+                              ],
+                            ),
+                          ),
+                        );
+                        if (onTitleTap == null) return pill;
+                        return Tooltip(
+                          message: 'Dizi sayfasına git',
+                          child: Semantics(
+                            button: true,
+                            label: '$title, dizi sayfasına git',
+                            child: GestureDetector(
+                              key: const ValueKey('phone-player-title-pill'),
+                              behavior: HitTestBehavior.opaque,
+                              onTap: () {
+                                AppHaptics.light(context);
+                                onTitleTap!();
+                              },
+                              child: pill,
+                            ),
+                          ),
+                        );
+                      }(),
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -1236,6 +1304,7 @@ class PhonePlayerCompanion extends StatelessWidget {
     required this.live,
     required this.title,
     this.subtitle,
+    this.onTitleTap,
     this.logo = '',
     required this.index,
     this.programmes = const [],
@@ -1260,6 +1329,9 @@ class PhonePlayerCompanion extends StatelessWidget {
   final bool live;
   final String title;
   final String? subtitle;
+
+  /// Optional tap action on the title header (used for series to jump to the series detail page).
+  final VoidCallback? onTitleTap;
   final String logo;
   final int index;
   final List<Programme> programmes;
@@ -1298,37 +1370,57 @@ class PhonePlayerCompanion extends StatelessWidget {
         padding: EdgeInsets.fromLTRB(16, 14, 16, bottomPad),
         children: [
           // Header block
-          Row(
-            children: [
-              if (live) ...[
-                ChannelBadge(name: title, logo: logo, size: 46),
-                const SizedBox(width: 12),
-              ],
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        if (live) ...[
-                          const Pill('Canlı', tone: PillTone.live, height: 22, leading: LiveDot(size: 7)),
-                          const SizedBox(width: 8),
-                          Text('#${index + 1}', style: AppText.meta(12.5)),
-                          if (subtitle != null && subtitle!.isNotEmpty) ...[
-                            const SizedBox(width: 6),
-                            Flexible(child: Text('· $subtitle', maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.meta(12.5))),
-                          ],
-                        ] else if (subtitle != null && subtitle!.isNotEmpty)
-                          Text(subtitle!, style: AppText.meta(13, color: AppColors.accentInk)),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(title, maxLines: 2, overflow: TextOverflow.ellipsis, style: AppText.display(21)),
-                  ],
+          () {
+            final header = Row(
+              children: [
+                if (live) ...[
+                  ChannelBadge(name: title, logo: logo, size: 46),
+                  const SizedBox(width: 12),
+                ],
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          if (live) ...[
+                            const Pill('Canlı', tone: PillTone.live, height: 22, leading: LiveDot(size: 7)),
+                            const SizedBox(width: 8),
+                            Text('#${index + 1}', style: AppText.meta(12.5)),
+                            if (subtitle != null && subtitle!.isNotEmpty) ...[
+                              const SizedBox(width: 6),
+                              Flexible(child: Text('· $subtitle', maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.meta(12.5))),
+                            ],
+                          ] else if (subtitle != null && subtitle!.isNotEmpty)
+                            Text(subtitle!, style: AppText.meta(13, color: AppColors.accentInk)),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(title, maxLines: 2, overflow: TextOverflow.ellipsis, style: AppText.display(21)),
+                    ],
+                  ),
                 ),
+                if (onTitleTap != null) ...[
+                  const SizedBox(width: 8),
+                  const Icon(Icons.chevron_right_rounded, size: 22, color: AppColors.ink3),
+                ],
+              ],
+            );
+            if (onTitleTap == null) return header;
+            return Semantics(
+              button: true,
+              label: '$title, dizi sayfasına git',
+              child: GestureDetector(
+                key: const ValueKey('phone-companion-title'),
+                behavior: HitTestBehavior.opaque,
+                onTap: () {
+                  AppHaptics.light(context);
+                  onTitleTap!();
+                },
+                child: header,
               ),
-            ],
-          ),
+            );
+          }(),
           const SizedBox(height: 14),
           // Quick horizontal action strip
           SizedBox(

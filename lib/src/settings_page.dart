@@ -45,18 +45,22 @@ class _SettingsPageState extends State<SettingsPage> {
     super.dispose();
   }
 
+  int get _visibleSectionCount =>
+      Theme.of(context).platform == TargetPlatform.iOS ? _sections.length - 1 : _sections.length;
+
   /// Marks the section whose card is at the top of the scroll area.
   void _follow() {
     if (_jumping) return;
     final view = context.findRenderObject() as RenderBox?;
     if (view == null) return;
     final top = view.localToGlobal(Offset.zero).dy + 40;
+    final count = _visibleSectionCount;
     var pick = 0;
-    for (var i = 0; i < _keys.length; i++) {
+    for (var i = 0; i < count; i++) {
       final box = _keys[i].currentContext?.findRenderObject() as RenderBox?;
       if (box != null && box.localToGlobal(Offset.zero).dy <= top) pick = i;
     }
-    if (_scroll.position.pixels >= _scroll.position.maxScrollExtent - 1) pick = _keys.length - 1;
+    if (_scroll.position.pixels >= _scroll.position.maxScrollExtent - 1) pick = count - 1;
     if (pick != _selected) setState(() => _selected = pick);
   }
 
@@ -79,7 +83,10 @@ class _SettingsPageState extends State<SettingsPage> {
         final phone = mode != AppLayoutMode.desktop;
         final portrait = mode == AppLayoutMode.phonePortrait;
         final landscape = mode == AppLayoutMode.phoneLandscape;
-        final narrow = portrait || MediaQuery.sizeOf(context).width < 900;
+        final isIos = Theme.of(context).platform == TargetPlatform.iOS;
+        final showShortcuts = !isIos;
+        final sections = showShortcuts ? _sections : _sections.sublist(0, _sections.length - 1);
+        final narrow = phone || MediaQuery.sizeOf(context).width < 900;
         final pad = MediaQuery.paddingOf(context);
         final leftPad = landscape ? (pad.left > 0 ? pad.left : 14.0) : AppSizes.scrollPad;
         final rightPad = landscape ? 12.0 : 16.0;
@@ -117,6 +124,19 @@ class _SettingsPageState extends State<SettingsPage> {
                   onChanged: (v) {
                     AppHaptics.selection(context);
                     s.update(subLang: v);
+                  },
+                ),
+              ),
+              _ChoiceRow(
+                title: 'Altyazı boyutu',
+                narrow: narrow,
+                control: Segmented<double>(
+                  key: const ValueKey('setting-subtitleScale'),
+                  value: s.subtitleScale,
+                  options: AppSettings.subtitleSizeOptions,
+                  onChanged: (v) {
+                    AppHaptics.selection(context);
+                    s.update(subtitleScale: v);
                   },
                 ),
               ),
@@ -163,7 +183,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 value: s.autoNext,
                 onChanged: (v) => s.update(autoNext: v),
               ),
-              if (Theme.of(context).platform == TargetPlatform.iOS)
+              if (isIos)
                 _SwitchRow(
                   key: const ValueKey('setting-autoPipOnLeave'),
                   title: 'Uygulamadan çıkınca yüzen oynatıcı (PiP)',
@@ -216,25 +236,27 @@ class _SettingsPageState extends State<SettingsPage> {
                   title: 'Arayüz ölçeği',
                   useSheet: phone,
                   value: s.uiScale,
-                  options: {0.5: '%50', 0.6: '%60', 0.7: '%70', 0.8: '%80', 0.9: '%90', 1.0: '%100', 1.2: '%120', 1.4: '%140'},
+                  options: isIos ? AppSettings.iosUiScaleOptions : AppSettings.fullUiScaleOptions,
                   onChanged: (v) => s.update(uiScale: v),
                 ),
               ),
-              _SwitchRow(
-                title: 'Kumanda (TV) modu',
-                desc: 'Büyük yazı, belirgin odak çerçevesi ve kumanda ile gezinme. Android TV / Fire Stick\'te otomatik açık',
-                value: s.tvMode,
-                onChanged: (v) => s.update(tvMode: v),
-              ),
+              if (!isIos)
+                _SwitchRow(
+                  title: 'Kumanda (TV) modu',
+                  desc: 'Büyük yazı, belirgin odak çerçevesi ve kumanda ile gezinme. Android TV / Fire Stick\'te otomatik açık',
+                  value: s.tvMode,
+                  onChanged: (v) => s.update(tvMode: v),
+                ),
             ]),
-            _Section(key: _keys[5], title: 'Kısayollar', children: const [
-              _KeyRow('Boşluk', 'Oynat / duraklat'),
-              _KeyRow('← / →', 'Geri / ileri sar'),
-              _KeyRow('↑ / ↓', 'Ses aç / kıs'),
-              _KeyRow('M', 'Sessiz'),
-              _KeyRow('F', 'Tam ekran'),
-              _KeyRow('Esc', 'Tam ekrandan çık / geri'),
-            ]),
+            if (showShortcuts)
+              _Section(key: _keys[5], title: 'Kısayollar', children: const [
+                _KeyRow('Boşluk', 'Oynat / duraklat'),
+                _KeyRow('← / →', 'Geri / ileri sar'),
+                _KeyRow('↑ / ↓', 'Ses aç / kıs'),
+                _KeyRow('M', 'Sessiz'),
+                _KeyRow('F', 'Tam ekran'),
+                _KeyRow('Esc', 'Tam ekrandan çık / geri'),
+              ]),
           ]),
         );
 
@@ -247,7 +269,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 child: ListView.separated(
                   scrollDirection: Axis.horizontal,
                   padding: const EdgeInsets.symmetric(horizontal: 16),
-                  itemCount: _sections.length,
+                  itemCount: sections.length,
                   separatorBuilder: (_, _) => const SizedBox(width: 8),
                   itemBuilder: (_, i) {
                     final on = i == _selected;
@@ -266,7 +288,7 @@ class _SettingsPageState extends State<SettingsPage> {
                           border: Border.all(color: on ? AppColors.accent.withValues(alpha: 0.45) : AppColors.line),
                         ),
                         child: Text(
-                          _sections[i],
+                          sections[i],
                           style: AppText.label(13, color: on ? AppColors.accentInk : AppColors.ink2),
                         ),
                       ),
@@ -297,10 +319,10 @@ class _SettingsPageState extends State<SettingsPage> {
                       child: ListView.builder(
                         padding: const EdgeInsets.all(AppSizes.scrollPad),
                         itemExtent: 44,
-                        itemCount: _sections.length,
+                        itemCount: sections.length,
                         itemBuilder: (_, i) => Padding(
                           padding: const EdgeInsets.only(bottom: 4),
-                          child: SideItem(label: _sections[i], selected: i == _selected, onTap: () => _go(i), height: 40),
+                          child: SideItem(label: sections[i], selected: i == _selected, onTap: () => _go(i), height: 40),
                         ),
                       ),
                     ),

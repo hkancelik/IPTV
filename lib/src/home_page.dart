@@ -131,12 +131,43 @@ class _HomePageState extends State<HomePage> {
       appRoute(
         context,
         (_) => PlayerPage(
-          queue: [PlayerEntry(url: e.url, title: e.title, logo: e.logo)],
+          queue: [PlayerEntry(url: e.url, title: e.title, logo: e.logo, item: e.item)],
           kind: e.kind,
           client: widget.client,
         ),
       ),
     );
+  }
+
+  bool _openingDetail = false;
+
+  Future<void> _openHistoryDetail(HistoryEntry e) async {
+    if (_openingDetail || e.kind == Kind.live) return;
+    _openingDetail = true;
+    try {
+      final item = await resolveDetailItem(
+        kind: e.kind,
+        url: e.url,
+        title: e.title,
+        logo: e.logo,
+        item: e.item,
+        cachedItems: _items[e.kind],
+        loadCatalog: () async {
+          await _ensureLoaded(e.kind);
+          return _items[e.kind] ?? const [];
+        },
+      );
+      if (!mounted) return;
+      if (item != null) {
+        _open(item);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${e.kind == Kind.series ? 'Dizi' : 'Film'} sayfası bulunamadı')),
+        );
+      }
+    } finally {
+      _openingDetail = false;
+    }
   }
 
   bool _allowed(Item i) {
@@ -987,12 +1018,24 @@ class _HomePageState extends State<HomePage> {
               ),
             ),
             const SizedBox(width: 14),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(16),
-              child: SizedBox(
-                width: landscape ? 88 : 96,
-                height: landscape ? 132 : 144,
-                child: ColoredBox(color: AppColors.surfaceAlt, child: PosterImage(e.logo, cacheWidth: 320)),
+            Semantics(
+              button: true,
+              label: '$title sayfasına git',
+              child: GestureDetector(
+                key: const ValueKey('home-continue-poster'),
+                behavior: HitTestBehavior.opaque,
+                onTap: () {
+                  AppHaptics.light(context);
+                  _openHistoryDetail(e);
+                },
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: SizedBox(
+                    width: landscape ? 88 : 96,
+                    height: landscape ? 132 : 144,
+                    child: ColoredBox(color: AppColors.surfaceAlt, child: PosterImage(e.logo, cacheWidth: 320)),
+                  ),
+                ),
               ),
             ),
           ],
@@ -1026,9 +1069,21 @@ class _HomePageState extends State<HomePage> {
                   ),
                   child: Row(
                     children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: SizedBox(width: 60, height: 90, child: ColoredBox(color: AppColors.surfaceAlt, child: PosterImage(e.logo))),
+                      Semantics(
+                        button: true,
+                        label: '${playerTitle(e.title).$1} sayfasına git',
+                        child: GestureDetector(
+                          key: ValueKey('home-recent-poster-$i'),
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () {
+                            AppHaptics.light(context);
+                            _openHistoryDetail(e);
+                          },
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: SizedBox(width: 60, height: 90, child: ColoredBox(color: AppColors.surfaceAlt, child: PosterImage(e.logo))),
+                          ),
+                        ),
                       ),
                       const SizedBox(width: 10),
                       Expanded(
@@ -1353,9 +1408,16 @@ class _HomePageState extends State<HomePage> {
               top: 16,
               bottom: 16,
               width: art,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(AppSizes.tileRadius),
-                child: ColoredBox(color: AppColors.surfaceAlt, child: PosterImage(e.logo, cacheWidth: 400)),
+              child: FocusRing(
+                key: const ValueKey('home-continue-poster'),
+                radius: AppSizes.tileRadius,
+                tooltip: '$title sayfasına git',
+                semanticLabel: '$title sayfasına git',
+                onTap: () => _openHistoryDetail(e),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(AppSizes.tileRadius),
+                  child: ColoredBox(color: AppColors.surfaceAlt, child: PosterImage(e.logo, cacheWidth: 400)),
+                ),
               ),
             ),
             Positioned(
@@ -1404,6 +1466,7 @@ class _HomePageState extends State<HomePage> {
       });
 
   Widget _recentCard(HistoryEntry e) {
+    final title = playerTitle(e.title).$1;
     final sub = [?episodeLabel(e.title), ?_left(e)].join(', ');
     return FocusRing(
       radius: AppSizes.cardRadius,
@@ -1417,14 +1480,22 @@ class _HomePageState extends State<HomePage> {
           border: AppShadows.repeatedBorder(),
         ),
         child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(AppSizes.smallRadius),
-            child: SizedBox(width: 72, height: 108, child: ColoredBox(color: AppColors.surfaceAlt, child: PosterImage(e.logo))),
+          FocusRing(
+            key: ValueKey('home-recent-poster-${e.url}'),
+            radius: AppSizes.smallRadius,
+            lift: false,
+            tooltip: '$title sayfasına git',
+            semanticLabel: '$title sayfasına git',
+            onTap: () => _openHistoryDetail(e),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(AppSizes.smallRadius),
+              child: SizedBox(width: 72, height: 108, child: ColoredBox(color: AppColors.surfaceAlt, child: PosterImage(e.logo))),
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-              Text(playerTitle(e.title).$1, maxLines: 2, overflow: TextOverflow.ellipsis, style: AppText.title(15)),
+              Text(title, maxLines: 2, overflow: TextOverflow.ellipsis, style: AppText.title(15)),
               if (sub.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 2), child: Text(sub, maxLines: 2, overflow: TextOverflow.ellipsis, style: AppText.meta(13))),
               if (e.durationMs > 0) Padding(padding: const EdgeInsets.only(top: 10, right: 6), child: ProgressBar(value: e.progress, height: 4)),
             ]),

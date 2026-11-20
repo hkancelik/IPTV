@@ -23,6 +23,11 @@ class DetailPage extends StatefulWidget {
   final XtreamClient client;
   final Item item;
 
+  static final List<String> _openItemIds = [];
+
+  /// True when the topmost mounted [DetailPage] in the navigator stack is for [itemId].
+  static bool isTopFor(String itemId) => _openItemIds.isNotEmpty && _openItemIds.last == itemId;
+
   @override
   State<DetailPage> createState() => _DetailPageState();
 }
@@ -30,6 +35,7 @@ class DetailPage extends StatefulWidget {
 class _DetailPageState extends State<DetailPage> {
   Future<SeriesData>? _series;
   Future<Details>? _movie;
+  late String _trackedId;
 
   bool get _isSeries => widget.item.kind == Kind.series;
 
@@ -46,6 +52,8 @@ class _DetailPageState extends State<DetailPage> {
   @override
   void initState() {
     super.initState();
+    _trackedId = widget.item.id;
+    DetailPage._openItemIds.add(_trackedId);
     _load();
   }
 
@@ -53,10 +61,20 @@ class _DetailPageState extends State<DetailPage> {
   void didUpdateWidget(DetailPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.item.id != widget.item.id || oldWidget.item.kind != widget.item.kind) {
+      final idx = DetailPage._openItemIds.lastIndexOf(_trackedId);
+      if (idx >= 0) DetailPage._openItemIds[idx] = widget.item.id;
+      _trackedId = widget.item.id;
       _season = null;
       _plotExpanded = false;
       _load();
     }
+  }
+
+  @override
+  void dispose() {
+    final idx = DetailPage._openItemIds.lastIndexOf(_trackedId);
+    if (idx >= 0) DetailPage._openItemIds.removeAt(idx);
+    super.dispose();
   }
 
   void _play(List<PlayerEntry> queue, int index) {
@@ -174,7 +192,7 @@ class _DetailPageState extends State<DetailPage> {
         final queue = <PlayerEntry>[
           for (final s in seasons.entries)
             for (final e in s.value)
-              PlayerEntry(url: e.url, title: '${widget.item.name} S${two(s.key)}E${two(e.number)}', logo: e.image.isNotEmpty ? e.image : widget.item.logo),
+              PlayerEntry(url: e.url, title: '${widget.item.name} S${two(s.key)}E${two(e.number)}', logo: e.image.isNotEmpty ? e.image : widget.item.logo, item: widget.item),
         ];
         final position = <Episode, int>{};
         for (final s in seasons.values) {
@@ -219,7 +237,7 @@ class _DetailPageState extends State<DetailPage> {
       label: resume == null ? 'Oynat' : 'Devam et ${clockTime(resume)}',
       onPressed: () {
         AppHaptics.light(context);
-        _play([PlayerEntry(url: widget.item.url!, title: widget.item.name, logo: widget.item.logo)], 0);
+        _play([PlayerEntry(url: widget.item.url!, title: widget.item.name, logo: widget.item.logo, item: widget.item)], 0);
       },
     );
   }
@@ -810,7 +828,7 @@ class _DetailPageState extends State<DetailPage> {
         final queue = <PlayerEntry>[
           for (final s in seasons.entries)
             for (final e in s.value)
-              PlayerEntry(url: e.url, title: '${widget.item.name} S${two(s.key)}E${two(e.number)}', logo: e.image.isNotEmpty ? e.image : widget.item.logo),
+              PlayerEntry(url: e.url, title: '${widget.item.name} S${two(s.key)}E${two(e.number)}', logo: e.image.isNotEmpty ? e.image : widget.item.logo, item: widget.item),
         ];
         final position = <Episode, int>{};
         for (final s in seasons.values) {
@@ -888,7 +906,7 @@ class _DetailPageState extends State<DetailPage> {
         icon: Icons.play_arrow_rounded,
         autofocus: AppSettings.instance.tvMode,
         label: resume == null ? 'Oynat' : 'Devam et ${clockTime(resume)}',
-        onPressed: () => _play([PlayerEntry(url: widget.item.url!, title: widget.item.name, logo: widget.item.logo)], 0),
+        onPressed: () => _play([PlayerEntry(url: widget.item.url!, title: widget.item.name, logo: widget.item.logo, item: widget.item)], 0),
       );
     }
     final duration = minutesLabel(details.duration);

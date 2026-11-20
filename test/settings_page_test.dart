@@ -4,6 +4,7 @@ import 'package:iptv_app/src/settings.dart';
 import 'package:iptv_app/src/settings_page.dart';
 import 'package:iptv_app/src/ui/app_theme.dart';
 import 'package:iptv_app/src/ui/controls.dart';
+import 'package:iptv_app/src/ui_scale.dart';
 import 'package:iptv_app/src/xtream.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -73,5 +74,113 @@ void main() {
     tester.view.physicalSize = const Size(800, 600);
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('hides Kısayollar and TV mode on iOS while keeping phone remote', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    tester.view.physicalSize = const Size(393, 852);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    AppSettings.instance
+      ..tvMode = false
+      ..phoneRemote = false
+      ..uiScale = 1.0
+      ..subtitleScale = 1.0;
+    await tester.pumpWidget(MaterialApp(
+      theme: buildAppTheme().copyWith(platform: TargetPlatform.iOS),
+      home: Scaffold(
+        body: SettingsPage(
+          info: AccountInfo(status: 'Active', maxConnections: 1),
+          account: _acc,
+          client: XtreamClient(_acc),
+          onLogout: () {},
+        ),
+      ),
+    ));
+    await tester.pump();
+    expect(find.text('Kısayollar'), findsNothing);
+    expect(find.text('Tam ekrandan çık / geri'), findsNothing);
+    expect(find.text('Kumanda (TV) modu'), findsNothing);
+    expect(find.text('Telefonu kumanda yap'), findsWidgets);
+    expect(find.text('Telefonla kumanda et'), findsOneWidget);
+  });
+
+  testWidgets('iOS UI scale picker excludes breaking scales and keeps %80/%90/%100', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    tester.view.physicalSize = const Size(393, 852);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    final beforeScale = AppSettings.instance.uiScale;
+    addTearDown(() => AppSettings.instance.uiScale = beforeScale);
+    AppSettings.instance
+      ..tvMode = false
+      ..phoneRemote = false
+      ..uiScale = 1.0;
+    await tester.pumpWidget(MaterialApp(
+      theme: buildAppTheme().copyWith(platform: TargetPlatform.iOS),
+      home: Scaffold(
+        body: SettingsPage(
+          info: AccountInfo(status: 'Active', maxConnections: 1),
+          account: _acc,
+          client: XtreamClient(_acc),
+          onLogout: () {},
+        ),
+      ),
+    ));
+    await tester.pump();
+    await tester.ensureVisible(find.byKey(const ValueKey('setting-uiScale')));
+    await tester.tap(find.byKey(const ValueKey('setting-uiScale')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('%50'), findsNothing);
+    expect(find.text('%60'), findsNothing);
+    expect(find.text('%70'), findsNothing);
+    expect(find.text('%120'), findsNothing);
+    expect(find.text('%140'), findsNothing);
+    expect(find.text('%80'), findsOneWidget);
+    expect(find.text('%90'), findsOneWidget);
+    expect(find.text('%100'), findsWidgets);
+
+    await tester.tap(find.text('%90'));
+    await tester.pumpAndSettle();
+    expect(AppSettings.instance.uiScale, 0.9);
+  });
+
+  testWidgets('subtitle size segmented control writes the setting', (tester) async {
+    await _pumpSettings(tester, cacheSecs: 15);
+    final before = AppSettings.instance.subtitleScale;
+    addTearDown(() => AppSettings.instance.subtitleScale = before);
+    await tester.tap(find.descendant(of: find.byKey(const ValueKey('setting-subtitleScale')), matching: find.text('Büyük')));
+    await tester.pump();
+    expect(AppSettings.instance.subtitleScale, 1.25);
+  });
+
+  testWidgets('iPhone landscape SettingsPage lays out without overflow at 0.8 and 0.9 scale', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    for (final scale in [0.8, 0.9, 1.0]) {
+      tester.view.physicalSize = const Size(852, 393);
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.padding = const FakeViewPadding(top: 0, bottom: 21, left: 59, right: 59);
+      tester.view.viewPadding = const FakeViewPadding(top: 0, bottom: 21, left: 59, right: 59);
+      addTearDown(tester.view.reset);
+      AppSettings.instance
+        ..tvMode = false
+        ..phoneRemote = false
+        ..uiScale = scale;
+      await tester.pumpWidget(MaterialApp(
+        theme: buildAppTheme().copyWith(platform: TargetPlatform.iOS),
+        builder: (_, child) => UiScale(scale: scale, child: child!),
+        home: Scaffold(
+          body: SettingsPage(
+            info: AccountInfo(status: 'Active', maxConnections: 1),
+            account: _acc,
+            client: XtreamClient(_acc),
+            onLogout: () {},
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull, reason: 'overflow at landscape scale $scale');
+    }
   });
 }

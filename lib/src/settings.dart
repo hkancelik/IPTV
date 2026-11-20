@@ -13,6 +13,7 @@ class AppSettings extends ChangeNotifier {
 
   String audioLang = 'auto'; // auto | tr | en
   String subLang = 'off'; // off | tr | en
+  double subtitleScale = 1.0; // subtitle size multiplier: 0.85 | 1.0 | 1.25 | 1.5
   bool hwdec = true;
   int cacheSecs = !kIsWeb && Platform.isAndroid ? 15 : 30;
   int skipSecs = 10;
@@ -31,6 +32,7 @@ class AppSettings extends ChangeNotifier {
     final p = await SharedPreferences.getInstance();
     audioLang = p.getString('audioLang') ?? audioLang;
     subLang = p.getString('subLang') ?? subLang;
+    subtitleScale = p.getDouble('subtitleScale') ?? subtitleScale;
     hwdec = p.getBool('hwdec') ?? hwdec;
     cacheSecs = p.getInt('cacheSecs') ?? cacheSecs;
     skipSecs = p.getInt('skipSecs') ?? skipSecs;
@@ -42,6 +44,10 @@ class AppSettings extends ChangeNotifier {
     phoneRemote = p.getBool('phoneRemote') ?? phoneRemote;
     tvMode = p.getBool('tvMode') ?? tvMode;
     uiScale = p.getDouble('uiScale') ?? uiScale;
+    if (!kIsWeb && Platform.isIOS) {
+      tvMode = false;
+      if (uiScale < 0.8 || uiScale > 1.0) uiScale = 1.0;
+    }
     hiddenGroups = (p.getStringList('hiddenGroups') ?? const <String>[]).toSet();
     try {
       final raw = p.getString('groupOrder');
@@ -54,9 +60,10 @@ class AppSettings extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> update({String? audioLang, String? subLang, bool? hwdec, int? cacheSecs, int? skipSecs, bool? hideAdult, bool? resume, bool? autoNext, bool? autoPipOnLeave, bool? dedupe, bool? tvMode, bool? phoneRemote, double? uiScale, Set<String>? hiddenGroups, Map<String, List<String>>? groupOrder}) async {
+  Future<void> update({String? audioLang, String? subLang, double? subtitleScale, bool? hwdec, int? cacheSecs, int? skipSecs, bool? hideAdult, bool? resume, bool? autoNext, bool? autoPipOnLeave, bool? dedupe, bool? tvMode, bool? phoneRemote, double? uiScale, Set<String>? hiddenGroups, Map<String, List<String>>? groupOrder}) async {
     this.audioLang = audioLang ?? this.audioLang;
     this.subLang = subLang ?? this.subLang;
+    this.subtitleScale = subtitleScale ?? this.subtitleScale;
     this.hwdec = hwdec ?? this.hwdec;
     this.cacheSecs = cacheSecs ?? this.cacheSecs;
     this.skipSecs = skipSecs ?? this.skipSecs;
@@ -74,6 +81,7 @@ class AppSettings extends ChangeNotifier {
     final p = await SharedPreferences.getInstance();
     await p.setString('audioLang', this.audioLang);
     await p.setString('subLang', this.subLang);
+    await p.setDouble('subtitleScale', this.subtitleScale);
     await p.setBool('hwdec', this.hwdec);
     await p.setInt('cacheSecs', this.cacheSecs);
     await p.setInt('skipSecs', this.skipSecs);
@@ -104,6 +112,25 @@ class AppSettings extends ChangeNotifier {
   }
 
   static String groupKey(Kind kind, String group) => '${kind.name}:$group';
+
+  static final subtitleSizeOptions = <double, String>{
+    0.85: 'Küçük',
+    1.0: 'Normal',
+    1.25: 'Büyük',
+    1.5: 'Çok büyük',
+  };
+
+  static final iosUiScaleOptions = <double, String>{0.8: '%80', 0.9: '%90', 1.0: '%100'};
+  static final fullUiScaleOptions = <double, String>{
+    0.5: '%50',
+    0.6: '%60',
+    0.7: '%70',
+    0.8: '%80',
+    0.9: '%90',
+    1.0: '%100',
+    1.2: '%120',
+    1.4: '%140',
+  };
 
   static final adultPattern = RegExp(r'(adult|xxx|18\+|porn|nsfw)', caseSensitive: false);
 }

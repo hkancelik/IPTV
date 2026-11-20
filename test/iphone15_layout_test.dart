@@ -768,5 +768,43 @@ void main() {
       expect(movieViews.any((v) => v.viewType == 'iptv/liquid_glass_menu'), isTrue);
       expect(t.takeException(), isNull);
     });
+
+    test('PlayerPage.subtitleConfigurationFor keeps subtitles legible without 1080p downscaling on iPhone', () {
+      final portraitCfg = PlayerPage.subtitleConfigurationFor(
+        mode: AppLayoutMode.phonePortrait,
+        viewport: _iphone15Portrait,
+        safePadding: const EdgeInsets.only(top: 59, bottom: 34),
+      );
+      expect(portraitCfg.textScaler, TextScaler.noScaling);
+      expect(portraitCfg.style.fontSize, greaterThanOrEqualTo(15));
+      expect(portraitCfg.style.shadows, isNotEmpty);
+
+      final landscapeCfg = PlayerPage.subtitleConfigurationFor(
+        mode: AppLayoutMode.phoneLandscape,
+        viewport: _iphone15Landscape,
+        safePadding: const EdgeInsets.only(left: 59, right: 59, bottom: 21),
+      );
+      expect(landscapeCfg.textScaler, TextScaler.noScaling);
+      expect(landscapeCfg.style.fontSize, greaterThanOrEqualTo(20));
+      expect(landscapeCfg.padding.bottom, greaterThanOrEqualTo(33));
+      expect(landscapeCfg.padding.left, greaterThanOrEqualTo(71));
+
+      final largeCfg = PlayerPage.subtitleConfigurationFor(
+        mode: AppLayoutMode.phoneLandscape,
+        viewport: _iphone15Landscape,
+        safePadding: const EdgeInsets.only(left: 59, right: 59, bottom: 21),
+        subtitleScale: 1.5,
+      );
+      expect(largeCfg.style.fontSize!, closeTo(landscapeCfg.style.fontSize! * 1.5, 0.01));
+
+      final tvCfg = PlayerPage.subtitleConfigurationFor(
+        mode: AppLayoutMode.desktop,
+        viewport: const Size(1280, 720),
+        safePadding: EdgeInsets.zero,
+        tvMode: true,
+      );
+      expect(tvCfg.textScaler, TextScaler.noScaling);
+      expect(tvCfg.style.fontSize, 32.0);
+    });
   });
 }

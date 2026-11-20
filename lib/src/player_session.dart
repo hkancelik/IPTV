@@ -11,7 +11,7 @@ import 'xtream.dart';
 
 /// One playable thing: a channel, a movie or an episode.
 class PlayerEntry {
-  const PlayerEntry({required this.url, required this.title, this.logo = '', this.group, this.epg});
+  const PlayerEntry({required this.url, required this.title, this.logo = '', this.group, this.epg, this.item});
 
   final String url;
   final String title;
@@ -22,6 +22,9 @@ class PlayerEntry {
 
   /// Loads now/next programmes (live channels only).
   final Future<List<Programme>> Function()? epg;
+
+  /// Backing catalog item (movie or parent series) for navigating to [DetailPage].
+  final Item? item;
 }
 
 /// Persistent playback session that stays alive across Full Player, the iPhone
@@ -44,6 +47,7 @@ class PlayerSession extends ChangeNotifier with WidgetsBindingObserver {
   int _index = 0;
   Kind _kind = Kind.movie;
   XtreamClient? _client;
+  Item? _resolvedItem;
   Future<List<Programme>>? _epg;
   List<Programme> _resolvedProgrammes = const [];
   BoxFit _fit = BoxFit.contain;
@@ -87,6 +91,10 @@ class PlayerSession extends ChangeNotifier with WidgetsBindingObserver {
   List<Programme> get programmes => _resolvedProgrammes;
 
   PlayerEntry? get entry => _active && _index >= 0 && _index < _queue.length ? _queue[_index] : null;
+  Item? get detailItem => entry?.item ?? _resolvedItem;
+  void cacheDetailItem(Item item) {
+    _resolvedItem = item;
+  }
   bool get hasNext => _active && _index < _queue.length - 1;
   bool get hasPrev => _active && _index > 0;
   bool get isPlaying => _debugPreview ? _debugPlaying : (_player?.state.playing ?? false);
@@ -141,6 +149,7 @@ class PlayerSession extends ChangeNotifier with WidgetsBindingObserver {
     _index = index.clamp(0, _queue.length - 1);
     _kind = kind;
     _client = client;
+    _resolvedItem = null;
     _active = true;
     _minimized = false;
     _fit = BoxFit.contain;
@@ -160,7 +169,7 @@ class PlayerSession extends ChangeNotifier with WidgetsBindingObserver {
     }
     if (!_active) return;
 
-    Library.instance.touch(url: e.url, title: e.title, logo: e.logo, kind: _kind);
+    Library.instance.touch(url: e.url, title: e.title, logo: e.logo, kind: _kind, item: e.item);
     notifyListeners();
 
     await _openCurrent();
@@ -292,10 +301,11 @@ class PlayerSession extends ChangeNotifier with WidgetsBindingObserver {
     error.value = null;
     _ignoredError = null;
     _index = i;
+    _resolvedItem = null;
     final e = entry!;
     current.value = e;
     _loadEpg(e);
-    Library.instance.touch(url: e.url, title: e.title, logo: e.logo, kind: _kind);
+    Library.instance.touch(url: e.url, title: e.title, logo: e.logo, kind: _kind, item: e.item);
     notifyListeners();
     await _openCurrent();
     if (!_active) return;
@@ -465,6 +475,7 @@ class PlayerSession extends ChangeNotifier with WidgetsBindingObserver {
     _debugPreview = false;
     _queue = const [];
     _index = 0;
+    _resolvedItem = null;
     _epg = null;
     _resolvedProgrammes = const [];
     error.value = null;
@@ -607,6 +618,7 @@ class PlayerSession extends ChangeNotifier with WidgetsBindingObserver {
     _debugPreview = false;
     _queue = const [];
     _index = 0;
+    _resolvedItem = null;
     _resolvedProgrammes = const [];
     current.value = null;
     error.value = null;

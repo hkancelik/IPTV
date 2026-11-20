@@ -185,6 +185,129 @@ void main() {
     await tester.tap(find.byTooltip('Geri'));
     expect(back, 1);
     expect(find.text('1. sezon 3. bölüm'), findsOneWidget);
+    expect(find.byKey(const ValueKey('player-title-link')), findsNothing);
+  });
+
+  testWidgets('PlayerTitlePill title area opens series page when onTitleTap is provided', (tester) async {
+    var back = 0;
+    var opened = 0;
+    await tester.pumpWidget(_wrap(PlayerTitlePill(
+      onBack: () => back++,
+      onTitleTap: () => opened++,
+      title: 'Loki',
+      subtitle: '1. sezon 1. bölüm',
+    )));
+    await tester.tap(find.byKey(const ValueKey('player-title-link')));
+    await tester.pump();
+    expect(opened, 1);
+    expect(back, 0);
+  });
+
+  testWidgets('PhonePlayerOverlay top-left title pill is tappable for series and inert for movies', (tester) async {
+    tester.view.physicalSize = const Size(375, 211);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    var opened = 0;
+    await tester.pumpWidget(MaterialApp(
+      theme: buildAppTheme().copyWith(platform: TargetPlatform.iOS),
+      home: Scaffold(
+        backgroundColor: Colors.black,
+        body: PhonePlayerOverlay(
+          landscape: false,
+          live: false,
+          playing: true,
+          title: 'Loki Çok Uzun Bir Dizi Başlığı Denemesi',
+          subtitle: '1. sezon 1. bölüm',
+          onTitleTap: () => opened++,
+          onMinimize: () {},
+          onSystemPip: () {},
+          onPlayPause: () {},
+          onToggleOrientation: () {},
+          onToggleFit: () {},
+          coverFit: false,
+        ),
+      ),
+    ));
+
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.byKey(const ValueKey('phone-player-title-pill')));
+    await tester.pump();
+    expect(opened, 1);
+
+    // Movie (onTitleTap == null): no tappable title pill link rendered.
+    await tester.pumpWidget(MaterialApp(
+      theme: buildAppTheme().copyWith(platform: TargetPlatform.iOS),
+      home: Scaffold(
+        backgroundColor: Colors.black,
+        body: PhonePlayerOverlay(
+          landscape: false,
+          live: false,
+          playing: true,
+          title: 'Denk Geliş',
+          onMinimize: () {},
+          onPlayPause: () {},
+          onToggleOrientation: () {},
+          onToggleFit: () {},
+          coverFit: false,
+        ),
+      ),
+    ));
+    expect(find.byKey(const ValueKey('phone-player-title-pill')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('PhonePlayerCompanion header is tappable for series and inert for movies', (tester) async {
+    tester.view.physicalSize = const Size(393, 600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    var opened = 0;
+    await tester.pumpWidget(MaterialApp(
+      theme: buildAppTheme().copyWith(platform: TargetPlatform.iOS),
+      home: Scaffold(
+        body: PhonePlayerCompanion(
+          live: false,
+          title: 'Loki',
+          subtitle: '1. sezon 1. bölüm',
+          onTitleTap: () => opened++,
+          index: 0,
+          queueTitles: const ['Loki S01E01'],
+          audioLabel: 'Otomatik',
+          subtitleLabel: 'Otomatik',
+          coverFit: false,
+          onPickAudio: () {},
+          onPickSubtitle: () {},
+          onToggleOrientation: () {},
+          onToggleFit: () {},
+        ),
+      ),
+    ));
+
+    await tester.tap(find.byKey(const ValueKey('phone-companion-title')));
+    await tester.pump();
+    expect(opened, 1);
+
+    // Movie (onTitleTap == null): header is not clickable.
+    await tester.pumpWidget(MaterialApp(
+      theme: buildAppTheme().copyWith(platform: TargetPlatform.iOS),
+      home: Scaffold(
+        body: PhonePlayerCompanion(
+          live: false,
+          title: 'Denk Geliş',
+          index: 0,
+          queueTitles: const ['Denk Geliş'],
+          audioLabel: 'Otomatik',
+          subtitleLabel: 'Otomatik',
+          coverFit: false,
+          onPickAudio: () {},
+          onPickSubtitle: () {},
+          onToggleOrientation: () {},
+          onToggleFit: () {},
+        ),
+      ),
+    ));
+    expect(find.byKey(const ValueKey('phone-companion-title')), findsNothing);
   });
 
   test('playerTitle splits a series episode into title and season line', () {

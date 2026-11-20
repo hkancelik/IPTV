@@ -3,16 +3,29 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'title_utils.dart';
 import 'xtream.dart';
 
 /// One watched item (a live channel, a movie or a single episode).
 class HistoryEntry {
-  HistoryEntry({required this.url, required this.title, required this.logo, required this.kind, this.positionMs = 0, this.durationMs = 0, required this.updatedMs});
+  HistoryEntry({
+    required this.url,
+    required this.title,
+    required this.logo,
+    required this.kind,
+    this.item,
+    this.positionMs = 0,
+    this.durationMs = 0,
+    required this.updatedMs,
+  });
 
   final String url;
   final String title;
   final String logo;
   final Kind kind;
+
+  /// Backing catalog item (movie or parent series) so detail navigation works without re-querying.
+  Item? item;
   int positionMs;
   int durationMs;
   int updatedMs;
@@ -20,17 +33,36 @@ class HistoryEntry {
   bool get resumable => kind != Kind.live && positionMs >= 20000 && (durationMs == 0 || durationMs - positionMs >= 60000);
   double get progress => durationMs <= 0 ? 0 : (positionMs / durationMs).clamp(0, 1).toDouble();
 
-  Map<String, dynamic> toJson() => {'url': url, 'title': title, 'logo': logo, 'kind': kind.name, 'pos': positionMs, 'dur': durationMs, 'at': updatedMs};
+  Map<String, dynamic> toJson() => {
+        'url': url,
+        'title': title,
+        'logo': logo,
+        'kind': kind.name,
+        if (item != null) 'item': item!.toJson(),
+        'pos': positionMs,
+        'dur': durationMs,
+        'at': updatedMs,
+      };
 
-  factory HistoryEntry.fromJson(Map<String, dynamic> j) => HistoryEntry(
-        url: j['url'] as String,
-        title: j['title'] as String,
-        logo: (j['logo'] ?? '') as String,
-        kind: Kind.values.byName(j['kind'] as String),
-        positionMs: (j['pos'] ?? 0) as int,
-        durationMs: (j['dur'] ?? 0) as int,
-        updatedMs: (j['at'] ?? 0) as int,
-      );
+  factory HistoryEntry.fromJson(Map<String, dynamic> j) {
+    Item? item;
+    final rawItem = j['item'];
+    if (rawItem is Map<String, dynamic>) {
+      try {
+        item = Item.fromJson(rawItem);
+      } catch (_) {}
+    }
+    return HistoryEntry(
+      url: j['url'] as String,
+      title: j['title'] as String,
+      logo: (j['logo'] ?? '') as String,
+      kind: Kind.values.byName(j['kind'] as String),
+      item: item,
+      positionMs: (j['pos'] ?? 0) as int,
+      durationMs: (j['dur'] ?? 0) as int,
+      updatedMs: (j['at'] ?? 0) as int,
+    );
+  }
 }
 
 /// Favorites and watch history of the signed-in account ([use]).
@@ -93,7 +125,16 @@ class Library extends ChangeNotifier {
 
     Map<String, dynamic> playable(Map<String, dynamic> j) {
       final url = j['url'];
-      return url is String ? {...j, 'url': account.fullUrl(account.portableUrl(url))} : j;
+      final rawItem = j['item'];
+      return {
+        ...j,
+        if (url is String) 'url': account.fullUrl(account.portableUrl(url)),
+        if (rawItem is Map<String, dynamic>)
+          'item': {
+            ...rawItem,
+            if (rawItem['url'] is String) 'url': account.fullUrl(account.portableUrl(rawItem['url'] as String)),
+          },
+      };
     }
 
     final favorites = [...read(_scoped(_favoritesKey)), ...await claim(_favoritesKey)];
@@ -139,12 +180,36 @@ class Library extends ChangeNotifier {
     return e == null || !e.resumable ? null : Duration(milliseconds: e.positionMs);
   }
 
+  /// Backing catalog item stored for [url], if any.
+  Item? itemFor(String url) => _find(url)?.item;
+
   /// Record that [url] was opened (moves it to the top of the history).
-  Future<void> touch({required String url, required String title, required String logo, required Kind kind}) async {
+  Future<void> touch({required String url, required String title, required String logo, required Kind kind, Item? item}) async {
     final old = _find(url);
     _history.removeWhere((e) => e.url == url);
-    _history.insert(0, HistoryEntry(url: url, title: title, logo: logo, kind: kind, positionMs: old?.positionMs ?? 0, durationMs: old?.durationMs ?? 0, updatedMs: DateTime.now().millisecondsSinceEpoch));
+    _history.insert(
+      0,
+      HistoryEntry(
+        url: url,
+        title: title,
+        logo: logo,
+        kind: kind,
+        item: item ?? old?.item,
+        positionMs: old?.positionMs ?? 0,
+        durationMs: old?.durationMs ?? 0,
+        updatedMs: DateTime.now().millisecondsSinceEpoch,
+      ),
+    );
     if (_history.length > _maxHistory) _history.removeRange(_maxHistory, _history.length);
+    notifyListeners();
+    await _persist();
+  }
+
+  /// Associates a resolved catalog [item] with an existing history entry so future detail opens are instant.
+  Future<void> attachItem(String url, Item item) async {
+    final e = _find(url);
+    if (e == null || e.item?.id == item.id) return;
+    e.item = item;
     notifyListeners();
     await _persist();
   }
@@ -164,7 +229,137 @@ class Library extends ChangeNotifier {
   Future<void> _persist() async {
     final a = _account;
     if (a == null) return;
-    final json = jsonEncode([for (final e in _history) {...e.toJson(), 'url': a.portableUrl(e.url)}]);
+    Map<String, dynamic> portableItem(Item it) => {
+          ...it.toJson(),
+          'url': it.url == null ? null : a.portableUrl(it.url!),
+        };
+    final json = jsonEncode([
+      for (final e in _history)
+        {
+          ...e.toJson(),
+          'url': a.portableUrl(e.url),
+          if (e.item != null) 'item': portableItem(e.item!),
+        },
+    ]);
     await (await SharedPreferences.getInstance()).setString(_scoped(_historyKey), json);
   }
+}
+
+final _episodeSuffixPattern = RegExp(r'\s*S\d+\s*E\d+\s*$', caseSensitive: false);
+final _urlStreamIdPattern = RegExp(r'/(\d+)(?:\.[^/?#]+)?(?:[?#].*)?$');
+
+bool _isValidDetailItem(Kind kind, Item? item) {
+  if (item == null || item.kind != kind) return false;
+  if (kind == Kind.series) return item.seriesId != null;
+  if (kind == Kind.movie) return item.streamId != null && item.url != null;
+  return false;
+}
+
+/// Resolves the catalog [Item] needed to open `DetailPage` for a movie or series playback entry.
+///
+/// Entries saved with an attached [item] return immediately. Legacy history entries without one
+/// reconstruct movies from their Xtream stream ID (preferring favorites/cache when available) and
+/// match series by title against history, favorites, [cachedItems], or [loadCatalog], backfilling
+/// the history record so subsequent taps need no lookup.
+Future<Item?> resolveDetailItem({
+  required Kind kind,
+  required String url,
+  required String title,
+  String logo = '',
+  Item? item,
+  List<Item>? cachedItems,
+  Future<List<Item>> Function()? loadCatalog,
+}) async {
+  if (kind == Kind.live) return null;
+  if (_isValidDetailItem(kind, item)) return item;
+
+  final stored = Library.instance.itemFor(url);
+  if (_isValidDetailItem(kind, stored)) return stored;
+
+  if (kind == Kind.movie) {
+    final match = _urlStreamIdPattern.firstMatch(url);
+    final streamId = match == null ? null : int.tryParse(match.group(1)!);
+
+    Item? pickMovie(Iterable<Item> candidates) {
+      for (final c in candidates) {
+        if (!_isValidDetailItem(Kind.movie, c)) continue;
+        if (c.url == url || (streamId != null && c.streamId == streamId)) return c;
+      }
+      return null;
+    }
+
+    final found = pickMovie(Library.instance.favorites) ?? (cachedItems == null ? null : pickMovie(cachedItems));
+    if (found != null) {
+      await Library.instance.attachItem(url, found);
+      return found;
+    }
+    if (streamId != null) {
+      final built = Item(id: 'm$streamId', name: title, logo: logo, group: '', kind: Kind.movie, url: url);
+      await Library.instance.attachItem(url, built);
+      return built;
+    }
+    if (loadCatalog != null) {
+      try {
+        final loaded = await loadCatalog();
+        final fromCatalog = pickMovie(loaded);
+        if (fromCatalog != null) {
+          await Library.instance.attachItem(url, fromCatalog);
+          return fromCatalog;
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  // Kind.series
+  final rawSeriesName = title.replaceAll(_episodeSuffixPattern, '').trim();
+  final foldedRaw = foldTr(rawSeriesName);
+  final foldedClean = foldTr(parseTitle(rawSeriesName).title.trim());
+
+  Item? pickSeries(Iterable<Item> candidates) {
+    Item? foldedMatch;
+    Item? parsedMatch;
+    for (final c in candidates) {
+      if (!_isValidDetailItem(Kind.series, c)) continue;
+      if (c.name == rawSeriesName) return c;
+      if (foldedMatch == null && foldTr(c.name.trim()) == foldedRaw) {
+        foldedMatch = c;
+      }
+      if (foldTr(parsedTitleOf(c).title.trim()) == foldedClean) {
+        if (parsedMatch == null || (logo.isNotEmpty && c.logo == logo)) {
+          parsedMatch = c;
+        }
+      }
+    }
+    return foldedMatch ?? parsedMatch;
+  }
+
+  final fromHistory = pickSeries(Library.instance.history.map((h) => h.item).whereType<Item>());
+  if (fromHistory != null) {
+    await Library.instance.attachItem(url, fromHistory);
+    return fromHistory;
+  }
+  final fromFavs = pickSeries(Library.instance.favorites);
+  if (fromFavs != null) {
+    await Library.instance.attachItem(url, fromFavs);
+    return fromFavs;
+  }
+  if (cachedItems != null) {
+    final fromCache = pickSeries(cachedItems);
+    if (fromCache != null) {
+      await Library.instance.attachItem(url, fromCache);
+      return fromCache;
+    }
+  }
+  if (loadCatalog != null) {
+    try {
+      final loaded = await loadCatalog();
+      final fromCatalog = pickSeries(loaded);
+      if (fromCatalog != null) {
+        await Library.instance.attachItem(url, fromCatalog);
+        return fromCatalog;
+      }
+    } catch (_) {}
+  }
+  return null;
 }

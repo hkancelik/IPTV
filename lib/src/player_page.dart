@@ -1,10 +1,13 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
+import 'detail_page.dart';
+import 'library.dart';
 import 'player_chrome.dart';
 import 'player_session.dart';
 import 'settings.dart';
@@ -79,6 +82,51 @@ class PlayerPage extends StatefulWidget {
     ]);
   }
 
+  /// Computes legible, non-shrinking subtitle styling and safe-area padding for the current shell.
+  ///
+  /// Explicitly passes [TextScaler.noScaling] because `media_kit_video`'s default
+  /// scaler shrinks font sizes against a 1920x1080 reference, which makes iPhone
+  /// subtitles unreadable (~7 px in landscape, ~3.7 px in portrait).
+  @visibleForTesting
+  static SubtitleViewConfiguration subtitleConfigurationFor({
+    required AppLayoutMode mode,
+    required Size viewport,
+    required EdgeInsets safePadding,
+    double subtitleScale = 1.0,
+    bool tvMode = false,
+  }) {
+    final baseSize = switch (mode) {
+      AppLayoutMode.phonePortrait => (viewport.width * 0.042).clamp(15.0, 18.0),
+      AppLayoutMode.phoneLandscape => (viewport.shortestSide * 0.055).clamp(19.0, 24.0),
+      AppLayoutMode.desktop => tvMode ? 32.0 : (viewport.height * 0.036).clamp(20.0, 34.0),
+    };
+    final fontSize = (baseSize * subtitleScale).clamp(13.0, 48.0);
+    final padding = switch (mode) {
+      AppLayoutMode.phonePortrait => const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      AppLayoutMode.phoneLandscape => EdgeInsets.fromLTRB(
+          math.max(24.0, safePadding.left + 12),
+          0,
+          math.max(24.0, safePadding.right + 12),
+          math.max(24.0, safePadding.bottom + 12),
+        ),
+      AppLayoutMode.desktop => const EdgeInsets.fromLTRB(32, 0, 32, 32),
+    };
+    return SubtitleViewConfiguration(
+      style: AppText.label(fontSize, color: AppColors.ink).copyWith(
+        height: 1.35,
+        shadows: const [
+          Shadow(offset: Offset(0, 1.5), blurRadius: 3, color: AppColors.video),
+          Shadow(offset: Offset(1, 0), blurRadius: 2, color: AppColors.video),
+          Shadow(offset: Offset(-1, 0), blurRadius: 2, color: AppColors.video),
+          Shadow(offset: Offset(0, -1), blurRadius: 2, color: AppColors.video),
+          Shadow(blurRadius: 8, color: AppColors.video),
+        ],
+      ),
+      textScaler: TextScaler.noScaling,
+      padding: padding,
+    );
+  }
+
   @override
   State<PlayerPage> createState() => _PlayerPageState();
 }
@@ -91,6 +139,8 @@ class _PlayerPageState extends State<PlayerPage> {
   bool _immersive = false;
   bool _isPhone = false;
   bool _closingExplicitly = false;
+  bool _openingSeries = false;
+  EdgeInsets? _lastSubtitlePadding;
 
   @override
   void initState() {
@@ -151,6 +201,47 @@ class _PlayerPageState extends State<PlayerPage> {
 
   Future<void> _triggerSystemPip() async {
     await _session.startSystemPip();
+  }
+
+  bool get _canOpenSeriesDetail => _session.kind == Kind.series && _session.client != null && _session.entry != null;
+
+  Future<void> _openSeriesDetail() async {
+    if (_openingSeries || !_canOpenSeriesDetail) return;
+    final entry = _session.entry;
+    final client = _session.client;
+    if (entry == null || client == null) return;
+    _openingSeries = true;
+    try {
+      final item = await resolveDetailItem(
+        kind: Kind.series,
+        url: entry.url,
+        title: entry.title,
+        logo: entry.logo,
+        item: _session.detailItem,
+        loadCatalog: client.series,
+      );
+      if (!mounted) return;
+      if (item == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Dizi sayfası bulunamadı')),
+        );
+        return;
+      }
+      _session.cacheDetailItem(item);
+      if (_immersive) _setImmersive(false);
+      SystemChrome.setPreferredOrientations(const []);
+      if (_isPhone) {
+        _session.minimize();
+      }
+      final nav = Navigator.of(context);
+      if (DetailPage.isTopFor(item.id)) {
+        nav.pop();
+      } else {
+        nav.pushReplacement(appRoute(context, (_) => DetailPage(client: client, item: item)));
+      }
+    } finally {
+      _openingSeries = false;
+    }
   }
 
   @override
@@ -259,6 +350,7 @@ class _PlayerPageState extends State<PlayerPage> {
               onToggleFit: _session.toggleFit,
               onToggleOrientation: () => _toggleOrientation(false),
               onCancelCountdown: _session.cancelCountdown,
+              onTitleTap: _canOpenSeriesDetail ? _openSeriesDetail : null,
             ),
           ),
         ],
@@ -270,46 +362,62 @@ class _PlayerPageState extends State<PlayerPage> {
     final queue = _session.queue;
     final idx = _session.index;
     final isPhone = mode != AppLayoutMode.desktop;
-    return Video(
-      key: _videoKey,
-      controller: controller,
-      fit: _session.fit,
-      subtitleViewConfiguration: SubtitleViewConfiguration(
-        style: AppText.label(18, color: AppColors.ink).copyWith(
-          shadows: const [Shadow(blurRadius: 6, color: Colors.black)],
-        ),
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-      ),
-      controls: (state) => _Controls(
-        state: state,
-        player: player,
-        mode: mode,
-        title: entry.title,
-        logo: entry.logo,
-        group: entry.group,
-        index: idx,
-        queue: queue,
-        live: _session.live,
-        error: _session.error,
-        onRetry: _session.retry,
-        epg: entry.epg == null ? null : _session.epg,
-        onPrev: _session.hasPrev ? _session.prev : null,
-        onNext: _session.hasNext ? _session.next : null,
-        onSelectQueue: _session.switchTo,
-        queued: queue.length > 1,
-        countdown: _session.countdown,
-        nextTitle: _session.hasNext ? queue[idx + 1].title : null,
-        prevTitle: _session.hasPrev ? queue[idx - 1].title : null,
-        onCancelCountdown: _session.cancelCountdown,
-        onDigit: _session.live && queue.length > 1 ? _typeDigit : null,
-        coverFit: _session.fit == BoxFit.cover,
-        onToggleFit: _session.toggleFit,
-        onToggleOrientation: () => _toggleOrientation(mode == AppLayoutMode.phoneLandscape),
-        onImmersiveChange: _setImmersive,
-        onMinimize: isPhone ? _minimizeToBar : null,
-        onSystemPip: isPhone && SystemPip.instance.isSupported ? _triggerSystemPip : null,
-        onStopAndClose: isPhone ? _stopAndClose : null,
-      ),
+    final viewport = MediaQuery.sizeOf(context);
+    final safePadding = MediaQuery.paddingOf(context);
+    return ListenableBuilder(
+      listenable: AppSettings.instance,
+      builder: (_, _) {
+        final subConfig = PlayerPage.subtitleConfigurationFor(
+          mode: mode,
+          viewport: viewport,
+          safePadding: safePadding,
+          subtitleScale: AppSettings.instance.subtitleScale,
+          tvMode: AppSettings.instance.tvMode,
+        );
+        if (_lastSubtitlePadding != subConfig.padding) {
+          _lastSubtitlePadding = subConfig.padding;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _videoKey.currentState?.setSubtitleViewPadding(subConfig.padding);
+          });
+        }
+        return Video(
+          key: _videoKey,
+          controller: controller,
+          fit: _session.fit,
+          subtitleViewConfiguration: subConfig,
+          controls: (state) => _Controls(
+            state: state,
+            player: player,
+            mode: mode,
+            title: entry.title,
+            logo: entry.logo,
+            group: entry.group,
+            index: idx,
+            queue: queue,
+            live: _session.live,
+            error: _session.error,
+            onRetry: _session.retry,
+            epg: entry.epg == null ? null : _session.epg,
+            onPrev: _session.hasPrev ? _session.prev : null,
+            onNext: _session.hasNext ? _session.next : null,
+            onSelectQueue: _session.switchTo,
+            queued: queue.length > 1,
+            countdown: _session.countdown,
+            nextTitle: _session.hasNext ? queue[idx + 1].title : null,
+            prevTitle: _session.hasPrev ? queue[idx - 1].title : null,
+            onCancelCountdown: _session.cancelCountdown,
+            onDigit: _session.live && queue.length > 1 ? _typeDigit : null,
+            coverFit: _session.fit == BoxFit.cover,
+            onToggleFit: _session.toggleFit,
+            onToggleOrientation: () => _toggleOrientation(mode == AppLayoutMode.phoneLandscape),
+            onImmersiveChange: _setImmersive,
+            onMinimize: isPhone ? _minimizeToBar : null,
+            onSystemPip: isPhone && SystemPip.instance.isSupported ? _triggerSystemPip : null,
+            onStopAndClose: isPhone ? _stopAndClose : null,
+            onTitleTap: _canOpenSeriesDetail ? _openSeriesDetail : null,
+          ),
+        );
+      },
     );
   }
 }
@@ -373,6 +481,7 @@ class _Controls extends StatefulWidget {
     this.onMinimize,
     this.onSystemPip,
     this.onStopAndClose,
+    this.onTitleTap,
   });
 
   final VideoState state;
@@ -403,6 +512,7 @@ class _Controls extends StatefulWidget {
   final VoidCallback? onMinimize;
   final VoidCallback? onSystemPip;
   final VoidCallback? onStopAndClose;
+  final VoidCallback? onTitleTap;
 
   @override
   State<_Controls> createState() => _ControlsState();
@@ -856,6 +966,7 @@ class _ControlsState extends State<_Controls> {
 
   List<GlassMenuItem> _buildPhoneMenuItems(Tracks t, Track cur, double rate) {
     final autoNext = AppSettings.instance.autoNext;
+    final subScale = AppSettings.instance.subtitleScale;
     final audioChildren = [
       for (var i = 0; i < t.audio.length; i++)
         GlassMenuItem(
@@ -870,6 +981,14 @@ class _ControlsState extends State<_Controls> {
           id: 'sub:$i',
           title: _trackLabel(t.subtitle[i].id, t.subtitle[i].title, t.subtitle[i].language),
           selected: t.subtitle[i] == cur.subtitle,
+        ),
+    ];
+    final subSizeChildren = [
+      for (final e in AppSettings.subtitleSizeOptions.entries)
+        GlassMenuItem(
+          id: 'subsize:${e.key}',
+          title: e.value,
+          selected: (e.key - subScale).abs() < 0.01,
         ),
     ];
     final rateChildren = [
@@ -890,7 +1009,7 @@ class _ControlsState extends State<_Controls> {
           icon: Icons.audiotrack_rounded,
           children: audioChildren,
         ),
-      if (subChildren.isNotEmpty)
+      if (subChildren.isNotEmpty) ...[
         GlassMenuItem(
           id: 'menu-sub',
           title: 'Altyazı',
@@ -899,6 +1018,15 @@ class _ControlsState extends State<_Controls> {
           icon: Icons.subtitles_rounded,
           children: subChildren,
         ),
+        GlassMenuItem(
+          id: 'menu-sub-size',
+          title: 'Altyazı boyutu',
+          subtitle: AppSettings.subtitleSizeOptions[subScale] ?? 'Normal',
+          sfSymbol: 'textformat.size',
+          icon: Icons.format_size_rounded,
+          children: subSizeChildren,
+        ),
+      ],
       if (!widget.live)
         GlassMenuItem(
           id: 'menu-rate',
@@ -968,6 +1096,12 @@ class _ControlsState extends State<_Controls> {
         final track = t.subtitle[idx];
         p.setSubtitleTrack(track);
         _flash('Altyazı: ${_trackLabel(track.id, track.title, track.language)}');
+      }
+    } else if (id.startsWith('subsize:')) {
+      final v = double.tryParse(id.substring(8));
+      if (v != null) {
+        AppSettings.instance.update(subtitleScale: v);
+        _flash('Altyazı boyutu: ${AppSettings.subtitleSizeOptions[v] ?? 'Normal'}');
       }
     } else if (id.startsWith('rate:')) {
       final r = double.tryParse(id.substring(5));
@@ -1219,6 +1353,7 @@ class _ControlsState extends State<_Controls> {
                                         playing: playingSnap.data ?? p.state.playing,
                                         title: title,
                                         subtitle: sub,
+                                        onTitleTap: widget.onTitleTap,
                                         onBack: () => Navigator.of(context).maybePop(),
                                         onMinimize: widget.onMinimize,
                                         onSystemPip: widget.onSystemPip,
@@ -1356,7 +1491,17 @@ class _ControlsState extends State<_Controls> {
         right: 160,
         child: Align(
           alignment: Alignment.centerLeft,
-          child: PlayerTitlePill(onBack: () => Navigator.of(context).maybePop(), title: title, subtitle: sub),
+          child: PlayerTitlePill(
+            onBack: () => Navigator.of(context).maybePop(),
+            title: title,
+            subtitle: sub,
+            onTitleTap: widget.onTitleTap == null
+                ? null
+                : () {
+                    if (widget.state.isFullscreen()) widget.state.exitFullscreen();
+                    widget.onTitleTap!();
+                  },
+          ),
         ),
       ),
       const Positioned(right: 28, top: 30, child: ClockPill()),
@@ -1674,6 +1819,7 @@ class _PhoneCompanionHost extends StatelessWidget {
     required this.onToggleFit,
     required this.onToggleOrientation,
     required this.onCancelCountdown,
+    this.onTitleTap,
   });
 
   final Player player;
@@ -1687,6 +1833,7 @@ class _PhoneCompanionHost extends StatelessWidget {
   final VoidCallback onToggleFit;
   final VoidCallback onToggleOrientation;
   final VoidCallback onCancelCountdown;
+  final VoidCallback? onTitleTap;
 
   Future<void> _pickSheet<T>(BuildContext context, String title, List<T> options, T current, String Function(T) label, void Function(T) set) async {
     final choice = await showAppSheet<T>(
@@ -1739,6 +1886,7 @@ class _PhoneCompanionHost extends StatelessWidget {
                 live: live,
                 title: title,
                 subtitle: sub,
+                onTitleTap: onTitleTap,
                 logo: entry.logo,
                 index: index,
                 programmes: epgSnap.data ?? const [],

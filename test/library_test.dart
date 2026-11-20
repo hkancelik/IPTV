@@ -114,4 +114,90 @@ void main() {
 
     expect(lib.positionFor(url), isNull);
   });
+
+  test('history item metadata persists across password changes without storing the password', () async {
+    SharedPreferences.setMockInitialValues({});
+    await lib.use(_a);
+    final movie = _movie(_a, 7);
+    final series = Item(id: 's42', name: 'Loki', logo: 'http://img/loki.jpg', group: 'Diziler', kind: Kind.series, seriesId: 42);
+    final epUrl = '${_a.host}/series/${_a.username}/${_a.password}/901.mkv';
+
+    await lib.touch(url: movie.url!, title: movie.name, logo: movie.logo, kind: Kind.movie, item: movie);
+    await lib.touch(url: epUrl, title: 'Loki S01E01', logo: '', kind: Kind.series, item: series);
+
+    final stored = await _stored();
+    expect(stored, isNot(contains('secret-a')));
+
+    // Re-touching without item preserves the attached series item.
+    await lib.touch(url: epUrl, title: 'Loki S01E01', logo: '', kind: Kind.series);
+    expect(lib.itemFor(epUrl)?.seriesId, 42);
+
+    // Reloading with a new password restores both items and updates portable URLs.
+    await lib.use(Account(name: 'Ev', host: 'http://a.example:8080', username: 'ua', password: 'new-pass'));
+    final restoredMovie = lib.itemFor('http://a.example:8080/movie/ua/new-pass/7.mkv');
+    expect(restoredMovie?.id, 'm7');
+    expect(restoredMovie?.url, 'http://a.example:8080/movie/ua/new-pass/7.mkv');
+    final restoredSeries = lib.itemFor('http://a.example:8080/series/ua/new-pass/901.mkv');
+    expect(restoredSeries?.id, 's42');
+    expect(restoredSeries?.seriesId, 42);
+  });
+
+  test('resolveDetailItem resolves legacy movies from stream ID and legacy series from catalog with backfill', () async {
+    SharedPreferences.setMockInitialValues({});
+    await lib.use(_a);
+
+    // Legacy movie history entry (no item attached)
+    final movieUrl = '${_a.host}/movie/${_a.username}/${_a.password}/55.mkv';
+    await lib.touch(url: movieUrl, title: 'Denk Geliş |2021| TR-EN.', logo: 'http://img/dg.jpg', kind: Kind.movie);
+    var catalogCalls = 0;
+    final resolvedMovie = await resolveDetailItem(
+      kind: Kind.movie,
+      url: movieUrl,
+      title: 'Denk Geliş |2021| TR-EN.',
+      logo: 'http://img/dg.jpg',
+      loadCatalog: () async {
+        catalogCalls++;
+        return const [];
+      },
+    );
+    expect(resolvedMovie?.id, 'm55');
+    expect(resolvedMovie?.streamId, 55);
+    expect(catalogCalls, 0);
+    expect(lib.itemFor(movieUrl)?.id, 'm55');
+
+    // Legacy series history entry (no item attached)
+    final epUrl = '${_a.host}/series/${_a.username}/${_a.password}/801.mkv';
+    await lib.touch(url: epUrl, title: 'Loki S01E01', logo: '', kind: Kind.series);
+    final loki = Item(id: 's99', name: 'Loki', logo: 'http://img/loki.jpg', group: 'Marvel', kind: Kind.series, seriesId: 99);
+    final resolvedSeries = await resolveDetailItem(
+      kind: Kind.series,
+      url: epUrl,
+      title: 'Loki S01E01',
+      loadCatalog: () async {
+        catalogCalls++;
+        return [loki];
+      },
+    );
+    expect(resolvedSeries?.seriesId, 99);
+    expect(catalogCalls, 1);
+
+    // Second lookup uses the backfilled item on Library without calling loadCatalog again.
+    final resolvedAgain = await resolveDetailItem(
+      kind: Kind.series,
+      url: epUrl,
+      title: 'Loki S01E01',
+      loadCatalog: () async {
+        catalogCalls++;
+        return [loki];
+      },
+    );
+    expect(resolvedAgain?.seriesId, 99);
+    expect(catalogCalls, 1);
+
+    // Live channels return null.
+    expect(
+      await resolveDetailItem(kind: Kind.live, url: '${_a.host}/live/${_a.username}/${_a.password}/1.ts', title: 'TRT 1'),
+      isNull,
+    );
+  });
 }
