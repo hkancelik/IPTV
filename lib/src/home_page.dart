@@ -1,12 +1,15 @@
+import 'dart:async';
 import 'dart:math' show max;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'catalog_cache.dart';
 import 'detail_page.dart';
 import 'downloads.dart';
 import 'downloads_page.dart';
 import 'epg_widgets.dart';
+import 'global_search_page.dart';
 import 'library.dart';
 import 'mini_player.dart';
 import 'player_chrome.dart';
@@ -44,12 +47,19 @@ const _favoritesTab = 4;
 const _settingsTab = 5;
 const _downloadsTab = 6;
 
+class _CatalogSignal extends ChangeNotifier {
+  void bump() => notifyListeners();
+}
+
 class _HomePageState extends State<HomePage> {
   int _tab = 0;
   int _lastMainTab = 0;
   final Map<Kind, List<Item>> _items = {};
   final Map<Kind, String?> _errors = {};
   final Set<Kind> _loading = {};
+  final Set<Kind> _refreshing = {};
+  final Map<Kind, DateTime> _cachedAt = {};
+  final _CatalogSignal _catalogSignal = _CatalogSignal();
   String? _group;
   String _query = '';
   String _groupQuery = ''; // filters the category sidebar
@@ -69,30 +79,145 @@ class _HomePageState extends State<HomePage> {
   void didUpdateWidget(HomePage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.account.key != widget.account.key) {
+      _items.clear();
+      _errors.clear();
+      _loading.clear();
+      _refreshing.clear();
+      _cachedAt.clear();
+      _view = null;
+      _catalogSignal.bump();
       DownloadManager.instance.setAccount(widget.account);
     }
   }
 
-  Future<void> _ensureLoaded(Kind kind) async {
-    if (_items.containsKey(kind) || _loading.contains(kind)) return;
-    setState(() {
+  @override
+  void dispose() {
+    _catalogSignal.dispose();
+    super.dispose();
+  }
+
+  Future<void> _ensureLoaded(Kind kind, {bool forceRefresh = false}) async {
+    if (!forceRefresh && (_items.containsKey(kind) || _loading.contains(kind))) return;
+    if (forceRefresh && (_loading.contains(kind) || _refreshing.contains(kind))) return;
+
+    final account = widget.account;
+
+    // Fast path: hydrate immediately from compressed disk cache when available.
+    if (!forceRefresh && !_items.containsKey(kind) && CatalogCache.instance.isEnabled) {
       _loading.add(kind);
-      _errors[kind] = null;
-    });
+      final snapshot = await CatalogCache.instance.read(account, kind);
+      if (!mounted || widget.account.key != account.key) return;
+      if (snapshot != null) {
+        setState(() {
+          _loading.remove(kind);
+          _items[kind] = snapshot.items;
+          _cachedAt[kind] = snapshot.savedAt;
+          _errors[kind] = null;
+        });
+        _catalogSignal.bump();
+        if (!snapshot.isFresh(CatalogCache.defaultFreshTtl)) {
+          unawaited(_fetchFromNetwork(kind, account, background: true, userTriggered: false));
+        }
+        return;
+      }
+      _loading.remove(kind);
+    }
+
+    final background = forceRefresh && _items.containsKey(kind);
+    await _fetchFromNetwork(kind, account, background: background, userTriggered: forceRefresh);
+  }
+
+  Future<void> _fetchFromNetwork(
+    Kind kind,
+    Account account, {
+    required bool background,
+    required bool userTriggered,
+  }) async {
+    if (background) {
+      if (_refreshing.contains(kind)) return;
+      setState(() => _refreshing.add(kind));
+    } else {
+      if (_loading.contains(kind)) return;
+      setState(() {
+        _loading.add(kind);
+        _errors[kind] = null;
+      });
+    }
+    _catalogSignal.bump();
+
     try {
       final c = widget.client;
-      _items[kind] = switch (kind) {
+      final fetched = switch (kind) {
         Kind.live => await c.live(),
         Kind.movie => await c.movies(),
         Kind.series => await c.series(),
       };
+      if (!mounted || widget.account.key != account.key) return;
+      final now = DateTime.now();
+      setState(() {
+        _items[kind] = fetched;
+        _cachedAt[kind] = now;
+        _errors[kind] = null;
+      });
+      unawaited(CatalogCache.instance.write(account, kind, fetched, now: now));
     } on XtreamException catch (e) {
-      _errors[kind] = e.message;
+      if (!mounted || widget.account.key != account.key) return;
+      if (background) {
+        if (userTriggered) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Liste yenilenemedi: ${e.message}')));
+        }
+      } else {
+        _errors[kind] = e.message;
+      }
     } catch (e) {
-      _errors[kind] = 'Liste yüklenemedi: $e';
+      if (!mounted || widget.account.key != account.key) return;
+      if (background) {
+        if (userTriggered) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Liste yenilenemedi: $e')));
+        }
+      } else {
+        _errors[kind] = 'Liste yüklenemedi: $e';
+      }
     } finally {
-      if (mounted) setState(() => _loading.remove(kind));
+      if (mounted) {
+        setState(() {
+          _loading.remove(kind);
+          _refreshing.remove(kind);
+        });
+        _catalogSignal.bump();
+      }
     }
+  }
+
+  void _onCatalogCacheCleared() {
+    setState(() {
+      _items.clear();
+      _cachedAt.clear();
+      _errors.clear();
+      _view = null;
+    });
+    _catalogSignal.bump();
+  }
+
+  void _openGlobalSearch([String initialQuery = '']) {
+    Navigator.of(context).push(
+      appRoute(
+        context,
+        (_) => GlobalSearchPage(
+          account: widget.account,
+          client: widget.client,
+          epg: _epg,
+          catalogListenable: _catalogSignal,
+          itemsFor: (k) => _items[k] ?? const <Item>[],
+          isLoading: (k) => _loading.contains(k),
+          errorFor: (k) => _errors[k],
+          ensureLoaded: (k) => _ensureLoaded(k),
+          isAllowed: _allowed,
+          onPlayLive: _playLiveFromQueue,
+          initialQuery: initialQuery,
+        ),
+      ),
+    );
   }
 
   void _select(int tab) {
@@ -125,6 +250,11 @@ class _HomePageState extends State<HomePage> {
     } else if (_tab == _favoritesTab || _tab == _homeTab) {
       list = Library.instance.favorites.where(_allowed).where((i) => i.kind == Kind.live).toList();
     }
+    _playLiveFromQueue(item, list);
+  }
+
+  void _playLiveFromQueue(Item item, List<Item> queue) {
+    var list = queue;
     var index = list.indexWhere((i) => i.id == item.id);
     if (index < 0) {
       list = [item];
@@ -561,13 +691,19 @@ class _HomePageState extends State<HomePage> {
             }
           },
           child: switch (mode) {
-            AppLayoutMode.desktop => Scaffold(
-                body: Row(
-                  children: [
-                    SideMenu(selected: _tab, onSelect: _select, accountName: widget.account.name, onAccount: _logout),
-                    const SizedBox(width: 8),
-                    Expanded(child: _content()),
-                  ],
+            AppLayoutMode.desktop => CallbackShortcuts(
+                bindings: {
+                  const SingleActivator(LogicalKeyboardKey.keyK, control: true): _openGlobalSearch,
+                  const SingleActivator(LogicalKeyboardKey.keyK, meta: true): _openGlobalSearch,
+                },
+                child: Scaffold(
+                  body: Row(
+                    children: [
+                      SideMenu(selected: _tab, onSelect: _select, accountName: widget.account.name, onAccount: _logout),
+                      const SizedBox(width: 8),
+                      Expanded(child: _content()),
+                    ],
+                  ),
                 ),
               ),
             AppLayoutMode.phonePortrait => Scaffold(
@@ -719,6 +855,62 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  Widget _refreshCatalogButton(Kind kind, {double height = AppSizes.buttonHeight}) {
+    final busy = _refreshing.contains(kind) || _loading.contains(kind);
+    return AppButton(
+      key: const ValueKey('refresh-catalog'),
+      variant: AppButtonVariant.onPage,
+      height: height,
+      width: height,
+      tooltip: busy ? 'Yenileniyor...' : 'Listeyi yenile',
+      icon: busy ? null : Icons.refresh_rounded,
+      onPressed: busy ? null : () => _ensureLoaded(kind, forceRefresh: true),
+      child: busy
+          ? const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.ink2),
+            )
+          : null,
+    );
+  }
+
+  Widget _phoneHomeSearchTrigger() => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        child: GestureDetector(
+          key: const ValueKey('global-search-button'),
+          behavior: HitTestBehavior.opaque,
+          onTap: () {
+            AppHaptics.selection(context);
+            _openGlobalSearch();
+          },
+          child: Container(
+            height: 44,
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: AppColors.line),
+              boxShadow: AppShadows.chip,
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.search_rounded, size: 18, color: AppColors.ink2),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Kanal, film veya dizi ara...',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppText.meta(14.5),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+
   Widget _phonePortraitContent() {
     if (_tab == _homeTab) {
       return Column(
@@ -728,6 +920,7 @@ class _HomePageState extends State<HomePage> {
             title: '${greeting(DateTime.now())}, ${widget.account.name}',
             actions: _phoneHeaderEndActions(),
           ),
+          _phoneHomeSearchTrigger(),
           Expanded(child: _phoneHomeView(landscape: false)),
         ],
       );
@@ -743,6 +936,7 @@ class _HomePageState extends State<HomePage> {
               account: widget.account,
               client: widget.client,
               onLogout: _logout,
+              onCatalogCacheCleared: _onCatalogCacheCleared,
             ),
           ),
         ],
@@ -812,6 +1006,8 @@ class _HomePageState extends State<HomePage> {
                 const SizedBox(width: 8),
                 _phoneSortButton(height: 44),
               ],
+              const SizedBox(width: 8),
+              _refreshCatalogButton(kind, height: 44),
             ],
           ),
         ),
@@ -833,7 +1029,18 @@ class _HomePageState extends State<HomePage> {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          PhoneTopBar(title: '${greeting(DateTime.now())}, ${widget.account.name}', landscape: true),
+          PhoneTopBar(
+            title: '${greeting(DateTime.now())}, ${widget.account.name}',
+            landscape: true,
+            actions: [
+              PhoneIconButton(
+                key: const ValueKey('global-search-button'),
+                icon: Icons.search_rounded,
+                tooltip: 'Kanal, film veya dizi ara',
+                onTap: _openGlobalSearch,
+              ),
+            ],
+          ),
           Expanded(child: _phoneHomeView(landscape: true)),
         ],
       );
@@ -849,6 +1056,7 @@ class _HomePageState extends State<HomePage> {
               account: widget.account,
               client: widget.client,
               onLogout: _logout,
+              onCatalogCacheCleared: _onCatalogCacheCleared,
             ),
           ),
         ],
@@ -921,6 +1129,7 @@ class _HomePageState extends State<HomePage> {
           actions: [
             SearchField(key: ValueKey('search$_tab'), hint: hint, width: 200, onChanged: (v) => setState(() => _query = v)),
             if (kind != Kind.live) _phoneSortButton(height: 40),
+            _refreshCatalogButton(kind, height: 40),
           ],
         ),
         Expanded(
@@ -1345,12 +1554,34 @@ class _HomePageState extends State<HomePage> {
 
   Widget _content() {
     if (_tab == _homeTab) {
-      return _page(PageHeader(title: '${greeting(DateTime.now())}, ${widget.account.name}', actions: const [ClockPill()]), _homeView());
+      return _page(
+        PageHeader(
+          title: '${greeting(DateTime.now())}, ${widget.account.name}',
+          actions: [
+            AppButton(
+              key: const ValueKey('global-search-button'),
+              variant: AppButtonVariant.onPage,
+              icon: Icons.search_rounded,
+              label: 'Ara',
+              tooltip: 'Kanal, film ve dizi ara (Ctrl+K)',
+              onPressed: _openGlobalSearch,
+            ),
+            const ClockPill(),
+          ],
+        ),
+        _homeView(),
+      );
     }
     if (_tab == _settingsTab) {
       return _page(
         const PageHeader(title: 'Ayarlar', actions: [ClockPill()]),
-        SettingsPage(info: widget.info, account: widget.account, client: widget.client, onLogout: _logout),
+        SettingsPage(
+          info: widget.info,
+          account: widget.account,
+          client: widget.client,
+          onLogout: _logout,
+          onCatalogCacheCleared: _onCatalogCacheCleared,
+        ),
       );
     }
     if (_tab == _downloadsTab) {
@@ -1389,7 +1620,11 @@ class _HomePageState extends State<HomePage> {
     };
 
     return _page(
-      PageHeader(title: title, subtitle: ready ? subtitle : null, actions: [_searchField(hint), if (kind != Kind.live) _sortButton(), const ClockPill()]),
+      PageHeader(
+        title: title,
+        subtitle: ready ? subtitle : null,
+        actions: [_searchField(hint), if (kind != Kind.live) _sortButton(), _refreshCatalogButton(kind), const ClockPill()],
+      ),
       Padding(
         padding: const EdgeInsets.only(left: AppSizes.scrollPad),
         child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -1746,7 +1981,25 @@ class _HomePageState extends State<HomePage> {
         ),
       );
     }
-    if (shown.isEmpty) return Center(child: Text('Sonuç yok', style: AppText.meta(15)));
+    if (shown.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('Sonuç yok', style: AppText.meta(15)),
+            if (_query.trim().isNotEmpty) ...[
+              const SizedBox(height: 12),
+              AppButton(
+                key: const ValueKey('widen-to-global-search'),
+                icon: Icons.search_rounded,
+                label: 'Tüm katalogda ara',
+                onPressed: () => _openGlobalSearch(_query),
+              ),
+            ],
+          ],
+        ),
+      );
+    }
     return kind == Kind.live
         ? _liveList(shown, phonePortrait: phonePortrait, phoneLandscape: phoneLandscape)
         : _posterGrid(shown, phonePortrait: phonePortrait, phoneLandscape: phoneLandscape);

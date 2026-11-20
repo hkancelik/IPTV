@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import 'package:qr_flutter/qr_flutter.dart';
 
+import 'catalog_cache.dart';
 import 'downloads.dart';
 import 'phone_remote.dart';
 import 'player_session.dart';
@@ -21,12 +22,20 @@ import 'xtream.dart';
 const _sections = ['Hesap', 'Oynatıcı', 'İçerik', 'Telefonu kumanda yap', 'Görünüm', 'İndirmeler', 'Kısayollar'];
 
 class SettingsPage extends StatefulWidget {
-  const SettingsPage({super.key, required this.info, required this.account, required this.client, required this.onLogout});
+  const SettingsPage({
+    super.key,
+    required this.info,
+    required this.account,
+    required this.client,
+    required this.onLogout,
+    this.onCatalogCacheCleared,
+  });
 
   final XtreamClient client;
   final AccountInfo info;
   final Account account;
   final VoidCallback onLogout;
+  final VoidCallback? onCatalogCacheCleared;
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -37,15 +46,32 @@ class _SettingsPageState extends State<SettingsPage> {
   final _keys = [for (final _ in _sections) GlobalKey()];
   final _scroll = ScrollController();
   bool _jumping = false; // a section key is scrolling: don't let the listener pick another section meanwhile
+  CatalogCacheSummary _cacheSummary = const CatalogCacheSummary(totalBytes: 0, cachedKinds: 0);
 
   @override
   void initState() {
     super.initState();
     _scroll.addListener(_follow);
+    CatalogCache.instance.addListener(_refreshCacheSummary);
+    _refreshCacheSummary();
+  }
+
+  @override
+  void didUpdateWidget(SettingsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.account.key != widget.account.key) {
+      _refreshCacheSummary();
+    }
+  }
+
+  Future<void> _refreshCacheSummary() async {
+    final summary = await CatalogCache.instance.summaryFor(widget.account);
+    if (mounted) setState(() => _cacheSummary = summary);
   }
 
   @override
   void dispose() {
+    CatalogCache.instance.removeListener(_refreshCacheSummary);
     _scroll.dispose();
     super.dispose();
   }
@@ -219,6 +245,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 narrow: portrait && s.hiddenGroups.isNotEmpty,
                 control: s.hiddenGroups.isEmpty ? null : AppButton(label: 'Hepsini göster', onPressed: () => s.update(hiddenGroups: <String>{})),
               ),
+              _catalogCacheRow(narrow: portrait),
             ]),
             _Section(key: _keys[3], title: 'Telefonu kumanda yap', children: [
               _SwitchRow(
@@ -259,6 +286,7 @@ class _SettingsPageState extends State<SettingsPage> {
             ]),
             if (showShortcuts)
               _Section(key: _keys[6], title: 'Kısayollar', children: const [
+                _KeyRow('Ctrl+K', 'Genel arama (tüm katalog)'),
                 _KeyRow('Boşluk', 'Oynat / duraklat'),
                 _KeyRow('← / →', 'Geri / ileri sar'),
                 _KeyRow('↑ / ↓', 'Ses aç / kıs'),
@@ -438,6 +466,32 @@ class _SettingsPageState extends State<SettingsPage> {
     ctrl.dispose();
     if (result == null) return;
     await s.update(downloadDir: result);
+  }
+
+  Widget _catalogCacheRow({required bool narrow}) {
+    final hasCache = _cacheSummary.cachedKinds > 0;
+    final desc = hasCache
+        ? '${_cacheSummary.cachedKinds} liste diskte (${formatBytes(_cacheSummary.totalBytes)})'
+            '${_cacheSummary.newestSavedAt != null ? ' · son güncelleme ${formatCacheAge(_cacheSummary.newestSavedAt!)}' : ''}'
+        : 'Açılışta listeleri hızlandırmak için otomatik olarak diskte saklanır';
+    return _ChoiceRow(
+      title: 'Katalog önbelleği',
+      desc: desc,
+      narrow: narrow && hasCache,
+      control: !hasCache
+          ? null
+          : AppButton(
+              key: const ValueKey('clear-catalog-cache'),
+              label: 'Önbelleği temizle',
+              dense: true,
+              height: 36,
+              onPressed: () async {
+                await CatalogCache.instance.clearAccount(widget.account);
+                widget.onCatalogCacheCleared?.call();
+                await _refreshCacheSummary();
+              },
+            ),
+    );
   }
 
   Widget _downloadsLocationRow(AppSettings s, {required bool isIos, required bool narrow}) {

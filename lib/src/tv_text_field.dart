@@ -15,6 +15,7 @@ class RemoteTextField extends StatefulWidget {
     this.controller,
     this.decoration,
     this.obscureText = false,
+    this.autofocus = false,
     this.keyboardType,
     this.textInputAction,
     this.autocorrect = true,
@@ -26,6 +27,7 @@ class RemoteTextField extends StatefulWidget {
   final TextEditingController? controller;
   final InputDecoration? decoration;
   final bool obscureText;
+  final bool autofocus;
   final TextInputType? keyboardType;
   final TextInputAction? textInputAction;
   final bool autocorrect;
@@ -93,6 +95,7 @@ class _RemoteTextFieldState extends State<RemoteTextField> {
     return TextField(
       controller: widget.controller,
       focusNode: _node,
+      autofocus: !tv && widget.autofocus,
       decoration: widget.decoration,
       obscureText: widget.obscureText,
       keyboardType: widget.keyboardType,
