@@ -108,6 +108,21 @@ class HistoryEntry {
   }
 }
 
+/// Summary returned after merging remote library data during LAN sync.
+class LibraryMergeStats {
+  const LibraryMergeStats({
+    required this.totalFavorites,
+    required this.totalHistory,
+    required this.favoritesChanged,
+    required this.historyChanged,
+  });
+
+  final int totalFavorites;
+  final int totalHistory;
+  final int favoritesChanged;
+  final int historyChanged;
+}
+
 /// Favorites and watch history of the signed-in account ([use]).
 class Library extends ChangeNotifier {
   Library._();
@@ -116,6 +131,8 @@ class Library extends ChangeNotifier {
   static const _maxHistory = 60;
 
   final Map<String, Item> _favorites = {};
+  final Map<String, int> _favoriteAddedAt = {};
+  final Map<String, int> _favoriteRemovedAt = {};
   final List<HistoryEntry> _history = []; // newest first
 
   List<Item> get favorites => _favorites.values.toList();
@@ -132,6 +149,7 @@ class Library extends ChangeNotifier {
   }
 
   static const _favoritesKey = 'favorites';
+  static const _favoritesMetaKey = 'favoritesMeta';
   static const _historyKey = 'history';
 
   Account? _account; // nothing is stored until an account is in use
@@ -141,6 +159,8 @@ class Library extends ChangeNotifier {
   Future<void> use(Account account) async {
     _account = account;
     _favorites.clear();
+    _favoriteAddedAt.clear();
+    _favoriteRemovedAt.clear();
     _history.clear();
     final p = await SharedPreferences.getInstance();
 
@@ -182,6 +202,7 @@ class Library extends ChangeNotifier {
 
     final favorites = [...read(_scoped(_favoritesKey)), ...await claim(_favoritesKey)];
     final history = [...read(_scoped(_historyKey)), ...await claim(_historyKey)];
+    final rawMeta = p.getString(_scoped(_favoritesMetaKey));
     if (_account != account) return; // another account was selected meanwhile
     for (final j in favorites) {
       try {
@@ -190,6 +211,25 @@ class Library extends ChangeNotifier {
       } catch (_) {
         // corrupt entry: skip it
       }
+    }
+    if (rawMeta != null) {
+      try {
+        final meta = jsonDecode(rawMeta);
+        if (meta is Map<String, dynamic>) {
+          final added = meta['added'];
+          if (added is Map) {
+            added.forEach((k, v) {
+              if (k is String && v is int && _favorites.containsKey(k)) _favoriteAddedAt[k] = v;
+            });
+          }
+          final removed = meta['removed'];
+          if (removed is Map) {
+            removed.forEach((k, v) {
+              if (k is String && v is int && !_favorites.containsKey(k)) _favoriteRemovedAt[k] = v;
+            });
+          }
+        }
+      } catch (_) {}
     }
     for (final j in history) {
       try {
@@ -206,7 +246,15 @@ class Library extends ChangeNotifier {
   String _scoped(String key) => '$key:${_account!.key}';
 
   Future<void> toggleFavorite(Item i) async {
-    if (_favorites.remove(i.id) == null) _favorites[i.id] = i;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (_favorites.remove(i.id) == null) {
+      _favorites[i.id] = i;
+      _favoriteAddedAt[i.id] = now;
+      _favoriteRemovedAt.remove(i.id);
+    } else {
+      _favoriteAddedAt.remove(i.id);
+      _favoriteRemovedAt[i.id] = now;
+    }
     notifyListeners();
     await _persistFavorites();
   }
@@ -214,8 +262,13 @@ class Library extends ChangeNotifier {
   Future<void> _persistFavorites() async {
     final a = _account;
     if (a == null) return;
+    final p = await SharedPreferences.getInstance();
     final json = jsonEncode([for (final f in _favorites.values) {...f.toJson(), 'url': f.url == null ? null : a.portableUrl(f.url!)}]);
-    await (await SharedPreferences.getInstance()).setString(_scoped(_favoritesKey), json);
+    await p.setString(_scoped(_favoritesKey), json);
+    await p.setString(
+      _scoped(_favoritesMetaKey),
+      jsonEncode({'added': _favoriteAddedAt, 'removed': _favoriteRemovedAt}),
+    );
   }
 
   Duration? positionFor(String url) {
@@ -262,6 +315,7 @@ class Library extends ChangeNotifier {
       changed = true;
     }
     if (!changed) return;
+    e.updatedMs = DateTime.now().millisecondsSinceEpoch;
     notifyListeners();
     await _persist();
   }
@@ -307,8 +361,182 @@ class Library extends ChangeNotifier {
     final finished = total > Duration.zero && total - position < const Duration(seconds: 60);
     e.positionMs = finished ? 0 : position.inMilliseconds;
     e.durationMs = total.inMilliseconds;
+    e.updatedMs = DateTime.now().millisecondsSinceEpoch;
     notifyListeners();
     await _persist();
+  }
+
+  /// Exports credential-free favorites (with LWW timestamps/tombstones) and watch history for LAN sync.
+  Map<String, dynamic> exportSyncData(Account account) {
+    Map<String, dynamic> portableItem(Item it) => {
+          ...it.toJson(),
+          'url': it.url == null ? null : account.portableUrl(it.url!),
+        };
+    return {
+      'favorites': [
+        for (final f in _favorites.values)
+          {
+            'item': portableItem(f),
+            'at': _favoriteAddedAt[f.id] ?? 0,
+          },
+      ],
+      'removedFavorites': Map<String, int>.from(_favoriteRemovedAt),
+      'history': [
+        for (final e in _history)
+          {
+            ...e.toJson(),
+            'url': account.portableUrl(e.url),
+            if (e.item != null) 'item': portableItem(e.item!),
+          },
+      ],
+    };
+  }
+
+  /// Merges remote credential-free favorites and watch history into the active account using LWW semantics.
+  Future<LibraryMergeStats> mergeSyncData(Account account, Map<String, dynamic> remote) async {
+    if (_account == null || _account!.key != account.key) {
+      await use(account);
+    }
+
+    Map<String, dynamic> hydrateItemJson(Map<String, dynamic> raw) {
+      final url = raw['url'];
+      return {
+        ...raw,
+        if (url is String) 'url': account.fullUrl(account.portableUrl(url)),
+      };
+    }
+
+    var favChanged = 0;
+    final rawFavs = remote['favorites'];
+    final remoteFavItems = <String, ({Item item, int at})>{};
+    if (rawFavs is List) {
+      for (final entry in rawFavs) {
+        if (entry is! Map<String, dynamic>) continue;
+        try {
+          final itemRaw = entry['item'];
+          final itemMap = itemRaw is Map<String, dynamic> ? itemRaw : entry;
+          final item = Item.fromJson(hydrateItemJson(itemMap));
+          final at = entry['at'] is int ? entry['at'] as int : 0;
+          remoteFavItems[item.id] = (item: item, at: at);
+        } catch (_) {}
+      }
+    }
+
+    final remoteRemoved = <String, int>{};
+    final rawRemoved = remote['removedFavorites'];
+    if (rawRemoved is Map) {
+      rawRemoved.forEach((k, v) {
+        if (k is String && v is int) remoteRemoved[k] = v;
+      });
+    }
+
+    final allFavIds = <String>{
+      ..._favorites.keys,
+      ..._favoriteRemovedAt.keys,
+      ...remoteFavItems.keys,
+      ...remoteRemoved.keys,
+    };
+
+    for (final id in allFavIds) {
+      final localItem = _favorites[id];
+      final localAdd = localItem != null ? (_favoriteAddedAt[id] ?? 0) : -1;
+      final localRem = _favoriteRemovedAt[id] ?? -1;
+
+      final remEntry = remoteFavItems[id];
+      final remoteAdd = remEntry != null ? remEntry.at : -1;
+      final remoteRem = remoteRemoved[id] ?? -1;
+
+      final bestAdd = localAdd >= remoteAdd ? localAdd : remoteAdd;
+      final bestRem = localRem >= remoteRem ? localRem : remoteRem;
+
+      if (bestRem > bestAdd) {
+        // Most recent explicit action is a removal.
+        if (_favorites.remove(id) != null) favChanged++;
+        _favoriteAddedAt.remove(id);
+        _favoriteRemovedAt[id] = bestRem;
+      } else if (bestAdd >= 0) {
+        final chosenItem = (remoteAdd > localAdd && remEntry != null)
+            ? remEntry.item
+            : (localItem ?? remEntry?.item);
+        if (chosenItem != null) {
+          if (localItem == null) favChanged++;
+          _favorites[id] = chosenItem;
+          _favoriteAddedAt[id] = bestAdd;
+          _favoriteRemovedAt.remove(id);
+        }
+      }
+    }
+
+    // Merge history keyed by portable URL; newer updatedMs wins while preserving metadata from either side.
+    var histChanged = 0;
+    final byPortable = <String, HistoryEntry>{
+      for (final e in _history) account.portableUrl(e.url): e,
+    };
+
+    final rawHistory = remote['history'];
+    if (rawHistory is List) {
+      for (final raw in rawHistory) {
+        if (raw is! Map<String, dynamic>) continue;
+        try {
+          final rawUrl = raw['url'];
+          if (rawUrl is! String || rawUrl.isEmpty) continue;
+          final portable = account.portableUrl(rawUrl);
+          final rawItem = raw['item'];
+          final hydrated = <String, dynamic>{
+            ...raw,
+            'url': account.fullUrl(portable),
+            if (rawItem is Map<String, dynamic>) 'item': hydrateItemJson(rawItem),
+          };
+          final incoming = HistoryEntry.fromJson(hydrated);
+          final existing = byPortable[portable];
+          if (existing == null) {
+            byPortable[portable] = incoming;
+            histChanged++;
+          } else if (incoming.updatedMs > existing.updatedMs) {
+            incoming.item ??= existing.item;
+            incoming.audioTrack ??= existing.audioTrack;
+            incoming.subtitleTrack ??= existing.subtitleTrack;
+            if (incoming.durationMs <= 0 && existing.durationMs > 0) {
+              incoming.durationMs = existing.durationMs;
+            }
+            byPortable[portable] = incoming;
+            histChanged++;
+          } else {
+            // Keep existing timestamp/position, but backfill any missing metadata from incoming.
+            var backfilled = false;
+            if (existing.item == null && incoming.item != null) {
+              existing.item = incoming.item;
+              backfilled = true;
+            }
+            if (existing.audioTrack == null && incoming.audioTrack != null) {
+              existing.audioTrack = incoming.audioTrack;
+              backfilled = true;
+            }
+            if (existing.subtitleTrack == null && incoming.subtitleTrack != null) {
+              existing.subtitleTrack = incoming.subtitleTrack;
+              backfilled = true;
+            }
+            if (backfilled) histChanged++;
+          }
+        } catch (_) {}
+      }
+    }
+
+    final mergedHistory = byPortable.values.toList()
+      ..sort((a, b) => b.updatedMs.compareTo(a.updatedMs));
+    _history
+      ..clear()
+      ..addAll(mergedHistory.take(_maxHistory));
+
+    notifyListeners();
+    await Future.wait([_persistFavorites(), _persist()]);
+
+    return LibraryMergeStats(
+      totalFavorites: _favorites.length,
+      totalHistory: _history.length,
+      favoritesChanged: favChanged,
+      historyChanged: histChanged,
+    );
   }
 
   Future<void> _persist() async {

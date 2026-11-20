@@ -7,6 +7,8 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import 'catalog_cache.dart';
 import 'downloads.dart';
+import 'lan_sync_dialog.dart';
+import 'library.dart';
 import 'phone_remote.dart';
 import 'player_session.dart';
 import 'settings.dart';
@@ -19,7 +21,7 @@ import 'ui/layout.dart';
 import 'ui/tokens.dart';
 import 'xtream.dart';
 
-const _sections = ['Hesap', 'Oynatıcı', 'İçerik', 'Telefonu kumanda yap', 'Görünüm', 'İndirmeler', 'Kısayollar'];
+const _sections = ['Hesap', 'Oynatıcı', 'İçerik', 'Telefonu kumanda yap', 'Görünüm', 'İndirmeler', 'Eşitleme', 'Kısayollar'];
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({
@@ -108,7 +110,7 @@ class _SettingsPageState extends State<SettingsPage> {
   Widget build(BuildContext context) {
     final s = AppSettings.instance;
     return ListenableBuilder(
-      listenable: Listenable.merge([s, PhoneRemote.instance, PlayerSession.instance, DownloadManager.instance]),
+      listenable: Listenable.merge([s, Library.instance, PhoneRemote.instance, PlayerSession.instance, DownloadManager.instance]),
       builder: (context, _) {
         final mode = layoutModeOf(context);
         final phone = mode != AppLayoutMode.desktop;
@@ -298,8 +300,23 @@ class _SettingsPageState extends State<SettingsPage> {
               _downloadsLocationRow(s, isIos: isIos, narrow: narrow),
               _downloadsStorageRow(narrow: narrow),
             ]),
+            _Section(key: _keys[6], title: 'Eşitleme', children: [
+              _ChoiceRow(
+                title: 'Cihazlar arası yerel ağ eşitleme',
+                desc: 'Favoriler (${Library.instance.favorites.length}), izleme geçmişi (${Library.instance.history.length}), ses/altyazı seçimleri ve kategori düzenini aynı Wi-Fi\'deki PC, iPhone ve TV ile bulutsuz/parolasız birleştir.',
+                narrow: narrow,
+                control: AppButton(
+                  key: const ValueKey('open-lan-sync'),
+                  icon: Icons.sync_rounded,
+                  label: 'Eşitlemeyi aç',
+                  dense: true,
+                  height: 36,
+                  onPressed: () => showLanSyncSheet(context, account: widget.account),
+                ),
+              ),
+            ]),
             if (showShortcuts)
-              _Section(key: _keys[6], title: 'Kısayollar', children: const [
+              _Section(key: _keys[7], title: 'Kısayollar', children: const [
                 _KeyRow('Ctrl+K', 'Genel arama (tüm katalog)'),
                 _KeyRow('Boşluk', 'Oynat / duraklat'),
                 _KeyRow('← / →', 'Geri / ileri sar'),

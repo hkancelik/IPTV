@@ -29,6 +29,7 @@ class AppSettings extends ChangeNotifier {
   String downloadDir = ''; // empty = platform default (PC: ~/Downloads/IPTV, iOS: Documents/IPTV)
   Set<String> hiddenGroups = {}; // "kind:group"
   Map<String, List<String>> groupOrder = {}; // kind name -> category names, user's order
+  int syncUpdatedMs = 0; // timestamp of last change to cross-device syncable settings
 
   Future<void> load() async {
     final p = await SharedPreferences.getInstance();
@@ -48,6 +49,7 @@ class AppSettings extends ChangeNotifier {
     tvMode = p.getBool('tvMode') ?? tvMode;
     uiScale = p.getDouble('uiScale') ?? uiScale;
     downloadDir = p.getString('downloadDir') ?? downloadDir;
+    syncUpdatedMs = p.getInt('syncUpdatedMs') ?? 0;
     if (!kIsWeb && Platform.isIOS) {
       tvMode = false;
       if (uiScale < 0.8 || uiScale > 1.0) uiScale = 1.0;
@@ -65,6 +67,16 @@ class AppSettings extends ChangeNotifier {
   }
 
   Future<void> update({String? audioLang, String? subLang, double? subtitleScale, bool? hwdec, String? deinterlace, int? cacheSecs, int? skipSecs, bool? hideAdult, bool? resume, bool? autoNext, bool? autoPipOnLeave, bool? dedupe, bool? tvMode, bool? phoneRemote, double? uiScale, String? downloadDir, Set<String>? hiddenGroups, Map<String, List<String>>? groupOrder}) async {
+    final syncableChanged = audioLang != null ||
+        subLang != null ||
+        deinterlace != null ||
+        skipSecs != null ||
+        hideAdult != null ||
+        resume != null ||
+        autoNext != null ||
+        dedupe != null ||
+        hiddenGroups != null ||
+        groupOrder != null;
     this.audioLang = audioLang ?? this.audioLang;
     this.subLang = subLang ?? this.subLang;
     this.subtitleScale = subtitleScale ?? this.subtitleScale;
@@ -83,6 +95,9 @@ class AppSettings extends ChangeNotifier {
     this.downloadDir = downloadDir ?? this.downloadDir;
     this.hiddenGroups = hiddenGroups ?? this.hiddenGroups;
     this.groupOrder = groupOrder ?? this.groupOrder;
+    if (syncableChanged) {
+      syncUpdatedMs = DateTime.now().millisecondsSinceEpoch;
+    }
     notifyListeners();
     final p = await SharedPreferences.getInstance();
     await p.setString('audioLang', this.audioLang);
@@ -103,6 +118,82 @@ class AppSettings extends ChangeNotifier {
     await p.setString('downloadDir', this.downloadDir);
     await p.setStringList('hiddenGroups', this.hiddenGroups.toList());
     await p.setString('groupOrder', jsonEncode(this.groupOrder));
+    await p.setInt('syncUpdatedMs', syncUpdatedMs);
+  }
+
+  /// Exports cross-device preferences (excluding device-local flags like tvMode, uiScale, downloadDir).
+  Map<String, dynamic> exportSyncSettings() => {
+        'updatedMs': syncUpdatedMs,
+        'audioLang': audioLang,
+        'subLang': subLang,
+        'deinterlace': deinterlace,
+        'skipSecs': skipSecs,
+        'hideAdult': hideAdult,
+        'resume': resume,
+        'autoNext': autoNext,
+        'dedupe': dedupe,
+        'hiddenGroups': hiddenGroups.toList()..sort(),
+        'groupOrder': {for (final e in groupOrder.entries) e.key: List<String>.from(e.value)},
+      };
+
+  /// Applies remote cross-device preferences when newer than local [syncUpdatedMs].
+  /// Returns true when local settings were updated.
+  Future<bool> mergeSyncSettings(Map<String, dynamic> remote) async {
+    final remoteUpdatedMs = remote['updatedMs'] is int ? remote['updatedMs'] as int : 0;
+    if (remoteUpdatedMs <= 0 || remoteUpdatedMs <= syncUpdatedMs) return false;
+
+    String? pickLang(Object? raw, List<String> allowed) => raw is String && allowed.contains(raw) ? raw : null;
+
+    final nextAudio = pickLang(remote['audioLang'], const ['auto', 'tr', 'en']);
+    final nextSub = pickLang(remote['subLang'], const ['off', 'tr', 'en']);
+    final nextDeint = remote['deinterlace'] is String ? normalizeDeinterlace(remote['deinterlace'] as String) : null;
+    final nextSkip = remote['skipSecs'] is int && (remote['skipSecs'] as int) > 0 ? remote['skipSecs'] as int : null;
+    final nextHideAdult = remote['hideAdult'] is bool ? remote['hideAdult'] as bool : null;
+    final nextResume = remote['resume'] is bool ? remote['resume'] as bool : null;
+    final nextAutoNext = remote['autoNext'] is bool ? remote['autoNext'] as bool : null;
+    final nextDedupe = remote['dedupe'] is bool ? remote['dedupe'] as bool : null;
+
+    Set<String>? nextHidden;
+    if (remote['hiddenGroups'] is List) {
+      nextHidden = {for (final g in remote['hiddenGroups'] as List) if (g is String) g};
+    }
+
+    Map<String, List<String>>? nextOrder;
+    if (remote['groupOrder'] is Map) {
+      nextOrder = <String, List<String>>{};
+      (remote['groupOrder'] as Map).forEach((k, v) {
+        if (k is String && v is List) {
+          nextOrder![k] = [for (final e in v) if (e is String) e];
+        }
+      });
+    }
+
+    audioLang = nextAudio ?? audioLang;
+    subLang = nextSub ?? subLang;
+    deinterlace = nextDeint ?? deinterlace;
+    skipSecs = nextSkip ?? skipSecs;
+    hideAdult = nextHideAdult ?? hideAdult;
+    resume = nextResume ?? resume;
+    autoNext = nextAutoNext ?? autoNext;
+    dedupe = nextDedupe ?? dedupe;
+    hiddenGroups = nextHidden ?? hiddenGroups;
+    groupOrder = nextOrder ?? groupOrder;
+    syncUpdatedMs = remoteUpdatedMs;
+
+    notifyListeners();
+    final p = await SharedPreferences.getInstance();
+    await p.setString('audioLang', audioLang);
+    await p.setString('subLang', subLang);
+    await p.setString('deinterlace', deinterlace);
+    await p.setInt('skipSecs', skipSecs);
+    await p.setBool('hideAdult', hideAdult);
+    await p.setBool('resume', resume);
+    await p.setBool('autoNext', autoNext);
+    await p.setBool('dedupe', dedupe);
+    await p.setStringList('hiddenGroups', hiddenGroups.toList());
+    await p.setString('groupOrder', jsonEncode(groupOrder));
+    await p.setInt('syncUpdatedMs', syncUpdatedMs);
+    return true;
   }
 
   /// mpv `alang` value for the chosen audio language ('' = leave to the file's default).

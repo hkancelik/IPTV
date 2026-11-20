@@ -112,6 +112,24 @@ class RecentSearchStore {
       await p.remove('$_prefix${account.key}');
     } catch (_) {}
   }
+
+  /// Merges [incoming] recent searches with local ones (case/diacritic deduped).
+  static Future<List<String>> merge(Account account, List<String> incoming) async {
+    final current = await load(account);
+    final seen = <String>{};
+    final combined = <String>[];
+    for (final q in [...current, ...incoming]) {
+      final clean = q.trim();
+      if (clean.length < 2) continue;
+      if (seen.add(foldTr(clean))) combined.add(clean);
+      if (combined.length >= maxEntries) break;
+    }
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setStringList('$_prefix${account.key}', combined);
+    } catch (_) {}
+    return combined;
+  }
 }
 
 /// Unified search screen across Canlı TV, Filmler and Diziler.
