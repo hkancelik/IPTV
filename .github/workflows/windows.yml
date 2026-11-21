@@ -16,18 +16,43 @@ jobs:
           cache: true
       - run: flutter pub get
       - run: flutter build windows --release
-      - name: Zip the app
+      - name: Build Windows installer (Inno Setup)
+        shell: pwsh
+        run: |
+          $iscc = (Get-Command iscc -ErrorAction SilentlyContinue)?.Source
+          if (-not $iscc) {
+            $defaultPath = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+            if (Test-Path $defaultPath) {
+              $iscc = $defaultPath
+            } else {
+              choco install innosetup -y --no-progress
+              $iscc = $defaultPath
+            }
+          }
+          $versionLine = (Select-String -Path pubspec.yaml -Pattern '^version:\s*([^\s+]+)').Matches[0].Groups[1].Value
+          & $iscc "/DMyAppVersion=$versionLine" "windows\packaging\installer.iss"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Inno Setup failed with exit code $LASTEXITCODE"
+          }
+          if (-not (Test-Path "build\windows\installer\IPTV-Setup.exe")) {
+            throw "Installer not found: build\windows\installer\IPTV-Setup.exe"
+          }
+      - name: Zip portable build
         shell: pwsh
         run: |
           $releaseDir = "build/windows/x64/runner/Release"
           if (-not (Test-Path $releaseDir)) {
             throw "Release directory not found: $releaseDir"
           }
-          Remove-Item -Recurse -Force -ErrorAction SilentlyContinue staging, iptv-windows.zip
+          Remove-Item -Recurse -Force -ErrorAction SilentlyContinue staging, iptv-windows-portable.zip
           New-Item -ItemType Directory -Force -Path staging/IPTV | Out-Null
           Copy-Item -Recurse -Force "$releaseDir/*" staging/IPTV/
-          Compress-Archive -Path staging/IPTV -DestinationPath iptv-windows.zip -Force
+          Compress-Archive -Path staging/IPTV -DestinationPath iptv-windows-portable.zip -Force
       - uses: actions/upload-artifact@v4
         with:
-          name: iptv-windows
-          path: iptv-windows.zip
+          name: IPTV-Setup
+          path: build/windows/installer/IPTV-Setup.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: iptv-windows-portable
+          path: iptv-windows-portable.zip

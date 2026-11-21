@@ -122,9 +122,12 @@ flutter build linux --release
 flutter pub get
 flutter build windows --release
 # Çıktı: build\windows\x64\runner\Release\iptv_app.exe
+# Kurulum paketi (Inno Setup 6):
+iscc windows\packaging\installer.iss
+# Çıktı: build\windows\installer\IPTV-Setup.exe
 ```
 
-Windows bilgisayarın yoksa GitHub **Actions** sekmesindeki **Windows build** iş akışı taşınabilir `iptv-windows.zip` paketini otomatik olarak derleyip artifact olarak sunar.
+Windows bilgisayarın yoksa GitHub **Actions** sekmesindeki **Windows build** iş akışı hem **`IPTV-Setup.exe`** kurulum paketini hem de taşınabilir `iptv-windows-portable.zip` arşivini otomatik olarak derleyip artifact olarak sunar.
 
 ### Android TV / TV Stick
 
