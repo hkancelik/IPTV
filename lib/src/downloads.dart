@@ -1,14 +1,18 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'download_worker.dart';
 import 'settings.dart';
 import 'title_utils.dart';
 import 'xtream.dart';
+
+export 'download_worker.dart' show DownloadRangeMap, DownloadSpeedMeter, readPersistedDownloadedBytes;
 
 const _userAgent = 'VLC/3.0.20 LibVLC/3.0.20';
 
@@ -35,6 +39,7 @@ class DownloadEntry {
     this.downloadedBytes = 0,
     this.totalBytes = 0,
     this.speedBytesPerSec = 0,
+    this.activeConnections = 1,
     this.error,
     required this.createdMs,
     required this.updatedMs,
@@ -63,6 +68,7 @@ class DownloadEntry {
   int downloadedBytes;
   int totalBytes;
   int speedBytesPerSec; // transient, not persisted
+  int activeConnections; // transient, not persisted
   String? error;
   final int createdMs;
   int updatedMs;
@@ -238,7 +244,13 @@ class DownloadEngineCallbacks {
     required this.onFailed,
   });
 
-  final void Function(String id, int downloadedBytes, int totalBytes, int speedBytesPerSec) onProgress;
+  final void Function(
+    String id,
+    int downloadedBytes,
+    int totalBytes,
+    int speedBytesPerSec, {
+    int activeConnections,
+  }) onProgress;
   final void Function(String id, String filePath, int totalBytes) onCompleted;
   final void Function(String id) onPaused;
   final void Function(String id, String error) onFailed;
@@ -273,6 +285,7 @@ abstract class DownloadEngine {
     required String destinationPath,
     required String userAgent,
     int totalBytes = 0,
+    int maxConnections = 6,
   });
 
   Future<void> pause({required String id, required String destinationPath});
@@ -284,18 +297,26 @@ abstract class DownloadEngine {
   void dispose() {}
 }
 
-/// Pure Dart HTTP download engine for Linux, macOS, Windows and Android.
+/// Pure Dart high-throughput HTTP download engine for Linux, macOS, Windows and Android.
 ///
-/// Writes to `<destination>.part`, supports HTTP `Range` resume when paused or
-/// interrupted, and atomically moves the completed file into place.
+/// Runs adaptive multi-connection HTTP `Range` workers inside a background [Isolate]
+/// with 512 KiB coalesced `RandomAccessFile` writes, persisted `.part.meta` byte-range
+/// resume maps, safe automatic fallback to 1 connection on strict IPTV servers, and
+/// atomic rename on completion.
 class DartDownloadEngine implements DownloadEngine {
-  static const _maxNetworkRetries = 3;
+  static const _defaultMinSegmentedBytes = 2 * 1024 * 1024;
 
   DownloadEngineCallbacks? _cb;
   final Map<String, _DartActiveTask> _tasks = {};
 
   @visibleForTesting
   Duration? debugRetryDelay;
+
+  @visibleForTesting
+  int? debugMinSegmentedBytes;
+
+  @visibleForTesting
+  int? debugChunkSize;
 
   @override
   void bind(DownloadEngineCallbacks callbacks) {
@@ -314,257 +335,111 @@ class DartDownloadEngine implements DownloadEngine {
     required String destinationPath,
     required String userAgent,
     int totalBytes = 0,
+    int maxConnections = 6,
   }) async {
     if (_tasks.containsKey(id)) return;
     final task = _DartActiveTask(id: id, destinationPath: destinationPath);
     _tasks[id] = task;
-    unawaited(_run(task, url, userAgent));
+    unawaited(_spawnWorker(task, url, userAgent, maxConnections));
   }
 
-  /// Opens [uri] following up to 8 HTTP redirects manually so `Range` and
-  /// `User-Agent` headers are always preserved across IPTV cross-host CDN redirects.
-  Future<HttpClientResponse> _getFollowingRedirects(
-    HttpClient client,
-    Uri uri, {
-    required String userAgent,
-    required int existingBytes,
-  }) async {
-    var current = uri;
-    for (var hops = 0; hops < 8; hops++) {
-      final req = await client.getUrl(current);
-      req.followRedirects = false;
-      req.headers.set(HttpHeaders.userAgentHeader, userAgent);
-      if (existingBytes > 0) {
-        req.headers.set(HttpHeaders.rangeHeader, 'bytes=$existingBytes-');
-      }
-      final res = await req.close();
-      final isRedirect = res.statusCode == HttpStatus.movedPermanently ||
-          res.statusCode == HttpStatus.found ||
-          res.statusCode == HttpStatus.seeOther ||
-          res.statusCode == HttpStatus.temporaryRedirect ||
-          res.statusCode == HttpStatus.permanentRedirect;
-      final loc = res.headers.value(HttpHeaders.locationHeader);
-      if (isRedirect && loc != null && loc.isNotEmpty) {
-        await res.drain<void>().catchError((_) {});
-        current = current.resolve(loc);
-        continue;
-      }
-      return res;
+  Future<void> _spawnWorker(
+    _DartActiveTask task,
+    String url,
+    String userAgent,
+    int maxConnections,
+  ) async {
+    final replyPort = ReceivePort();
+    final exitPort = ReceivePort();
+    task.replyPort = replyPort;
+    task.exitPort = exitPort;
+
+    void finishTask() {
+      if (task.done.isCompleted) return;
+      _tasks.remove(task.id);
+      replyPort.close();
+      exitPort.close();
+      task.done.complete();
     }
-    throw const _FatalHttpException('Çok fazla yönlendirme (redirect) alındı');
-  }
 
-  Future<void> _run(_DartActiveTask task, String url, String userAgent) async {
-    final partFile = File('${task.destinationPath}.part');
-    final finalFile = File(task.destinationPath);
-    var retries = 0;
+    replyPort.listen((raw) {
+      if (raw is! Map) return;
+      final type = raw['type'] as String?;
+      switch (type) {
+        case 'ready':
+          final ctrl = raw['controlPort'] as SendPort?;
+          task.controlPort = ctrl;
+          if (ctrl != null) {
+            if (task.cancelled) {
+              ctrl.send('cancel');
+            } else if (task.paused) {
+              ctrl.send('pause');
+            }
+          }
+        case 'progress':
+          if (task.paused || task.cancelled) return;
+          _cb?.onProgress(
+            task.id,
+            (raw['downloaded'] as num?)?.toInt() ?? 0,
+            (raw['total'] as num?)?.toInt() ?? 0,
+            (raw['speed'] as num?)?.toInt() ?? 0,
+            activeConnections: (raw['connections'] as num?)?.toInt() ?? 1,
+          );
+        case 'completed':
+          final filePath = (raw['filePath'] as String?) ?? task.destinationPath;
+          final total = (raw['totalBytes'] as num?)?.toInt() ?? 0;
+          finishTask();
+          _cb?.onCompleted(task.id, filePath, total);
+        case 'paused':
+          final notify = !task.pauseNotified;
+          task.pauseNotified = true;
+          finishTask();
+          if (notify) _cb?.onPaused(task.id);
+        case 'failed':
+          final error = (raw['error'] as String?) ?? 'İndirme başarısız';
+          final wasStopped = task.paused || task.cancelled;
+          finishTask();
+          if (!wasStopped) _cb?.onFailed(task.id, error);
+      }
+    });
 
-    while (!task.paused && !task.cancelled) {
-      IOSink? sink;
-      HttpClient? client;
-      try {
-        await finalFile.parent.create(recursive: true);
-        var existingBytes = 0;
-        if (await partFile.exists()) {
-          existingBytes = await partFile.length();
-        }
+    exitPort.listen((_) {
+      if (!task.done.isCompleted) {
+        final notifyPause = task.paused && !task.pauseNotified;
+        if (notifyPause) task.pauseNotified = true;
+        finishTask();
+        if (notifyPause) _cb?.onPaused(task.id);
+      }
+    });
 
-        final uri = Uri.tryParse(url);
-        if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https')) {
-          throw const FormatException('Geçersiz indirme adresi');
-        }
-
-        client = HttpClient()
-          ..connectionTimeout = const Duration(seconds: 30)
-          ..idleTimeout = const Duration(seconds: 30);
-        task.client = client;
-
-        final res = await _getFollowingRedirects(
-          client,
-          uri,
+    try {
+      final isolate = await Isolate.spawn<DownloadWorkerArgs>(
+        runDownloadWorkerIsolate,
+        DownloadWorkerArgs(
+          replyPort: replyPort.sendPort,
+          url: url,
+          destinationPath: task.destinationPath,
           userAgent: userAgent,
-          existingBytes: existingBytes,
-        );
-        if (task.paused || task.cancelled) return;
-
-        if (res.statusCode == HttpStatus.requestedRangeNotSatisfiable && existingBytes > 0) {
-          final parsedTotal = _parseContentRangeTotal(res.headers.value(HttpHeaders.contentRangeHeader));
-          await res.drain<void>().catchError((_) {});
-          if (parsedTotal != null && parsedTotal > 0 && existingBytes >= parsedTotal) {
-            // Already downloaded completely into .part.
-            if (await finalFile.exists()) await finalFile.delete();
-            await partFile.rename(finalFile.path);
-            final finalSize = await finalFile.length();
-            _tasks.remove(task.id);
-            _cb?.onCompleted(task.id, finalFile.path, finalSize);
-            return;
-          }
-          // File changed on server; restart cleanly from 0.
-          if (await partFile.exists()) await partFile.delete();
-          client.close(force: true);
-          continue;
-        }
-
-        final isPartial = res.statusCode == HttpStatus.partialContent;
-        if (res.statusCode != HttpStatus.ok && !isPartial) {
-          final msg = switch (res.statusCode) {
-            401 || 403 || 509 => 'Sunucu indirmeyi reddetti (HTTP ${res.statusCode} — bağlantı sınırı dolu veya hesap yetkisiz olabilir)',
-            404 => 'Dosya sunucuda bulunamadı (HTTP 404)',
-            _ => 'Sunucu HTTP ${res.statusCode} döndürdü',
-          };
-          throw _FatalHttpException(msg);
-        }
-
-        int totalBytes = 0;
-        int downloaded = 0;
-        if (isPartial) {
-          downloaded = existingBytes;
-          final contentRange = res.headers.value(HttpHeaders.contentRangeHeader);
-          final parsedTotal = _parseContentRangeTotal(contentRange);
-          if (parsedTotal != null && parsedTotal > 0) {
-            totalBytes = parsedTotal;
-          } else if (res.contentLength > 0) {
-            totalBytes = existingBytes + res.contentLength;
-          }
-          sink = partFile.openWrite(mode: FileMode.append);
-        } else {
-          // Server ignored Range header and sent full content.
-          downloaded = 0;
-          totalBytes = res.contentLength > 0 ? res.contentLength : 0;
-          sink = partFile.openWrite(mode: FileMode.write);
-        }
-
-        var lastEmit = DateTime.now();
-        var lastBytes = downloaded;
-        var receivedNewBytes = false;
-        _cb?.onProgress(task.id, downloaded, totalBytes, 0);
-
-        final completer = Completer<void>();
-        late final StreamSubscription<List<int>> sub;
-        sub = res.listen(
-          (chunk) {
-            if (task.paused || task.cancelled) {
-              sub.cancel();
-              if (!completer.isCompleted) completer.complete();
-              return;
-            }
-            if (chunk.isNotEmpty) receivedNewBytes = true;
-            sink!.add(chunk);
-            downloaded += chunk.length;
-            final now = DateTime.now();
-            final dtMs = now.difference(lastEmit).inMilliseconds;
-            if (dtMs >= 250) {
-              final speed = ((downloaded - lastBytes) * 1000 / dtMs).round().clamp(0, 1 << 62);
-              lastEmit = now;
-              lastBytes = downloaded;
-              _cb?.onProgress(task.id, downloaded, totalBytes, speed);
-            }
-          },
-          onDone: () {
-            if (!completer.isCompleted) completer.complete();
-          },
-          onError: (Object err, StackTrace st) {
-            if (!completer.isCompleted) completer.completeError(err, st);
-          },
-          cancelOnError: true,
-        );
-        task.subscription = sub;
-
-        await completer.future;
-        await sink.flush();
-        await sink.close();
-        sink = null;
-
-        if (task.cancelled) {
-          if (await partFile.exists()) await partFile.delete();
-          return;
-        }
-        if (task.paused) {
-          _cb?.onPaused(task.id);
-          return;
-        }
-
-        if (totalBytes > 0 && downloaded < totalBytes) {
-          if (receivedNewBytes) retries = 0;
-          throw const _RecoverableNetworkException('Bağlantı indirme bitmeden kesildi');
-        }
-
-        if (await finalFile.exists()) {
-          await finalFile.delete();
-        }
-        try {
-          await partFile.rename(finalFile.path);
-        } on FileSystemException {
-          await partFile.copy(finalFile.path);
-          if (await partFile.exists()) await partFile.delete();
-        }
-        final finalSize = await finalFile.length();
-        _tasks.remove(task.id);
-        _cb?.onCompleted(task.id, finalFile.path, finalSize);
-        return;
-      } catch (e) {
-        try {
-          await sink?.flush();
-          await sink?.close();
-        } catch (_) {}
-        try {
-          client?.close(force: true);
-        } catch (_) {}
-
-        if (task.cancelled) {
-          _tasks.remove(task.id);
-          try {
-            if (await partFile.exists()) await partFile.delete();
-          } catch (_) {}
-          return;
-        }
-        if (task.paused) {
-          _tasks.remove(task.id);
-          _cb?.onPaused(task.id);
-          return;
-        }
-
-        final recoverable = e is _RecoverableNetworkException ||
-            e is SocketException ||
-            e is HandshakeException ||
-            e is TimeoutException ||
-            e is HttpException;
-        if (recoverable && retries < _maxNetworkRetries) {
-          retries++;
-          final delay = debugRetryDelay ?? Duration(seconds: retries * 2);
-          await Future<void>.delayed(delay);
-          if (task.paused || task.cancelled) {
-            _tasks.remove(task.id);
-            if (task.paused) _cb?.onPaused(task.id);
-            return;
-          }
-          continue;
-        }
-
-        _tasks.remove(task.id);
-        final msg = e is _FatalHttpException
-            ? e.message
-            : (e is _RecoverableNetworkException
-                ? e.message
-                : (e is HttpException
-                    ? e.message
-                    : (e is FormatException ? e.message : 'İndirme başarısız: $e')));
-        _cb?.onFailed(task.id, msg);
-        return;
-      } finally {
-        try {
-          client?.close(force: true);
-        } catch (_) {}
+          maxConnections: maxConnections.clamp(1, 8),
+          minSegmentedBytes: debugMinSegmentedBytes ?? _defaultMinSegmentedBytes,
+          chunkSizeOverride: debugChunkSize,
+          retryDelayMs: debugRetryDelay?.inMilliseconds,
+        ),
+        onExit: exitPort.sendPort,
+      );
+      task.isolate = isolate;
+      if (task.cancelled && task.controlPort != null) {
+        task.controlPort!.send('cancel');
+      } else if (task.paused && task.controlPort != null) {
+        task.controlPort!.send('pause');
+      }
+    } catch (e) {
+      final wasStopped = task.paused || task.cancelled;
+      finishTask();
+      if (!wasStopped) {
+        _cb?.onFailed(task.id, 'İndirme başlatılamadı: $e');
       }
     }
-    _tasks.remove(task.id);
-  }
-
-  static int? _parseContentRangeTotal(String? header) {
-    if (header == null) return null;
-    final slash = header.lastIndexOf('/');
-    if (slash < 0) return null;
-    return int.tryParse(header.substring(slash + 1).trim());
   }
 
   @override
@@ -575,24 +450,47 @@ class DartDownloadEngine implements DownloadEngine {
       return;
     }
     task.paused = true;
-    await task.subscription?.cancel();
-    task.client?.close(force: true);
-    _tasks.remove(id);
-    _cb?.onPaused(id);
+    task.controlPort?.send('pause');
+    // Wait briefly so the isolate flushes its RandomAccessFile & .part.meta before returning.
+    await task.done.future.timeout(
+      const Duration(milliseconds: 1500),
+      onTimeout: () {
+        task.isolate?.kill(priority: Isolate.immediate);
+        task.replyPort?.close();
+        task.exitPort?.close();
+        _tasks.remove(id);
+        if (!task.done.isCompleted) task.done.complete();
+      },
+    );
+    if (!task.pauseNotified) {
+      task.pauseNotified = true;
+      _cb?.onPaused(id);
+    }
   }
 
   @override
   Future<void> cancel({required String id, required String destinationPath}) async {
-    final task = _tasks.remove(id);
+    final task = _tasks[id];
     if (task != null) {
       task.cancelled = true;
-      await task.subscription?.cancel();
-      task.client?.close(force: true);
+      task.controlPort?.send('cancel');
+      await task.done.future.timeout(
+        const Duration(milliseconds: 1200),
+        onTimeout: () {
+          task.isolate?.kill(priority: Isolate.immediate);
+          task.replyPort?.close();
+          task.exitPort?.close();
+          _tasks.remove(id);
+          if (!task.done.isCompleted) task.done.complete();
+        },
+      );
     }
-    try {
-      final part = File('$destinationPath.part');
-      if (await part.exists()) await part.delete();
-    } catch (_) {}
+    for (final path in ['$destinationPath.part', '$destinationPath.part.meta']) {
+      try {
+        final f = File(path);
+        if (await f.exists()) await f.delete();
+      } catch (_) {}
+    }
   }
 
   @override
@@ -602,21 +500,15 @@ class DartDownloadEngine implements DownloadEngine {
   void dispose() {
     for (final t in _tasks.values.toList()) {
       t.paused = true;
-      t.subscription?.cancel();
-      t.client?.close(force: true);
+      t.pauseNotified = true;
+      t.controlPort?.send('pause');
+      t.isolate?.kill(priority: Isolate.immediate);
+      t.replyPort?.close();
+      t.exitPort?.close();
+      if (!t.done.isCompleted) t.done.complete();
     }
     _tasks.clear();
   }
-}
-
-class _FatalHttpException implements Exception {
-  const _FatalHttpException(this.message);
-  final String message;
-}
-
-class _RecoverableNetworkException implements Exception {
-  const _RecoverableNetworkException(this.message);
-  final String message;
 }
 
 class _DartActiveTask {
@@ -624,10 +516,14 @@ class _DartActiveTask {
 
   final String id;
   final String destinationPath;
-  HttpClient? client;
-  StreamSubscription<List<int>>? subscription;
+  final Completer<void> done = Completer<void>();
+  Isolate? isolate;
+  ReceivePort? replyPort;
+  ReceivePort? exitPort;
+  SendPort? controlPort;
   bool paused = false;
   bool cancelled = false;
+  bool pauseNotified = false;
 }
 
 /// iOS native `URLSessionConfiguration.background` engine backed by `BackgroundDownloadPlugin.swift`.
@@ -656,6 +552,7 @@ class IosBackgroundDownloadEngine implements DownloadEngine {
           (args['downloadedBytes'] as num?)?.toInt() ?? 0,
           (args['totalBytes'] as num?)?.toInt() ?? 0,
           (args['speedBytesPerSec'] as num?)?.toInt() ?? 0,
+          activeConnections: (args['activeConnections'] as num?)?.toInt() ?? 1,
         );
       case 'completed':
         _cb?.onCompleted(
@@ -688,6 +585,7 @@ class IosBackgroundDownloadEngine implements DownloadEngine {
     required String destinationPath,
     required String userAgent,
     int totalBytes = 0,
+    int maxConnections = 6,
   }) async {
     try {
       await _channel.invokeMethod<void>('start', {
@@ -696,6 +594,7 @@ class IosBackgroundDownloadEngine implements DownloadEngine {
         'destination': destinationPath,
         'userAgent': userAgent,
         'totalBytes': totalBytes,
+        'maxConnections': maxConnections.clamp(1, 8),
       });
     } on MissingPluginException {
       _cb?.onFailed(id, 'iOS arka plan indirme eklentisi kullanılamıyor');
@@ -939,13 +838,10 @@ class DownloadManager extends ChangeNotifier {
                 e.speedBytesPerSec = 0;
                 dirty = true;
               }
-              final part = File('${e.filePath}.part');
-              if (part.existsSync()) {
-                final partLen = part.lengthSync();
-                if (partLen != e.downloadedBytes) {
-                  e.downloadedBytes = partLen;
-                  dirty = true;
-                }
+              final partLen = readPersistedDownloadedBytes(e.filePath);
+              if (partLen > 0 && partLen != e.downloadedBytes) {
+                e.downloadedBytes = partLen;
+                dirty = true;
               }
             }
             _entries.add(e);
@@ -1233,7 +1129,7 @@ class DownloadManager extends ChangeNotifier {
   }
 
   Future<void> _deleteFilesOf(DownloadEntry e) async {
-    for (final p in [e.filePath, '${e.filePath}.part', '${e.filePath}.resume']) {
+    for (final p in [e.filePath, '${e.filePath}.part', '${e.filePath}.part.meta', '${e.filePath}.resume']) {
       if (p.isEmpty) continue;
       try {
         final f = File(p);
@@ -1279,16 +1175,24 @@ class DownloadManager extends ChangeNotifier {
       destinationPath: next.filePath,
       userAgent: _userAgent,
       totalBytes: next.totalBytes,
+      maxConnections: AppSettings.instance.downloadConnections,
     );
   }
 
-  void _onProgress(String id, int downloadedBytes, int totalBytes, int speedBytesPerSec) {
+  void _onProgress(
+    String id,
+    int downloadedBytes,
+    int totalBytes,
+    int speedBytesPerSec, {
+    int activeConnections = 1,
+  }) {
     final e = entryById(id);
     if (e == null || e.isCompleted) return;
     e.status = DownloadStatus.downloading;
     e.downloadedBytes = downloadedBytes;
     if (totalBytes > 0) e.totalBytes = totalBytes;
     e.speedBytesPerSec = speedBytesPerSec;
+    e.activeConnections = activeConnections;
     e.updatedMs = DateTime.now().millisecondsSinceEpoch;
     notifyListeners();
     _schedulePersist();
@@ -1304,6 +1208,7 @@ class DownloadManager extends ChangeNotifier {
       e.downloadedBytes = totalBytes;
     }
     e.speedBytesPerSec = 0;
+    e.activeConnections = 1;
     e.error = null;
     e.updatedMs = DateTime.now().millisecondsSinceEpoch;
     _runtimeUrls.remove(id);
@@ -1317,6 +1222,7 @@ class DownloadManager extends ChangeNotifier {
     if (e == null || e.isCompleted) return;
     e.status = DownloadStatus.paused;
     e.speedBytesPerSec = 0;
+    e.activeConnections = 1;
     e.updatedMs = DateTime.now().millisecondsSinceEpoch;
     notifyListeners();
     unawaited(_persistNow());
@@ -1328,6 +1234,7 @@ class DownloadManager extends ChangeNotifier {
     if (e == null || e.isCompleted) return;
     e.status = DownloadStatus.failed;
     e.speedBytesPerSec = 0;
+    e.activeConnections = 1;
     e.error = error;
     e.updatedMs = DateTime.now().millisecondsSinceEpoch;
     notifyListeners();

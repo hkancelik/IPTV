@@ -297,6 +297,20 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
             ]),
             _Section(key: _keys[5], title: 'İndirmeler', children: [
+              _ChoiceRow(
+                title: 'Paralel bağlantı',
+                desc: 'Dosyayı eşzamanlı parçalara bölerek fiber hızını kullanır; tek bağlantılı sunucularda otomatik 1\'e düşer',
+                narrow: narrow,
+                control: Segmented<int>(
+                  key: const ValueKey('setting-downloadConnections'),
+                  value: AppSettings.normalizeDownloadConnections(s.downloadConnections),
+                  options: AppSettings.downloadConnectionOptions,
+                  onChanged: (v) {
+                    AppHaptics.selection(context);
+                    s.update(downloadConnections: v);
+                  },
+                ),
+              ),
               _downloadsLocationRow(s, isIos: isIos, narrow: narrow),
               _downloadsStorageRow(narrow: narrow),
             ]),

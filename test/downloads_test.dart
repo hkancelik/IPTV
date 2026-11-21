@@ -61,7 +61,7 @@ class _NoopEngine implements DownloadEngine {
   Future<String?> defaultBaseDirectory() async => '/tmp/iptv_noop_dl';
 
   @override
-  Future<void> start({required String id, required String url, required String destinationPath, required String userAgent, int totalBytes = 0}) async {
+  Future<void> start({required String id, required String url, required String destinationPath, required String userAgent, int totalBytes = 0, int maxConnections = 6}) async {
     startedIds.add(id);
   }
 
@@ -122,6 +122,36 @@ void main() {
       expect(formatBytes(512 * 1024), '512 KB');
       expect(formatBytes((1.5 * 1024 * 1024).round()), '1,5 MB');
       expect(formatBytes((2.25 * 1024 * 1024 * 1024).round()), '2,25 GB');
+    });
+
+    test('DownloadRangeMap coalesces overlapping ranges, computes gaps, and persists meta', () async {
+      final map = DownloadRangeMap();
+      map.add(0, 100);
+      map.add(200, 300);
+      map.add(100, 200);
+      expect(map.ranges.length, 1);
+      expect(map.ranges.first, (start: 0, end: 300));
+      expect(map.completedBytes, 300);
+      expect(map.isComplete(300), isTrue);
+      expect(map.missingRanges(500), [(start: 300, end: 500)]);
+
+      final dir = await Directory.systemTemp.createTemp('iptv_rangemap_');
+      try {
+        final part = File('${dir.path}/f.part')..writeAsBytesSync(List<int>.filled(400, 0));
+        final meta = File('${dir.path}/f.part.meta');
+        final m2 = DownloadRangeMap()
+          ..add(0, 100)
+          ..add(250, 400);
+        m2.saveMeta(meta, 500);
+        final loaded = DownloadRangeMap.tryLoadMeta(part, meta);
+        expect(loaded, isNotNull);
+        expect(loaded!.totalBytes, 500);
+        expect(loaded.map.completedBytes, 250);
+        expect(loaded.map.missingRanges(500), [(start: 100, end: 250), (start: 400, end: 500)]);
+        expect(readPersistedDownloadedBytes('${dir.path}/f'), 250);
+      } finally {
+        await dir.delete(recursive: true);
+      }
     });
   });
 
@@ -391,6 +421,283 @@ void main() {
       expect(cdnRanges.last, 'bytes=${40 * 1024}-');
       expect(File(entry.filePath).readAsBytesSync(), payload);
     });
+
+    test('downloads in parallel across multiple Range connections and accelerates per-connection throttled servers', () async {
+      final engine = DartDownloadEngine()
+        ..debugMinSegmentedBytes = 64 * 1024
+        ..debugChunkSize = 32 * 1024;
+      DownloadManager.instance.debugEngine = engine;
+      AppSettings.instance.downloadConnections = 6;
+
+      final payload = List<int>.generate(256 * 1024, (i) => (i * 19 + 7) % 256);
+      var concurrent = 0;
+      var peakConcurrent = 0;
+      var rangeRequests = 0;
+
+      server.listen((req) async {
+        concurrent++;
+        if (concurrent > peakConcurrent) peakConcurrent = concurrent;
+        try {
+          final range = req.headers.value(HttpHeaders.rangeHeader);
+          if (range != null && range.startsWith('bytes=')) {
+            rangeRequests++;
+            final spec = range.substring(6).split('-');
+            final start = int.parse(spec[0]);
+            final end = spec[1].isEmpty ? payload.length - 1 : int.parse(spec[1]);
+            final slice = payload.sublist(start, end + 1);
+            req.response.statusCode = HttpStatus.partialContent;
+            req.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
+            req.response.headers.set(HttpHeaders.contentRangeHeader, 'bytes $start-$end/${payload.length}');
+            req.response.contentLength = slice.length;
+            // Simulate per-connection rate limit (~160 KB/s per connection).
+            for (var off = 0; off < slice.length; off += 8192) {
+              final chunkEnd = off + 8192 > slice.length ? slice.length : off + 8192;
+              req.response.add(slice.sublist(off, chunkEnd));
+              await req.response.flush();
+              await Future<void>.delayed(const Duration(milliseconds: 25));
+            }
+            await req.response.close();
+            return;
+          }
+          req.response.statusCode = HttpStatus.ok;
+          req.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
+          req.response.contentLength = payload.length;
+          for (var off = 0; off < payload.length; off += 8192) {
+            final chunkEnd = off + 8192 > payload.length ? payload.length : off + 8192;
+            req.response.add(payload.sublist(off, chunkEnd));
+            await req.response.flush();
+            await Future<void>.delayed(const Duration(milliseconds: 25));
+          }
+          await req.response.close();
+        } catch (_) {
+          // Client closed open-ended initial stream after chunk 0 — expected.
+        } finally {
+          concurrent--;
+        }
+      });
+
+      final movie = Item(
+        id: 'm200',
+        name: 'Fiber Multi Range Film',
+        logo: '',
+        group: 'Test',
+        kind: Kind.movie,
+        url: '${account.host}/movie/${account.username}/${account.password}/200.mkv',
+      );
+
+      final sw = Stopwatch()..start();
+      await DownloadManager.instance.enqueueMovie(movie, account);
+      await _waitUntil(() => DownloadManager.instance.completedCount == 1, timeout: const Duration(seconds: 10));
+      sw.stop();
+
+      final entry = DownloadManager.instance.entries.first;
+      expect(peakConcurrent, greaterThanOrEqualTo(3));
+      expect(rangeRequests, greaterThanOrEqualTo(4));
+      expect(File(entry.filePath).readAsBytesSync(), payload);
+      expect(File('${entry.filePath}.part').existsSync(), isFalse);
+      expect(File('${entry.filePath}.part.meta').existsSync(), isFalse);
+      // Single-connection throttled time would be ~800ms+; parallel should finish much faster.
+      expect(sw.elapsedMilliseconds, lessThan(2500));
+    });
+
+    test('gracefully falls back to 1 connection when strict IPTV server rejects extra connections with HTTP 509', () async {
+      final engine = DartDownloadEngine()
+        ..debugMinSegmentedBytes = 32 * 1024
+        ..debugChunkSize = 32 * 1024
+        ..debugRetryDelay = const Duration(milliseconds: 20);
+      DownloadManager.instance.debugEngine = engine;
+      AppSettings.instance.downloadConnections = 6;
+
+      final payload = List<int>.generate(128 * 1024, (i) => (i * 11) % 256);
+      var activeConns = 0;
+      var rejected509Count = 0;
+
+      server.listen((req) async {
+        if (activeConns >= 1) {
+          rejected509Count++;
+          req.response.statusCode = 509;
+          await req.response.close();
+          return;
+        }
+        activeConns++;
+        try {
+          req.response.statusCode = HttpStatus.ok;
+          req.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
+          req.response.contentLength = payload.length;
+          for (var off = 0; off < payload.length; off += 16 * 1024) {
+            final chunkEnd = off + 16 * 1024 > payload.length ? payload.length : off + 16 * 1024;
+            req.response.add(payload.sublist(off, chunkEnd));
+            await req.response.flush();
+            await Future<void>.delayed(const Duration(milliseconds: 15));
+          }
+          await req.response.close();
+        } finally {
+          activeConns--;
+        }
+      });
+
+      final movie = Item(
+        id: 'm201',
+        name: 'Strict Single Connection Film',
+        logo: '',
+        group: 'Test',
+        kind: Kind.movie,
+        url: '${account.host}/movie/${account.username}/${account.password}/201.mkv',
+      );
+
+      await DownloadManager.instance.enqueueMovie(movie, account);
+      await _waitUntil(() => DownloadManager.instance.completedCount == 1, timeout: const Duration(seconds: 8));
+
+      final entry = DownloadManager.instance.entries.first;
+      expect(entry.isCompleted, isTrue);
+      expect(rejected509Count, greaterThanOrEqualTo(1));
+      expect(File(entry.filePath).readAsBytesSync(), payload);
+    });
+
+    test('gracefully recovers and caps to 1 connection when server kicks primary connection on 2nd connection', () async {
+      final engine = DartDownloadEngine()
+        ..debugMinSegmentedBytes = 32 * 1024
+        ..debugChunkSize = 32 * 1024
+        ..debugRetryDelay = const Duration(milliseconds: 20);
+      DownloadManager.instance.debugEngine = engine;
+      AppSettings.instance.downloadConnections = 4;
+
+      final payload = List<int>.generate(128 * 1024, (i) => (i * 23) % 256);
+      Socket? currentSocket;
+      var kickCount = 0;
+
+      server.listen((req) async {
+        // Simulate Xtream panel kicking the previous active stream whenever a 2nd connection arrives!
+        if (currentSocket != null) {
+          kickCount++;
+          try {
+            currentSocket!.destroy();
+          } catch (_) {}
+          currentSocket = null;
+        }
+        final range = req.headers.value(HttpHeaders.rangeHeader);
+        var start = 0;
+        var end = payload.length - 1;
+        var status = '200 OK';
+        var extraHeader = '';
+        if (range != null && range.startsWith('bytes=')) {
+          final spec = range.substring(6).split('-');
+          start = int.parse(spec[0]);
+          end = spec[1].isEmpty ? payload.length - 1 : int.parse(spec[1]);
+          status = '206 Partial Content';
+          extraHeader = 'Content-Range: bytes $start-$end/${payload.length}\r\n';
+        }
+        final slice = payload.sublist(start, end + 1);
+        final socket = await req.response.detachSocket(writeHeaders: false);
+        currentSocket = socket;
+        try {
+          socket.write(
+            'HTTP/1.1 $status\r\n'
+            'Accept-Ranges: bytes\r\n'
+            '$extraHeader'
+            'Content-Length: ${slice.length}\r\n'
+            'Connection: close\r\n\r\n',
+          );
+          for (var off = 0; off < slice.length; off += 16 * 1024) {
+            final chunkEnd = off + 16 * 1024 > slice.length ? slice.length : off + 16 * 1024;
+            socket.add(slice.sublist(off, chunkEnd));
+            await socket.flush();
+            await Future<void>.delayed(const Duration(milliseconds: 20));
+          }
+          await socket.close();
+        } catch (_) {
+          // Kicked socket write error expected.
+        } finally {
+          if (identical(currentSocket, socket)) currentSocket = null;
+        }
+      });
+
+      final movie = Item(
+        id: 'm202',
+        name: 'Kick Detection Film',
+        logo: '',
+        group: 'Test',
+        kind: Kind.movie,
+        url: '${account.host}/movie/${account.username}/${account.password}/202.mkv',
+      );
+
+      await DownloadManager.instance.enqueueMovie(movie, account);
+      await _waitUntil(() => DownloadManager.instance.completedCount == 1, timeout: const Duration(seconds: 10));
+
+      final entry = DownloadManager.instance.entries.first;
+      expect(entry.isCompleted, isTrue);
+      expect(kickCount, greaterThanOrEqualTo(1));
+      expect(File(entry.filePath).readAsBytesSync(), payload);
+    });
+
+    test('pauses mid-segmented download, persists .part.meta, and resumes without corruption', () async {
+      final engine = DartDownloadEngine()
+        ..debugMinSegmentedBytes = 64 * 1024
+        ..debugChunkSize = 32 * 1024;
+      DownloadManager.instance.debugEngine = engine;
+      AppSettings.instance.downloadConnections = 4;
+
+      final payload = List<int>.generate(256 * 1024, (i) => (i * 29 + 3) % 256);
+      final probeReceived = Completer<void>();
+
+      server.listen((req) async {
+        try {
+          final range = req.headers.value(HttpHeaders.rangeHeader);
+          if (range != null && range.startsWith('bytes=')) {
+            final spec = range.substring(6).split('-');
+            final start = int.parse(spec[0]);
+            final end = spec[1].isEmpty ? payload.length - 1 : int.parse(spec[1]);
+            final slice = payload.sublist(start, end + 1);
+            req.response.statusCode = HttpStatus.partialContent;
+            req.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
+            req.response.headers.set(HttpHeaders.contentRangeHeader, 'bytes $start-$end/${payload.length}');
+            req.response.contentLength = slice.length;
+            req.response.add(slice.sublist(0, slice.length ~/ 2));
+            await req.response.flush();
+            if (!probeReceived.isCompleted) probeReceived.complete();
+            await Future<void>.delayed(const Duration(milliseconds: 120));
+            req.response.add(slice.sublist(slice.length ~/ 2));
+            await req.response.close();
+            return;
+          }
+          req.response.statusCode = HttpStatus.ok;
+          req.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
+          req.response.contentLength = payload.length;
+          for (var off = 0; off < payload.length; off += 16 * 1024) {
+            final chunkEnd = off + 16 * 1024 > payload.length ? payload.length : off + 16 * 1024;
+            req.response.add(payload.sublist(off, chunkEnd));
+            await req.response.flush();
+            await Future<void>.delayed(const Duration(milliseconds: 80));
+          }
+          await req.response.close();
+        } catch (_) {}
+      });
+
+      final movie = Item(
+        id: 'm203',
+        name: 'Segmented Resume Film',
+        logo: '',
+        group: 'Test',
+        kind: Kind.movie,
+        url: '${account.host}/movie/${account.username}/${account.password}/203.mkv',
+      );
+
+      await DownloadManager.instance.enqueueMovie(movie, account);
+      await probeReceived.future;
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+
+      final entry = DownloadManager.instance.entries.first;
+      await DownloadManager.instance.pause(entry.id);
+      await _waitUntil(() => entry.isPaused);
+      expect(File('${entry.filePath}.part').existsSync(), isTrue);
+      expect(File('${entry.filePath}.part.meta').existsSync(), isTrue);
+      expect(readPersistedDownloadedBytes(entry.filePath), greaterThan(0));
+
+      await DownloadManager.instance.resume(entry.id, account: account);
+      await _waitUntil(() => entry.isCompleted, timeout: const Duration(seconds: 10));
+      expect(File(entry.filePath).readAsBytesSync(), payload);
+      expect(File('${entry.filePath}.part.meta').existsSync(), isFalse);
+    });
   });
 
   group('Downloads UI (Desktop & iPhone 15 Portrait / Landscape)', () {
@@ -583,6 +890,7 @@ void main() {
       ));
       await _settle(tester);
       expect(find.text('İndirmeler'), findsWidgets);
+      expect(find.byKey(const ValueKey('setting-downloadConnections')), findsOneWidget);
       expect(find.byKey(const ValueKey('setting-downloadDir')), findsOneWidget);
 
       // iOS variant shows Files app path instead of PC folder picker.

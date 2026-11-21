@@ -3,30 +3,26 @@ import Foundation
 import Network
 import UIKit
 
-/// Hybrid native iOS download engine engineered for IPTV/Xtream VOD streams.
+/// High-throughput hybrid native iOS download engine engineered for IPTV/Xtream VOD streams.
 ///
-/// Why hybrid instead of a single `URLSessionDownloadTask` with `resumeData`?
-/// Apple's `URLSessionDownloadTask` resume mechanism requires `ETag` or `Last-Modified`
-/// headers and binds `resumeData` to the post-redirect URL. Xtream IPTV panels rarely
-/// emit `ETag` and frequently 302-redirect to IP-bound temporary CDN URLs, causing
-/// Apple's `nsurlsessiond` to silently discard hundreds of megabytes and restart from
-/// byte 0 whenever the user switches Wi-Fi <-> Cellular or pauses/resumes.
-///
-/// How this engine solves it:
-/// 1. All downloaded bytes live permanently in `<destination>.part` (excluded from iCloud
-///    backup). Progress is never lost across Wi-Fi <-> Cellular switches, pauses, or restarts.
-/// 2. While the app is in the foreground, a `URLSessionDataTask` streams directly into
-///    `<destination>.part` with `Range: bytes=<partSize>-` against the original URL
-///    (preserving `Range` and `User-Agent` across 302 redirects). `NWPathMonitor` detects
-///    network interface switches (Wi-Fi <-> Cellular) and seamlessly reconnects from the
-///    exact byte offset on disk.
-/// 3. When the app enters the background (screen locked or app switched), the foreground
-///    stream flushes `<destination>.part` and hands off to `URLSessionConfiguration.background`
-///    in 64 MiB `Range` slices, appending each finished slice to `<destination>.part` so even
-///    mid-background network changes keep previously downloaded data intact.
+/// Architecture:
+/// 1. All downloaded bytes live permanently in `<destination>.part` (excluded from iCloud backup)
+///    alongside a tiny `<destination>.part.meta` byte-range map so parallel chunks, Wi-Fi <-> Cellular
+///    switches, pauses, and app restarts never lose progress.
+/// 2. In the foreground, adaptive multi-connection HTTP `Range` workers (up to `maxConnections`,
+///    default 6) download 4 MiB chunks in parallel with 512 KiB coalesced writes, `Accept-Encoding:
+///    identity`, and redirect header preservation. Strict single-connection IPTV servers are detected
+///    automatically (HTTP 401/403/429/503/509 or primary kick) and safely drop back to 1 stream.
+/// 3. When the app enters the background, foreground buffers flush cleanly to `.part` + `.part.meta`
+///    and hand remaining gaps to `URLSessionConfiguration.background` in 64 MiB slices. Returning
+///    to the foreground immediately resumes full-speed multi-connection streaming instead of staying
+///    stuck on an OS-throttled background slice.
 final class BackgroundDownloadPlugin: NSObject, FlutterPlugin, URLSessionDataDelegate, URLSessionDownloadDelegate {
   private static let channelName = "iptv/background_downloads"
-  private static let backgroundChunkSize: Int64 = 64 * 1024 * 1024 // 64 MiB slices
+  private static let backgroundChunkSize: Int64 = 64 * 1024 * 1024 // 64 MiB background slices
+  private static let minSegmentedBytes: Int64 = 2 * 1024 * 1024 // 2 MiB threshold for multi-connection
+  private static let writeBufferBytes = 512 * 1024 // 512 KiB coalesced writes
+  private static let minStealBytes: Int64 = 512 * 1024
   private static let maxAutoRetries = 6
 
   private static var sharedInstance: BackgroundDownloadPlugin?
@@ -45,43 +41,327 @@ final class BackgroundDownloadPlugin: NSObject, FlutterPlugin, URLSessionDataDel
   private var bgRetryCounts: [String: Int] = [:]
   private var pausingIds: Set<String> = []
   private var cancellingIds: Set<String> = []
+  private var handoffToFgIds: Set<String> = []
   private var lastBgProgressSent: [String: TimeInterval] = [:]
   private var lastBgProgressBytes: [String: Int64] = [:]
   private var isInBackground: Bool = false
+
+  // MARK: - Byte-Range Map & Sliding-Window Speed Meter
+
+  private struct ByteRange: Codable {
+    var start: Int64
+    var end: Int64 // exclusive
+  }
+
+  private struct RangeMetaFile: Codable {
+    let v: Int
+    let totalBytes: Int64
+    let ranges: [[Int64]]
+  }
+
+  private final class RangeTracker {
+    var ranges: [ByteRange] = []
+
+    var completedBytes: Int64 {
+      ranges.reduce(0) { $0 + ($1.end - $1.start) }
+    }
+
+    var maxEnd: Int64 {
+      ranges.last?.end ?? 0
+    }
+
+    var isEmpty: Bool {
+      ranges.isEmpty
+    }
+
+    func clear() {
+      ranges.removeAll()
+    }
+
+    func add(start: Int64, end: Int64) {
+      guard end > start, start >= 0 else { return }
+      var s = start
+      var e = end
+      var next: [ByteRange] = []
+      next.reserveCapacity(ranges.count + 1)
+      var inserted = false
+      for r in ranges {
+        if r.end < s {
+          next.append(r)
+        } else if e < r.start {
+          if !inserted {
+            next.append(ByteRange(start: s, end: e))
+            inserted = true
+          }
+          next.append(r)
+        } else {
+          s = min(s, r.start)
+          e = max(e, r.end)
+        }
+      }
+      if !inserted {
+        next.append(ByteRange(start: s, end: e))
+      }
+      ranges = next
+    }
+
+    func clamp(toLength maxLength: Int64) {
+      guard maxLength > 0 else {
+        ranges.removeAll()
+        return
+      }
+      var next: [ByteRange] = []
+      for r in ranges {
+        if r.start >= maxLength { break }
+        let clampedEnd = min(r.end, maxLength)
+        if clampedEnd > r.start {
+          next.append(ByteRange(start: r.start, end: clampedEnd))
+        }
+      }
+      ranges = next
+    }
+
+    func isComplete(totalBytes: Int64) -> Bool {
+      totalBytes > 0 && ranges.count == 1 && ranges[0].start == 0 && ranges[0].end >= totalBytes
+    }
+
+    func missingRanges(totalBytes: Int64) -> [ByteRange] {
+      guard totalBytes > 0 else { return [] }
+      var gaps: [ByteRange] = []
+      var cursor: Int64 = 0
+      for r in ranges {
+        if r.start >= totalBytes { break }
+        if r.start > cursor {
+          gaps.append(ByteRange(start: cursor, end: min(r.start, totalBytes)))
+        }
+        if r.end > cursor { cursor = r.end }
+        if cursor >= totalBytes { break }
+      }
+      if cursor < totalBytes {
+        gaps.append(ByteRange(start: cursor, end: totalBytes))
+      }
+      return gaps
+    }
+
+    func isCompletelyMissing(start: Int64, end: Int64) -> Bool {
+      guard end > start else { return false }
+      for r in ranges {
+        if r.end <= start { continue }
+        if r.start >= end { break }
+        return false
+      }
+      return true
+    }
+
+    func save(to metaURL: URL, totalBytes: Int64) {
+      guard totalBytes > 0 else { return }
+      let payload = RangeMetaFile(v: 1, totalBytes: totalBytes, ranges: ranges.map { [$0.start, $0.end] })
+      if let data = try? JSONEncoder().encode(payload) {
+        try? data.write(to: metaURL, options: .atomic)
+        BackgroundDownloadPlugin.markExcludedFromBackup(metaURL)
+      }
+    }
+
+    static func load(partURL: URL, metaURL: URL) -> (tracker: RangeTracker, totalBytes: Int64)? {
+      let fm = FileManager.default
+      guard fm.fileExists(atPath: partURL.path),
+            fm.fileExists(atPath: metaURL.path),
+            let data = try? Data(contentsOf: metaURL),
+            let decoded = try? JSONDecoder().decode(RangeMetaFile.self, from: data),
+            decoded.totalBytes > 0 else {
+        return nil
+      }
+      let tracker = RangeTracker()
+      for pair in decoded.ranges where pair.count >= 2 {
+        let s = pair[0]
+        let e = min(pair[1], decoded.totalBytes)
+        if s >= 0 && e > s {
+          tracker.add(start: s, end: e)
+        }
+      }
+      let partLen = (try? fm.attributesOfItem(atPath: partURL.path)[.size] as? NSNumber)?.int64Value ?? 0
+      tracker.clamp(toLength: max(0, partLen))
+      return (tracker, decoded.totalBytes)
+    }
+  }
+
+  private final class SpeedMeter {
+    private var samples: [(time: TimeInterval, bytes: Int64)] = []
+    private var windowBytes: Int64 = 0
+    private let windowSec: TimeInterval = 1.5
+
+    func add(bytes: Int64, now: TimeInterval) {
+      guard bytes > 0 else { return }
+      samples.append((now, bytes))
+      windowBytes += bytes
+      prune(now: now)
+    }
+
+    func bytesPerSecond(now: TimeInterval) -> Int64 {
+      prune(now: now)
+      guard let first = samples.first, windowBytes > 0 else { return 0 }
+      let span = max(0.25, now - first.time)
+      return Int64(Double(windowBytes) / span)
+    }
+
+    func reset() {
+      samples.removeAll()
+      windowBytes = 0
+    }
+
+    private func prune(now: TimeInterval) {
+      let cutoff = now - windowSec
+      var dropCount = 0
+      while dropCount < samples.count && samples[dropCount].time < cutoff {
+        windowBytes -= samples[dropCount].bytes
+        dropCount += 1
+      }
+      if dropCount > 0 {
+        samples.removeFirst(dropCount)
+      }
+      if windowBytes < 0 { windowBytes = 0 }
+    }
+  }
+
+  // MARK: - Foreground Multi-Worker Job & Background Metadata
+
+  private final class WorkerSlot {
+    let workerId: Int
+    let isPrimary: Bool
+    var task: URLSessionDataTask?
+    var start: Int64
+    var cursor: Int64
+    var end: Int64 // exclusive
+    var writePos: Int64
+    var openEnded: Bool
+    var buffer: Data
+    var receivedBytes: Int64 = 0
+    var firedFirstBytes: Bool = false
+    var streaming: Bool = false
+    var usedResolvedURL: Bool = false
+    var retriedOriginal: Bool = false
+    var cancelledByPool: Bool = false
+
+    init(workerId: Int, isPrimary: Bool, start: Int64, end: Int64, openEnded: Bool) {
+      self.workerId = workerId
+      self.isPrimary = isPrimary
+      self.start = start
+      self.cursor = start
+      self.end = end
+      self.writePos = start
+      self.openEnded = openEnded
+      self.buffer = Data()
+      self.buffer.reserveCapacity(BackgroundDownloadPlugin.writeBufferBytes)
+    }
+
+    var remaining: Int64 {
+      max(0, end - cursor)
+    }
+  }
 
   private final class ForegroundJob {
     let id: String
     let urlString: String
     let destination: String
     let userAgent: String
-    var task: URLSessionDataTask?
+    let desiredMaxWorkers: Int
+
+    var resolvedURL: URL?
+    var resolvedURLReusable: Bool = true
     var fileHandle: FileHandle?
-    var currentOffset: Int64
+    var tracker = RangeTracker()
+    var speedMeter = SpeedMeter()
+    var workers: [Int: WorkerSlot] = [:]
+    var nextWorkerId: Int = 1
+
     var totalBytes: Int64
+    var chunkSize: Int64 = 4 * 1024 * 1024
     var supportsRange: Bool = true
+    var effectiveMaxWorkers: Int
+    var probeStarted: Bool = false
+    var probeSucceeded: Bool = false
+    var singleConnKickDetected: Bool = false
+    var lastScaleUpAt: TimeInterval = 0
+
     var lastProgressSent: TimeInterval = 0
-    var lastProgressBytes: Int64
-    var lastDataReceivedAt: TimeInterval = Date().timeIntervalSince1970
+    var lastMetaSavedAt: TimeInterval = 0
     var retryCount: Int = 0
     var retryWorkItem: DispatchWorkItem?
-    var receivedResponse: Bool = false
+    var receivedAnyBytesThisCycle: Bool = false
 
-    init(id: String, urlString: String, destination: String, userAgent: String, existingBytes: Int64, totalBytes: Int64) {
+    init(
+      id: String,
+      urlString: String,
+      destination: String,
+      userAgent: String,
+      totalBytes: Int64,
+      maxConnections: Int
+    ) {
       self.id = id
       self.urlString = urlString
       self.destination = destination
       self.userAgent = userAgent
-      self.currentOffset = existingBytes
       self.totalBytes = totalBytes
-      self.lastProgressBytes = existingBytes
+      self.desiredMaxWorkers = max(1, min(8, maxConnections))
+      self.effectiveMaxWorkers = self.desiredMaxWorkers
     }
 
-    func closeHandle() {
+    func computeChunkSize() -> Int64 {
+      if totalBytes >= 16 * 1024 * 1024 { return 4 * 1024 * 1024 }
+      if totalBytes >= 4 * 1024 * 1024 { return 1 * 1024 * 1024 }
+      return 512 * 1024
+    }
+
+    func activeStreamingCount() -> Int {
+      max(1, workers.values.filter { $0.streaming }.count)
+    }
+
+    func liveCompletedBytes() -> Int64 {
+      let merged = RangeTracker()
+      for r in tracker.ranges {
+        merged.add(start: r.start, end: r.end)
+      }
+      for w in workers.values where w.cursor > w.start {
+        merged.add(start: w.start, end: w.cursor)
+      }
+      return merged.completedBytes
+    }
+
+    func flushAllBuffers() {
+      guard let handle = fileHandle else { return }
+      for w in workers.values where !w.buffer.isEmpty {
+        do {
+          try handle.seek(toOffset: UInt64(max(0, w.writePos)))
+          try handle.write(contentsOf: w.buffer)
+          let len = Int64(w.buffer.count)
+          tracker.add(start: w.writePos, end: w.writePos + len)
+          w.writePos += len
+          w.buffer.removeAll(keepingCapacity: true)
+        } catch {
+          w.buffer.removeAll(keepingCapacity: false)
+        }
+      }
+    }
+
+    func flushAndCloseHandle() {
+      flushAllBuffers()
       if let handle = fileHandle {
         try? handle.synchronize()
         try? handle.close()
         fileHandle = nil
       }
+      if totalBytes > 0 && !tracker.isEmpty {
+        tracker.save(to: BackgroundDownloadPlugin.metaFileURL(for: destination), totalBytes: totalBytes)
+      }
+    }
+
+    func cancelAllWorkerTasks() {
+      for w in workers.values {
+        w.cancelledByPool = true
+        w.task?.cancel()
+        w.task = nil
+      }
+      workers.removeAll()
     }
   }
 
@@ -94,6 +374,7 @@ final class BackgroundDownloadPlugin: NSObject, FlutterPlugin, URLSessionDataDel
     let expectedSliceEnd: Int64? // inclusive byte index when chunked; nil when open-ended
     let knownTotalBytes: Int64
     let supportsRange: Bool
+    let maxConnections: Int?
   }
 
   static var sessionIdentifier: String {
@@ -147,6 +428,7 @@ final class BackgroundDownloadPlugin: NSObject, FlutterPlugin, URLSessionDataDel
     fgConfig.waitsForConnectivity = false
     fgConfig.timeoutIntervalForRequest = 20
     fgConfig.timeoutIntervalForResource = 60 * 60 * 6
+    fgConfig.httpMaximumConnectionsPerHost = 8
     fgConfig.requestCachePolicy = .reloadIgnoringLocalCacheData
     fgConfig.urlCache = nil
     self.fgSession = URLSession(configuration: fgConfig, delegate: self, delegateQueue: nil)
@@ -156,7 +438,7 @@ final class BackgroundDownloadPlugin: NSObject, FlutterPlugin, URLSessionDataDel
     bgConfig.sessionSendsLaunchEvents = true
     bgConfig.allowsCellularAccess = true
     bgConfig.waitsForConnectivity = true
-    bgConfig.httpMaximumConnectionsPerHost = 1
+    bgConfig.httpMaximumConnectionsPerHost = 2
     self.bgSession = URLSession(configuration: bgConfig, delegate: self, delegateQueue: nil)
 
     rehydrateBackgroundTasks()
@@ -198,9 +480,6 @@ final class BackgroundDownloadPlugin: NSObject, FlutterPlugin, URLSessionDataDel
         let prev = self.lastInterfaceSignature
         self.lastInterfaceSignature = sig
         guard path.status == .satisfied else { return }
-        // Interface changed (e.g. Wi-Fi <-> Cellular) or connectivity just returned:
-        // proactively reconnect any foreground job from its exact .part byte offset
-        // so it does not stall on a dead socket from the previous network interface.
         if prev != nil && prev != sig && !self.isInBackground {
           self.reconnectForegroundJobsAfterNetworkChange()
         }
@@ -243,20 +522,25 @@ final class BackgroundDownloadPlugin: NSObject, FlutterPlugin, URLSessionDataDel
       for job in jobs {
         job.retryWorkItem?.cancel()
         job.retryWorkItem = nil
-        job.closeHandle()
+        job.flushAndCloseHandle()
+        job.cancelAllWorkerTasks()
         self.fgJobs.removeValue(forKey: job.id)
-        job.task?.cancel()
 
-        let offset = Self.partFileSize(for: job.destination)
-        let effectiveTotal = max(job.totalBytes, offset)
+        let nextGap = self.nextMissingBackgroundSlice(
+          destination: job.destination,
+          knownTotalBytes: job.totalBytes,
+          supportsRange: job.supportsRange
+        )
         self.enqueueBackgroundSlice(
           id: job.id,
           urlString: job.urlString,
           destination: job.destination,
           userAgent: job.userAgent,
-          baseOffset: offset,
-          knownTotalBytes: effectiveTotal,
-          supportsRange: job.supportsRange
+          baseOffset: nextGap.start,
+          sliceEndInclusive: nextGap.endInclusive,
+          knownTotalBytes: max(job.totalBytes, nextGap.totalBytes),
+          supportsRange: job.supportsRange,
+          maxConnections: job.desiredMaxWorkers
         )
       }
     }
@@ -265,22 +549,43 @@ final class BackgroundDownloadPlugin: NSObject, FlutterPlugin, URLSessionDataDel
   @objc private func handleDidBecomeActive() {
     stateQueue.async {
       self.isInBackground = false
-      // Any running background slice finishes cleanly and hands subsequent slices back
-      // to foreground streaming automatically (see didFinishDownloadingTo).
+      // Immediately upgrade any OS-throttled background slice back to full-speed
+      // multi-connection foreground streaming without losing saved .part/.part.meta ranges.
+      let activeBgIds = Array(self.bgTasksById.keys)
+      for id in activeBgIds {
+        guard let bgTask = self.bgTasksById.removeValue(forKey: id),
+              let meta = self.bgMetaById.removeValue(forKey: id) else { continue }
+        guard bgTask.state == .running || bgTask.state == .suspended else { continue }
+        self.handoffToFgIds.insert(id)
+        bgTask.cancel()
+        self.lastBgProgressSent.removeValue(forKey: id)
+        self.lastBgProgressBytes.removeValue(forKey: id)
+
+        if self.fgJobs[id] == nil {
+          let job = ForegroundJob(
+            id: meta.id,
+            urlString: meta.url,
+            destination: meta.destination,
+            userAgent: meta.userAgent,
+            totalBytes: meta.knownTotalBytes,
+            maxConnections: meta.maxConnections ?? 6
+          )
+          job.supportsRange = meta.supportsRange
+          self.fgJobs[meta.id] = job
+          self.startForegroundCycle(for: job)
+        }
+      }
     }
   }
 
   private func reconnectForegroundJobsAfterNetworkChange() {
     for job in fgJobs.values {
-      // Cancel any pending retry timer and reconnect right away on the new interface.
       job.retryWorkItem?.cancel()
       job.retryWorkItem = nil
-      job.closeHandle()
-      let oldTask = job.task
-      job.task = nil
+      job.flushAndCloseHandle()
+      job.cancelAllWorkerTasks()
       job.retryCount = 0
-      launchForegroundTask(for: job)
-      oldTask?.cancel()
+      startForegroundCycle(for: job)
     }
   }
 
@@ -300,7 +605,15 @@ final class BackgroundDownloadPlugin: NSObject, FlutterPlugin, URLSessionDataDel
       }
       let userAgent = (args["userAgent"] as? String) ?? "VLC/3.0.20 LibVLC/3.0.20"
       let totalBytes = (args["totalBytes"] as? NSNumber)?.int64Value ?? 0
-      startDownload(id: id, urlString: urlStr, destination: destination, userAgent: userAgent, knownTotalBytes: totalBytes)
+      let maxConnections = (args["maxConnections"] as? NSNumber)?.intValue ?? 6
+      startDownload(
+        id: id,
+        urlString: urlStr,
+        destination: destination,
+        userAgent: userAgent,
+        knownTotalBytes: totalBytes,
+        maxConnections: maxConnections
+      )
       result(true)
     case "pause":
       let args = call.arguments as? [String: Any] ?? [:]
@@ -360,6 +673,10 @@ final class BackgroundDownloadPlugin: NSObject, FlutterPlugin, URLSessionDataDel
     URL(fileURLWithPath: destination + ".part")
   }
 
+  private static func metaFileURL(for destination: String) -> URL {
+    URL(fileURLWithPath: destination + ".part.meta")
+  }
+
   private static func partFileSize(for destination: String) -> Int64 {
     let path = partFileURL(for: destination).path
     guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
@@ -367,6 +684,20 @@ final class BackgroundDownloadPlugin: NSObject, FlutterPlugin, URLSessionDataDel
       return 0
     }
     return max(0, size.int64Value)
+  }
+
+  private static func loadTrackerForDestination(_ destination: String) -> (tracker: RangeTracker, totalBytes: Int64) {
+    let partURL = partFileURL(for: destination)
+    let metaURL = metaFileURL(for: destination)
+    if let loaded = RangeTracker.load(partURL: partURL, metaURL: metaURL) {
+      return loaded
+    }
+    let tracker = RangeTracker()
+    let size = partFileSize(for: destination)
+    if size > 0 {
+      tracker.add(start: 0, end: size)
+    }
+    return (tracker, 0)
   }
 
   private static func encodeMeta(_ meta: BgTaskMeta) -> String? {
@@ -385,6 +716,39 @@ final class BackgroundDownloadPlugin: NSObject, FlutterPlugin, URLSessionDataDel
     return Int64(tail)
   }
 
+  private static func taskIdentifier(jobId: String, workerId: Int) -> String {
+    "\(jobId)|\(workerId)"
+  }
+
+  private static func parseTaskIdentifier(_ raw: String?) -> (jobId: String, workerId: Int)? {
+    guard let raw = raw, let bar = raw.lastIndex(of: "|") else { return nil }
+    let jobId = String(raw[..<bar])
+    guard let wid = Int(raw[raw.index(after: bar)...]) else { return nil }
+    return (jobId, wid)
+  }
+
+  private func nextMissingBackgroundSlice(
+    destination: String,
+    knownTotalBytes: Int64,
+    supportsRange: Bool
+  ) -> (start: Int64, endInclusive: Int64?, totalBytes: Int64) {
+    let loaded = Self.loadTrackerForDestination(destination)
+    let total = max(knownTotalBytes, loaded.totalBytes)
+    guard supportsRange else {
+      return (0, nil, total)
+    }
+    if total > 0 {
+      let gaps = loaded.tracker.missingRanges(totalBytes: total)
+      if let first = gaps.first {
+        let end = min(first.end - 1, first.start + Self.backgroundChunkSize - 1)
+        return (first.start, end, total)
+      }
+      return (total, nil, total)
+    }
+    let offset = loaded.tracker.maxEnd
+    return (offset, offset + Self.backgroundChunkSize - 1, 0)
+  }
+
   // MARK: - Task Control
 
   private func startDownload(
@@ -392,7 +756,8 @@ final class BackgroundDownloadPlugin: NSObject, FlutterPlugin, URLSessionDataDel
     urlString: String,
     destination: String,
     userAgent: String,
-    knownTotalBytes: Int64
+    knownTotalBytes: Int64,
+    maxConnections: Int
   ) {
     guard URL(string: urlString) != nil else {
       sendEvent("failed", payload: ["id": id, "error": "Geçersiz indirme adresi"])
@@ -409,24 +774,29 @@ final class BackgroundDownloadPlugin: NSObject, FlutterPlugin, URLSessionDataDel
 
       self.pausingIds.remove(id)
       self.cancellingIds.remove(id)
+      self.handoffToFgIds.remove(id)
       self.bgRetryCounts.removeValue(forKey: id)
       self.lastBgProgressSent.removeValue(forKey: id)
       self.lastBgProgressBytes.removeValue(forKey: id)
 
-      // Clean up any legacy Apple resumeData file from older versions.
       try? FileManager.default.removeItem(atPath: destination + ".resume")
 
-      let existingBytes = Self.partFileSize(for: destination)
-
       if self.isInBackground {
+        let gap = self.nextMissingBackgroundSlice(
+          destination: destination,
+          knownTotalBytes: knownTotalBytes,
+          supportsRange: true
+        )
         self.enqueueBackgroundSlice(
           id: id,
           urlString: urlString,
           destination: destination,
           userAgent: userAgent,
-          baseOffset: existingBytes,
-          knownTotalBytes: knownTotalBytes,
-          supportsRange: true
+          baseOffset: gap.start,
+          sliceEndInclusive: gap.endInclusive,
+          knownTotalBytes: gap.totalBytes,
+          supportsRange: true,
+          maxConnections: maxConnections
         )
         return
       }
@@ -436,47 +806,225 @@ final class BackgroundDownloadPlugin: NSObject, FlutterPlugin, URLSessionDataDel
         urlString: urlString,
         destination: destination,
         userAgent: userAgent,
-        existingBytes: existingBytes,
-        totalBytes: knownTotalBytes
+        totalBytes: knownTotalBytes,
+        maxConnections: maxConnections
       )
       self.fgJobs[id] = job
-      self.launchForegroundTask(for: job)
+      self.startForegroundCycle(for: job)
     }
   }
 
-  private func launchForegroundTask(for job: ForegroundJob) {
+  private func startForegroundCycle(for job: ForegroundJob) {
     guard let url = URL(string: job.urlString) else {
       fgJobs.removeValue(forKey: job.id)
       sendEvent("failed", payload: ["id": job.id, "error": "Geçersiz indirme adresi"])
       return
     }
-    let existingBytes = Self.partFileSize(for: job.destination)
-    job.currentOffset = existingBytes
-    job.lastProgressBytes = existingBytes
-    job.lastProgressSent = 0
-    job.receivedResponse = false
-    job.lastDataReceivedAt = Date().timeIntervalSince1970
 
-    var req = URLRequest(url: url)
-    req.setValue(job.userAgent, forHTTPHeaderField: "User-Agent")
-    if existingBytes > 0 && job.supportsRange {
-      req.setValue("bytes=\(existingBytes)-", forHTTPHeaderField: "Range")
+    job.cancelAllWorkerTasks()
+    job.flushAndCloseHandle()
+    job.speedMeter.reset()
+    job.probeStarted = false
+    job.probeSucceeded = false
+    job.receivedAnyBytesThisCycle = false
+    job.lastProgressSent = 0
+    job.lastMetaSavedAt = Date().timeIntervalSince1970
+
+    let loaded = Self.loadTrackerForDestination(job.destination)
+    job.tracker = loaded.tracker
+    if loaded.totalBytes > 0 {
+      job.totalBytes = loaded.totalBytes
+    }
+    if job.totalBytes > 0 && job.tracker.isComplete(totalBytes: job.totalBytes) {
+      fgJobs.removeValue(forKey: job.id)
+      finalizePartFile(id: job.id, destination: job.destination, knownTotal: job.totalBytes)
+      return
+    }
+    if job.totalBytes > 0 {
+      job.chunkSize = job.computeChunkSize()
     }
 
-    let task = fgSession.dataTask(with: req)
-    task.taskDescription = job.id
-    job.task = task
+    // Open shared FileHandle for random-access writing.
+    let partURL = Self.partFileURL(for: job.destination)
+    let fm = FileManager.default
+    do {
+      if !fm.fileExists(atPath: partURL.path) {
+        fm.createFile(atPath: partURL.path, contents: nil)
+      }
+      Self.markExcludedFromBackup(partURL)
+      job.fileHandle = try FileHandle(forWritingTo: partURL)
+    } catch {
+      fgJobs.removeValue(forKey: job.id)
+      sendEvent("failed", payload: ["id": job.id, "error": "Dosya açılamadı: \(error.localizedDescription)"])
+      return
+    }
 
-    // Immediately keep UI anchored at the real disk offset so progress never flickers to 0.
-    if existingBytes > 0 {
+    let existingCompleted = job.tracker.completedBytes
+    if existingCompleted > 0 {
       sendEvent("progress", payload: [
         "id": job.id,
-        "downloadedBytes": existingBytes,
-        "totalBytes": max(job.totalBytes, existingBytes),
+        "downloadedBytes": existingCompleted,
+        "totalBytes": max(job.totalBytes, existingCompleted),
         "speedBytesPerSec": Int64(0),
+        "activeConnections": 1,
       ])
     }
+
+    // Launch primary worker 0.
+    let hasMeta = loaded.totalBytes > 0 && !job.tracker.isEmpty
+    var req = URLRequest(url: url)
+    req.setValue(job.userAgent, forHTTPHeaderField: "User-Agent")
+    req.setValue("*/*", forHTTPHeaderField: "Accept")
+    req.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+
+    let startOffset: Int64
+    let endOffset: Int64
+    let openEnded: Bool
+
+    if hasMeta && job.supportsRange {
+      let gaps = job.tracker.missingRanges(totalBytes: job.totalBytes)
+      guard let firstGap = gaps.first else {
+        job.flushAndCloseHandle()
+        fgJobs.removeValue(forKey: job.id)
+        finalizePartFile(id: job.id, destination: job.destination, knownTotal: job.totalBytes)
+        return
+      }
+      startOffset = firstGap.start
+      let shouldSegment = job.effectiveMaxWorkers > 1 && job.totalBytes >= Self.minSegmentedBytes
+      if shouldSegment {
+        endOffset = min(firstGap.end, firstGap.start + job.chunkSize)
+        openEnded = false
+        req.setValue("bytes=\(startOffset)-\(endOffset - 1)", forHTTPHeaderField: "Range")
+      } else if firstGap.end >= job.totalBytes {
+        endOffset = job.totalBytes
+        openEnded = true
+        req.setValue("bytes=\(startOffset)-", forHTTPHeaderField: "Range")
+      } else {
+        endOffset = firstGap.end
+        openEnded = false
+        req.setValue("bytes=\(startOffset)-\(endOffset - 1)", forHTTPHeaderField: "Range")
+      }
+    } else if !job.tracker.isEmpty && job.supportsRange {
+      startOffset = job.tracker.maxEnd
+      endOffset = job.totalBytes > 0 ? job.totalBytes : Int64.max
+      openEnded = true
+      req.setValue("bytes=\(startOffset)-", forHTTPHeaderField: "Range")
+    } else {
+      startOffset = 0
+      endOffset = job.totalBytes > 0 ? job.totalBytes : Int64.max
+      openEnded = true
+    }
+
+    let slot = WorkerSlot(workerId: 0, isPrimary: true, start: startOffset, end: endOffset, openEnded: openEnded)
+    let task = fgSession.dataTask(with: req)
+    task.taskDescription = Self.taskIdentifier(jobId: job.id, workerId: 0)
+    slot.task = task
+    job.workers[0] = slot
     task.resume()
+  }
+
+  private func spawnExtraWorkersIfAllowed(for job: ForegroundJob) {
+    guard !isInBackground,
+          job.supportsRange,
+          job.totalBytes >= Self.minSegmentedBytes,
+          job.effectiveMaxWorkers > 1 else {
+      return
+    }
+    let target = job.probeSucceeded ? job.effectiveMaxWorkers : min(2, job.effectiveMaxWorkers)
+    while job.workers.count < target {
+      let wid = job.nextWorkerId
+      job.nextWorkerId += 1
+      guard let slot = claimNextSlot(for: job, workerId: wid) else { break }
+      if !job.probeStarted { job.probeStarted = true }
+      job.lastScaleUpAt = Date().timeIntervalSince1970
+      launchExtraSlot(slot, for: job)
+    }
+  }
+
+  private func launchExtraSlot(_ slot: WorkerSlot, for job: ForegroundJob) {
+    let targetURL: URL
+    if job.resolvedURLReusable, let resolved = job.resolvedURL, !slot.retriedOriginal {
+      targetURL = resolved
+      slot.usedResolvedURL = true
+    } else if let orig = URL(string: job.urlString) {
+      targetURL = orig
+      slot.usedResolvedURL = false
+    } else {
+      job.workers.removeValue(forKey: slot.workerId)
+      return
+    }
+
+    var req = URLRequest(url: targetURL)
+    req.setValue(job.userAgent, forHTTPHeaderField: "User-Agent")
+    req.setValue("*/*", forHTTPHeaderField: "Accept")
+    req.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+    req.setValue("bytes=\(slot.cursor)-\(slot.end - 1)", forHTTPHeaderField: "Range")
+
+    let task = fgSession.dataTask(with: req)
+    task.taskDescription = Self.taskIdentifier(jobId: job.id, workerId: slot.workerId)
+    slot.task = task
+    job.workers[slot.workerId] = slot
+    task.resume()
+  }
+
+  private func claimNextSlot(for job: ForegroundJob, workerId: Int) -> WorkerSlot? {
+    guard job.totalBytes > 0 else { return nil }
+    let covered = RangeTracker()
+    for r in job.tracker.ranges {
+      covered.add(start: r.start, end: r.end)
+    }
+    for w in job.workers.values where w.cursor < w.end {
+      covered.add(start: w.cursor, end: w.end)
+    }
+
+    let unclaimed = covered.missingRanges(totalBytes: job.totalBytes)
+    if let gap = unclaimed.first {
+      let end = min(gap.start + job.chunkSize, gap.end)
+      let slot = WorkerSlot(workerId: workerId, isPrimary: false, start: gap.start, end: end, openEnded: false)
+      job.workers[workerId] = slot
+      return slot
+    }
+
+    // Tail work-stealing: split largest remaining active span in half so slow stragglers never stall the finish.
+    var victim: WorkerSlot?
+    for w in job.workers.values where w.remaining >= Self.minStealBytes * 2 {
+      if victim == nil || w.remaining > victim!.remaining {
+        victim = w
+      }
+    }
+    if let v = victim {
+      let mid = v.cursor + (v.remaining / 2)
+      let stolenEnd = v.end
+      v.end = mid
+      let slot = WorkerSlot(workerId: workerId, isPrimary: false, start: mid, end: stolenEnd, openEnded: false)
+      job.workers[workerId] = slot
+      return slot
+    }
+    return nil
+  }
+
+  private func tryExtendOpenEndedSlot(_ slot: WorkerSlot, for job: ForegroundJob) -> Bool {
+    guard job.totalBytes > 0, slot.end < job.totalBytes else { return false }
+    let nextStart = slot.end
+    let nextEnd = min(nextStart + job.chunkSize, job.totalBytes)
+    guard job.tracker.isCompletelyMissing(start: nextStart, end: nextEnd) else { return false }
+    for other in job.workers.values where other.workerId != slot.workerId {
+      if other.cursor < nextEnd && other.end > nextStart {
+        return false
+      }
+    }
+    slot.end = nextEnd
+    return true
+  }
+
+  private func flushSlotBuffer(_ slot: WorkerSlot, for job: ForegroundJob) throws {
+    guard !slot.buffer.isEmpty, let handle = job.fileHandle else { return }
+    try handle.seek(toOffset: UInt64(max(0, slot.writePos)))
+    try handle.write(contentsOf: slot.buffer)
+    let len = Int64(slot.buffer.count)
+    job.tracker.add(start: slot.writePos, end: slot.writePos + len)
+    slot.writePos += len
+    slot.buffer.removeAll(keepingCapacity: true)
   }
 
   private func enqueueBackgroundSlice(
@@ -485,8 +1033,10 @@ final class BackgroundDownloadPlugin: NSObject, FlutterPlugin, URLSessionDataDel
     destination: String,
     userAgent: String,
     baseOffset: Int64,
+    sliceEndInclusive: Int64?,
     knownTotalBytes: Int64,
-    supportsRange: Bool
+    supportsRange: Bool,
+    maxConnections: Int
   ) {
     guard let url = URL(string: urlString) else {
       sendEvent("failed", payload: ["id": id, "error": "Geçersiz indirme adresi"])
@@ -495,25 +1045,11 @@ final class BackgroundDownloadPlugin: NSObject, FlutterPlugin, URLSessionDataDel
 
     var req = URLRequest(url: url)
     req.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+    req.setValue("*/*", forHTTPHeaderField: "Accept")
+    req.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
 
-    var expectedSliceEnd: Int64? = nil
-    if supportsRange {
-      if knownTotalBytes > 0 {
-        let end = min(knownTotalBytes - 1, baseOffset + Self.backgroundChunkSize - 1)
-        if end >= baseOffset {
-          req.setValue("bytes=\(baseOffset)-\(end)", forHTTPHeaderField: "Range")
-          expectedSliceEnd = end
-        }
-      } else if baseOffset > 0 {
-        let end = baseOffset + Self.backgroundChunkSize - 1
-        req.setValue("bytes=\(baseOffset)-\(end)", forHTTPHeaderField: "Range")
-        expectedSliceEnd = end
-      } else {
-        // First request starting directly in background: probe a 64 MiB range slice.
-        let end = Self.backgroundChunkSize - 1
-        req.setValue("bytes=0-\(end)", forHTTPHeaderField: "Range")
-        expectedSliceEnd = end
-      }
+    if supportsRange, let end = sliceEndInclusive, end >= baseOffset {
+      req.setValue("bytes=\(baseOffset)-\(end)", forHTTPHeaderField: "Range")
     }
 
     let meta = BgTaskMeta(
@@ -522,16 +1058,17 @@ final class BackgroundDownloadPlugin: NSObject, FlutterPlugin, URLSessionDataDel
       destination: destination,
       userAgent: userAgent,
       baseOffset: baseOffset,
-      expectedSliceEnd: expectedSliceEnd,
+      expectedSliceEnd: supportsRange ? sliceEndInclusive : nil,
       knownTotalBytes: knownTotalBytes,
-      supportsRange: supportsRange
+      supportsRange: supportsRange,
+      maxConnections: maxConnections
     )
     let task = bgSession.downloadTask(with: req)
     task.taskDescription = Self.encodeMeta(meta)
     bgTasksById[id] = task
     bgMetaById[id] = meta
     lastBgProgressSent.removeValue(forKey: id)
-    lastBgProgressBytes[id] = baseOffset
+    lastBgProgressBytes[id] = Self.loadTrackerForDestination(destination).tracker.completedBytes
     task.resume()
   }
 
@@ -544,8 +1081,8 @@ final class BackgroundDownloadPlugin: NSObject, FlutterPlugin, URLSessionDataDel
         found = true
         job.retryWorkItem?.cancel()
         job.retryWorkItem = nil
-        job.closeHandle()
-        job.task?.cancel()
+        job.flushAndCloseHandle()
+        job.cancelAllWorkerTasks()
       }
       if let bgTask = self.bgTasksById.removeValue(forKey: id) {
         found = true
@@ -564,6 +1101,7 @@ final class BackgroundDownloadPlugin: NSObject, FlutterPlugin, URLSessionDataDel
     stateQueue.async {
       self.cancellingIds.insert(id)
       self.pausingIds.remove(id)
+      self.handoffToFgIds.remove(id)
       self.bgRetryCounts.removeValue(forKey: id)
 
       var dest = destination
@@ -571,8 +1109,11 @@ final class BackgroundDownloadPlugin: NSObject, FlutterPlugin, URLSessionDataDel
         dest = dest ?? job.destination
         job.retryWorkItem?.cancel()
         job.retryWorkItem = nil
-        job.closeHandle()
-        job.task?.cancel()
+        job.cancelAllWorkerTasks()
+        if let handle = job.fileHandle {
+          try? handle.close()
+          job.fileHandle = nil
+        }
       }
       if let bgTask = self.bgTasksById.removeValue(forKey: id) {
         dest = dest ?? self.bgMetaById.removeValue(forKey: id)?.destination
@@ -583,6 +1124,7 @@ final class BackgroundDownloadPlugin: NSObject, FlutterPlugin, URLSessionDataDel
 
       if let dest = dest {
         try? FileManager.default.removeItem(at: Self.partFileURL(for: dest))
+        try? FileManager.default.removeItem(at: Self.metaFileURL(for: dest))
         try? FileManager.default.removeItem(atPath: dest + ".resume")
       }
     }
@@ -609,15 +1151,15 @@ final class BackgroundDownloadPlugin: NSObject, FlutterPlugin, URLSessionDataDel
           case .completed: stateStr = "completed"
           @unknown default: stateStr = "downloading"
           }
-          let total = meta.knownTotalBytes > 0
-            ? meta.knownTotalBytes
-            : (meta.baseOffset + max(0, dl.countOfBytesExpectedToReceive))
+          let persisted = Self.loadTrackerForDestination(meta.destination)
+          let total = max(meta.knownTotalBytes, persisted.totalBytes)
+          let effectiveTotal = total > 0 ? total : (meta.baseOffset + max(0, dl.countOfBytesExpectedToReceive))
           list.append([
             "id": meta.id,
             "destination": meta.destination,
             "state": stateStr,
-            "downloadedBytes": meta.baseOffset + dl.countOfBytesReceived,
-            "totalBytes": total,
+            "downloadedBytes": persisted.tracker.completedBytes + dl.countOfBytesReceived,
+            "totalBytes": effectiveTotal,
           ])
         }
         completion(list)
@@ -644,11 +1186,17 @@ final class BackgroundDownloadPlugin: NSObject, FlutterPlugin, URLSessionDataDel
          updated.value(forHTTPHeaderField: "Range") == nil {
         updated.setValue(range, forHTTPHeaderField: "Range")
       }
+      if updated.value(forHTTPHeaderField: "Accept-Encoding") == nil {
+        updated.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+      }
+      if updated.value(forHTTPHeaderField: "Accept") == nil {
+        updated.setValue("*/*", forHTTPHeaderField: "Accept")
+      }
     }
     completionHandler(updated)
   }
 
-  // MARK: - Foreground URLSessionDataDelegate (Zero-Loss Direct .part Streaming)
+  // MARK: - Foreground URLSessionDataDelegate (Multi-Connection Segmented Streaming)
 
   func urlSession(
     _ session: URLSession,
@@ -656,12 +1204,14 @@ final class BackgroundDownloadPlugin: NSObject, FlutterPlugin, URLSessionDataDel
     didReceive response: URLResponse,
     completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
   ) {
-    guard session === fgSession, let id = dataTask.taskDescription else {
+    guard session === fgSession, let parsed = Self.parseTaskIdentifier(dataTask.taskDescription) else {
       completionHandler(.allow)
       return
     }
     stateQueue.async {
-      guard let job = self.fgJobs[id], job.task === dataTask else {
+      guard let job = self.fgJobs[parsed.jobId],
+            let slot = job.workers[parsed.workerId],
+            slot.task === dataTask else {
         completionHandler(.cancel)
         return
       }
@@ -670,21 +1220,63 @@ final class BackgroundDownloadPlugin: NSObject, FlutterPlugin, URLSessionDataDel
         return
       }
 
-      // 416 Range Not Satisfiable: file already complete or changed on server.
-      if http.statusCode == 416 && job.currentOffset > 0 {
-        if let total = Self.parseContentRangeTotal(http.value(forHTTPHeaderField: "Content-Range")),
-           total > 0 && job.currentOffset >= total {
-          self.fgJobs.removeValue(forKey: id)
+      // Extra worker response handling (safe auto-fallback, never fails the download).
+      if !slot.isPrimary {
+        if (http.statusCode == 401 || http.statusCode == 403 || http.statusCode == 404 || http.statusCode == 410),
+           slot.usedResolvedURL, !slot.retriedOriginal {
+          job.resolvedURLReusable = false
+          slot.retriedOriginal = true
+          slot.cancelledByPool = true
           completionHandler(.cancel)
-          self.finalizePartFile(id: id, destination: job.destination, knownTotal: total)
+          self.launchExtraSlot(slot, for: job)
           return
         }
-        // Server file changed; reset .part and retry cleanly from 0.
+        if http.statusCode == 200 {
+          // Server ignored Range header.
+          job.supportsRange = false
+          job.effectiveMaxWorkers = 1
+          slot.cancelledByPool = true
+          job.workers.removeValue(forKey: slot.workerId)
+          completionHandler(.cancel)
+          return
+        }
+        if http.statusCode != 206 {
+          let isLimit = [401, 403, 429, 503, 509].contains(http.statusCode)
+          slot.cancelledByPool = true
+          job.workers.removeValue(forKey: slot.workerId)
+          if isLimit {
+            job.effectiveMaxWorkers = max(1, job.workers.count)
+          }
+          completionHandler(.cancel)
+          return
+        }
+        slot.streaming = true
+        completionHandler(.allow)
+        return
+      }
+
+      // Primary worker 0 response handling.
+      if let finalURL = response.url {
+        job.resolvedURL = finalURL
+      }
+
+      if http.statusCode == 416 && slot.start > 0 {
+        if let total = Self.parseContentRangeTotal(http.value(forHTTPHeaderField: "Content-Range")),
+           total > 0 && job.tracker.completedBytes >= total {
+          job.flushAndCloseHandle()
+          self.fgJobs.removeValue(forKey: job.id)
+          completionHandler(.cancel)
+          self.finalizePartFile(id: job.id, destination: job.destination, knownTotal: total)
+          return
+        }
+        // Server file changed; reset .part + .part.meta and restart cleanly from 0.
+        job.flushAndCloseHandle()
         try? FileManager.default.removeItem(at: Self.partFileURL(for: job.destination))
-        job.currentOffset = 0
+        try? FileManager.default.removeItem(at: Self.metaFileURL(for: job.destination))
         job.totalBytes = 0
+        job.tracker.clear()
         completionHandler(.cancel)
-        self.launchForegroundTask(for: job)
+        self.startForegroundCycle(for: job)
         return
       }
 
@@ -699,89 +1291,205 @@ final class BackgroundDownloadPlugin: NSObject, FlutterPlugin, URLSessionDataDel
         default:
           msg = "Sunucu HTTP \(http.statusCode) döndürdü"
         }
-        self.fgJobs.removeValue(forKey: id)
+        job.flushAndCloseHandle()
+        job.cancelAllWorkerTasks()
+        self.fgJobs.removeValue(forKey: job.id)
         completionHandler(.cancel)
-        self.sendEvent("failed", payload: ["id": id, "error": msg])
+        self.sendEvent("failed", payload: ["id": job.id, "error": msg])
         return
       }
 
-      let partURL = Self.partFileURL(for: job.destination)
-      let fm = FileManager.default
-      do {
-        if !fm.fileExists(atPath: partURL.path) {
-          fm.createFile(atPath: partURL.path, contents: nil)
+      if let acceptRanges = http.value(forHTTPHeaderField: "Accept-Ranges")?.lowercased(),
+         acceptRanges == "none" {
+        job.supportsRange = false
+        job.effectiveMaxWorkers = 1
+      }
+
+      if isPartial {
+        if let parsedTotal = Self.parseContentRangeTotal(http.value(forHTTPHeaderField: "Content-Range")),
+           parsedTotal > 0 {
+          if job.totalBytes > 0 && job.totalBytes != parsedTotal {
+            job.flushAndCloseHandle()
+            try? FileManager.default.removeItem(at: Self.partFileURL(for: job.destination))
+            try? FileManager.default.removeItem(at: Self.metaFileURL(for: job.destination))
+            job.totalBytes = 0
+            job.tracker.clear()
+            completionHandler(.cancel)
+            self.startForegroundCycle(for: job)
+            return
+          }
+          job.totalBytes = parsedTotal
+        } else if response.expectedContentLength > 0 && job.totalBytes == 0 {
+          job.totalBytes = slot.start + response.expectedContentLength
         }
-        Self.markExcludedFromBackup(partURL)
-        let handle = try FileHandle(forWritingTo: partURL)
-        if isPartial {
-          try handle.seekToEnd()
-          if let parsedTotal = Self.parseContentRangeTotal(http.value(forHTTPHeaderField: "Content-Range")),
-             parsedTotal > 0 {
-            job.totalBytes = parsedTotal
-          } else if response.expectedContentLength > 0 {
-            job.totalBytes = job.currentOffset + response.expectedContentLength
-          }
-          job.supportsRange = true
-        } else {
-          // 200 OK: either starting at 0 or server does not support Range.
-          if job.currentOffset > 0 {
-            job.supportsRange = false
-          }
-          try handle.truncate(atOffset: 0)
-          job.currentOffset = 0
-          job.lastProgressBytes = 0
-          if response.expectedContentLength > 0 {
-            job.totalBytes = response.expectedContentLength
-          }
+      } else {
+        // 200 OK: fresh download OR server does not support Range.
+        if slot.start > 0 {
+          job.supportsRange = false
+          job.effectiveMaxWorkers = 1
+          job.tracker.clear()
+          try? job.fileHandle?.truncate(atOffset: 0)
         }
-        job.fileHandle = handle
-        job.receivedResponse = true
-        job.retryCount = 0
-        completionHandler(.allow)
-      } catch {
-        self.fgJobs.removeValue(forKey: id)
-        completionHandler(.cancel)
-        self.sendEvent("failed", payload: ["id": id, "error": "Dosya açılamadı: \(error.localizedDescription)"])
+        slot.start = 0
+        slot.cursor = 0
+        slot.writePos = 0
+        if response.expectedContentLength > 0 {
+          job.totalBytes = response.expectedContentLength
+        }
+      }
+
+      if job.totalBytes > 0 {
+        job.chunkSize = job.computeChunkSize()
+        if slot.openEnded {
+          slot.end = (job.supportsRange && job.effectiveMaxWorkers > 1 && job.totalBytes >= Self.minSegmentedBytes)
+            ? min(slot.start + job.chunkSize, job.totalBytes)
+            : job.totalBytes
+        }
+      }
+
+      slot.streaming = true
+      job.retryCount = 0
+      completionHandler(.allow)
+
+      // Ramp up Probe Worker 1 if file is eligible for parallel Range downloading.
+      if job.supportsRange && job.effectiveMaxWorkers > 1 && job.totalBytes >= Self.minSegmentedBytes {
+        self.spawnExtraWorkersIfAllowed(for: job)
       }
     }
   }
 
   func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-    guard session === fgSession, let id = dataTask.taskDescription else { return }
+    guard session === fgSession, let parsed = Self.parseTaskIdentifier(dataTask.taskDescription) else { return }
     stateQueue.async {
-      guard let job = self.fgJobs[id], job.task === dataTask, let handle = job.fileHandle else { return }
-      do {
-        try handle.write(contentsOf: data)
-      } catch {
-        job.closeHandle()
-        self.fgJobs.removeValue(forKey: id)
+      guard let job = self.fgJobs[parsed.jobId],
+            let slot = job.workers[parsed.workerId],
+            slot.task === dataTask else { return }
+      guard !data.isEmpty else { return }
+
+      var remaining = slot.end - slot.cursor
+      if remaining <= 0 && slot.openEnded && job.totalBytes > 0 {
+        if self.tryExtendOpenEndedSlot(slot, for: job) {
+          remaining = slot.end - slot.cursor
+        }
+      }
+      if remaining <= 0 {
+        slot.cancelledByPool = true
         dataTask.cancel()
-        self.sendEvent("failed", payload: ["id": id, "error": "Disk yazma hatası: \(error.localizedDescription)"])
+        self.finishWorkerSlotCleanly(slot, for: job)
         return
       }
 
-      job.currentOffset += Int64(data.count)
-      let now = Date().timeIntervalSince1970
-      job.lastDataReceivedAt = now
+      let takeLen = min(Int64(data.count), remaining)
+      if takeLen == Int64(data.count) {
+        slot.buffer.append(data)
+      } else {
+        slot.buffer.append(data.prefix(Int(takeLen)))
+      }
+      slot.cursor += takeLen
+      slot.receivedBytes += takeLen
+      job.receivedAnyBytesThisCycle = true
 
-      let elapsed = now - job.lastProgressSent
-      if job.lastProgressSent == 0 || elapsed >= 0.25 {
-        let speed: Int64 = (job.lastProgressSent > 0 && elapsed > 0.05)
-          ? Int64(Double(max(0, job.currentOffset - job.lastProgressBytes)) / elapsed)
-          : 0
+      let now = Date().timeIntervalSince1970
+      job.speedMeter.add(bytes: takeLen, now: now)
+
+      if !slot.isPrimary && !slot.firedFirstBytes && slot.receivedBytes >= 8 * 1024 {
+        slot.firedFirstBytes = true
+        if !job.probeSucceeded && !job.singleConnKickDetected {
+          job.probeSucceeded = true
+          self.spawnExtraWorkersIfAllowed(for: job)
+        }
+      }
+
+      if slot.buffer.count >= Self.writeBufferBytes {
+        do {
+          try self.flushSlotBuffer(slot, for: job)
+        } catch {
+          job.flushAndCloseHandle()
+          job.cancelAllWorkerTasks()
+          self.fgJobs.removeValue(forKey: job.id)
+          self.sendEvent("failed", payload: ["id": job.id, "error": "Disk yazma hatası: \(error.localizedDescription)"])
+          return
+        }
+      }
+
+      if job.totalBytes > 0 && (now - job.lastMetaSavedAt) >= 1.5 {
+        job.lastMetaSavedAt = now
+        job.flushAllBuffers()
+        job.tracker.save(to: Self.metaFileURL(for: job.destination), totalBytes: job.totalBytes)
+      }
+
+      if job.lastProgressSent == 0 || (now - job.lastProgressSent) >= 0.25 {
         job.lastProgressSent = now
-        job.lastProgressBytes = job.currentOffset
+        let speed = job.speedMeter.bytesPerSecond(now: now)
         self.sendEvent("progress", payload: [
-          "id": id,
-          "downloadedBytes": job.currentOffset,
+          "id": job.id,
+          "downloadedBytes": job.liveCompletedBytes(),
           "totalBytes": max(0, job.totalBytes),
           "speedBytesPerSec": speed,
+          "activeConnections": job.activeStreamingCount(),
         ])
+      }
+
+      if slot.cursor >= slot.end {
+        if slot.openEnded && job.totalBytes > 0 && self.tryExtendOpenEndedSlot(slot, for: job) {
+          return
+        }
+        slot.cancelledByPool = true
+        dataTask.cancel()
+        self.finishWorkerSlotCleanly(slot, for: job)
       }
     }
   }
 
-  // MARK: - Background URLSessionDownloadDelegate (64 MiB Slices Appended to .part)
+  private func finishWorkerSlotCleanly(_ slot: WorkerSlot, for job: ForegroundJob) {
+    do {
+      try flushSlotBuffer(slot, for: job)
+    } catch {
+      job.flushAndCloseHandle()
+      job.cancelAllWorkerTasks()
+      fgJobs.removeValue(forKey: job.id)
+      sendEvent("failed", payload: ["id": job.id, "error": "Disk yazma hatası: \(error.localizedDescription)"])
+      return
+    }
+
+    if !slot.isPrimary && !slot.firedFirstBytes && slot.receivedBytes > 0 {
+      slot.firedFirstBytes = true
+      if !job.probeSucceeded && !job.singleConnKickDetected {
+        job.probeSucceeded = true
+      }
+    }
+
+    job.workers.removeValue(forKey: slot.workerId)
+    if job.totalBytes > 0 {
+      job.tracker.save(to: Self.metaFileURL(for: job.destination), totalBytes: job.totalBytes)
+    }
+
+    if job.totalBytes > 0 && job.tracker.isComplete(totalBytes: job.totalBytes) {
+      job.flushAndCloseHandle()
+      job.cancelAllWorkerTasks()
+      fgJobs.removeValue(forKey: job.id)
+      finalizePartFile(id: job.id, destination: job.destination, knownTotal: job.totalBytes)
+      return
+    }
+
+    // Grab the next missing chunk for this worker slot (or let primary join the bounded pool).
+    if job.supportsRange && job.totalBytes > 0 && job.workers.count < job.effectiveMaxWorkers {
+      let wid = job.nextWorkerId
+      job.nextWorkerId += 1
+      if let nextSlot = claimNextSlot(for: job, workerId: wid) {
+        launchExtraSlot(nextSlot, for: job)
+      }
+      spawnExtraWorkersIfAllowed(for: job)
+    } else if job.workers.isEmpty && job.totalBytes == 0 {
+      // Unknown Content-Length stream reached EOF cleanly.
+      let diskSize = Self.partFileSize(for: job.destination)
+      job.flushAndCloseHandle()
+      fgJobs.removeValue(forKey: job.id)
+      finalizePartFile(id: job.id, destination: job.destination, knownTotal: diskSize)
+    }
+  }
+
+  // MARK: - Background URLSessionDownloadDelegate (64 MiB Slices Written at Exact Offset)
 
   func urlSession(
     _ session: URLSession,
@@ -797,8 +1505,9 @@ final class BackgroundDownloadPlugin: NSObject, FlutterPlugin, URLSessionDataDel
       let elapsed = now - prevTime
       if prevTime > 0 && elapsed < 0.25 { return }
 
-      let combinedDownloaded = meta.baseOffset + totalBytesWritten
-      var combinedTotal = meta.knownTotalBytes
+      let persisted = Self.loadTrackerForDestination(meta.destination)
+      let combinedDownloaded = persisted.tracker.completedBytes + totalBytesWritten
+      var combinedTotal = max(meta.knownTotalBytes, persisted.totalBytes)
       if combinedTotal <= 0 {
         if let http = downloadTask.response as? HTTPURLResponse,
            let parsedTotal = Self.parseContentRangeTotal(http.value(forHTTPHeaderField: "Content-Range")),
@@ -809,7 +1518,7 @@ final class BackgroundDownloadPlugin: NSObject, FlutterPlugin, URLSessionDataDel
         }
       }
 
-      let prevBytes = self.lastBgProgressBytes[meta.id] ?? meta.baseOffset
+      let prevBytes = self.lastBgProgressBytes[meta.id] ?? persisted.tracker.completedBytes
       let speed: Int64 = (prevTime > 0 && elapsed > 0.05)
         ? Int64(Double(max(0, combinedDownloaded - prevBytes)) / elapsed)
         : 0
@@ -821,6 +1530,7 @@ final class BackgroundDownloadPlugin: NSObject, FlutterPlugin, URLSessionDataDel
         "downloadedBytes": combinedDownloaded,
         "totalBytes": max(0, combinedTotal),
         "speedBytesPerSec": speed,
+        "activeConnections": 1,
       ])
     }
   }
@@ -851,6 +1561,7 @@ final class BackgroundDownloadPlugin: NSObject, FlutterPlugin, URLSessionDataDel
     let parsedTotal = Self.parseContentRangeTotal(http?.value(forHTTPHeaderField: "Content-Range")) ?? 0
     let totalBytes = parsedTotal > 0 ? parsedTotal : meta.knownTotalBytes
     let partURL = Self.partFileURL(for: meta.destination)
+    let metaURL = Self.metaFileURL(for: meta.destination)
     let fm = FileManager.default
 
     do {
@@ -860,15 +1571,14 @@ final class BackgroundDownloadPlugin: NSObject, FlutterPlugin, URLSessionDataDel
       }
       Self.markExcludedFromBackup(parent)
 
-      if isPartial {
-        try Self.appendFile(from: location, to: partURL, expectedOffset: meta.baseOffset)
-      } else {
+      if !isPartial {
         // Server sent 200 OK (full file): replace destination directly.
         let destURL = URL(fileURLWithPath: meta.destination)
         if fm.fileExists(atPath: destURL.path) { try fm.removeItem(at: destURL) }
         try fm.moveItem(at: location, to: destURL)
         Self.markExcludedFromBackup(destURL)
         try? fm.removeItem(at: partURL)
+        try? fm.removeItem(at: metaURL)
         let finalSize = (try? fm.attributesOfItem(atPath: destURL.path)[.size] as? NSNumber)?.int64Value ?? 0
         stateQueue.async {
           self.bgTasksById.removeValue(forKey: meta.id)
@@ -884,8 +1594,17 @@ final class BackgroundDownloadPlugin: NSObject, FlutterPlugin, URLSessionDataDel
         return
       }
 
-      let newOffset = Self.partFileSize(for: meta.destination)
-      let done = (totalBytes > 0 && newOffset >= totalBytes) || meta.expectedSliceEnd == nil
+      // Write partial slice into .part at exact `meta.baseOffset` WITHOUT truncating higher ranges.
+      let written = try Self.writeSlice(from: location, to: partURL, atOffset: meta.baseOffset)
+      let loaded = Self.loadTrackerForDestination(meta.destination)
+      let effectiveTotal = max(totalBytes, loaded.totalBytes)
+      loaded.tracker.add(start: meta.baseOffset, end: meta.baseOffset + written)
+      if effectiveTotal > 0 {
+        loaded.tracker.save(to: metaURL, totalBytes: effectiveTotal)
+      }
+
+      let done = (effectiveTotal > 0 && loaded.tracker.isComplete(totalBytes: effectiveTotal))
+        || meta.expectedSliceEnd == nil
 
       stateQueue.async {
         self.bgTasksById.removeValue(forKey: meta.id)
@@ -894,35 +1613,40 @@ final class BackgroundDownloadPlugin: NSObject, FlutterPlugin, URLSessionDataDel
         self.lastBgProgressSent.removeValue(forKey: meta.id)
         self.lastBgProgressBytes.removeValue(forKey: meta.id)
 
-        if self.pausingIds.contains(meta.id) || self.cancellingIds.contains(meta.id) {
+        if self.pausingIds.contains(meta.id) || self.cancellingIds.contains(meta.id) || self.handoffToFgIds.remove(meta.id) != nil {
           return
         }
 
         if done {
-          self.finalizePartFile(id: meta.id, destination: meta.destination, knownTotal: max(totalBytes, newOffset))
+          self.finalizePartFile(id: meta.id, destination: meta.destination, knownTotal: max(effectiveTotal, loaded.tracker.completedBytes))
         } else if self.isInBackground {
+          let nextGap = self.nextMissingBackgroundSlice(
+            destination: meta.destination,
+            knownTotalBytes: effectiveTotal,
+            supportsRange: true
+          )
           self.enqueueBackgroundSlice(
             id: meta.id,
             urlString: meta.url,
             destination: meta.destination,
             userAgent: meta.userAgent,
-            baseOffset: newOffset,
-            knownTotalBytes: totalBytes,
-            supportsRange: true
+            baseOffset: nextGap.start,
+            sliceEndInclusive: nextGap.endInclusive,
+            knownTotalBytes: nextGap.totalBytes,
+            supportsRange: true,
+            maxConnections: meta.maxConnections ?? 6
           )
         } else {
-          // App returned to foreground while slice was downloading: switch back to
-          // direct zero-loss foreground streaming from the exact new .part offset.
           let job = ForegroundJob(
             id: meta.id,
             urlString: meta.url,
             destination: meta.destination,
             userAgent: meta.userAgent,
-            existingBytes: newOffset,
-            totalBytes: totalBytes
+            totalBytes: effectiveTotal,
+            maxConnections: meta.maxConnections ?? 6
           )
           self.fgJobs[meta.id] = job
-          self.launchForegroundTask(for: job)
+          self.startForegroundCycle(for: job)
         }
       }
     } catch {
@@ -937,9 +1661,9 @@ final class BackgroundDownloadPlugin: NSObject, FlutterPlugin, URLSessionDataDel
     }
   }
 
-  /// Streams bytes from `source` to the end of `destination` using a small 256 KiB buffer
-  /// so appending 64 MiB slices in background never spikes memory.
-  private static func appendFile(from source: URL, to destination: URL, expectedOffset: Int64) throws {
+  /// Streams bytes from `source` into `destination` at exact `atOffset` using a 256 KiB buffer
+  /// without truncating any bytes beyond the slice (preserving parallel foreground segments).
+  private static func writeSlice(from source: URL, to destination: URL, atOffset offset: Int64) throws -> Int64 {
     let fm = FileManager.default
     if !fm.fileExists(atPath: destination.path) {
       fm.createFile(atPath: destination.path, contents: nil)
@@ -953,9 +1677,9 @@ final class BackgroundDownloadPlugin: NSObject, FlutterPlugin, URLSessionDataDel
       try? writer.synchronize()
       try? writer.close()
     }
-    try writer.truncate(atOffset: UInt64(max(0, expectedOffset)))
-    try writer.seekToEnd()
+    try writer.seek(toOffset: UInt64(max(0, offset)))
 
+    var written: Int64 = 0
     let bufferSize = 256 * 1024
     while true {
       let chunk = try autoreleasepool { () -> Data? in
@@ -963,7 +1687,9 @@ final class BackgroundDownloadPlugin: NSObject, FlutterPlugin, URLSessionDataDel
       }
       guard let data = chunk, !data.isEmpty else { break }
       try writer.write(contentsOf: data)
+      written += Int64(data.count)
     }
+    return written
   }
 
   // MARK: - Task Completion & Automatic Network-Switch Recovery
@@ -977,24 +1703,33 @@ final class BackgroundDownloadPlugin: NSObject, FlutterPlugin, URLSessionDataDel
   }
 
   private func handleForegroundCompletion(task: URLSessionTask, error: Error?) {
-    guard let id = task.taskDescription else { return }
+    guard let parsed = Self.parseTaskIdentifier(task.taskDescription) else { return }
     stateQueue.async {
-      guard let job = self.fgJobs[id] else {
-        self.pausingIds.remove(id)
-        self.cancellingIds.remove(id)
+      guard let job = self.fgJobs[parsed.jobId] else {
+        self.pausingIds.remove(parsed.jobId)
+        self.cancellingIds.remove(parsed.jobId)
         return
       }
-      // Ignore stale callbacks from an earlier replaced task (e.g. network-change reconnect).
-      if job.task !== task { return }
-      job.closeHandle()
-      job.task = nil
+      guard let slot = job.workers[parsed.workerId], slot.task === task else { return }
 
-      if self.pausingIds.remove(id) != nil {
-        self.fgJobs.removeValue(forKey: id)
+      if slot.cancelledByPool {
         return
       }
-      if self.cancellingIds.remove(id) != nil {
-        self.fgJobs.removeValue(forKey: id)
+
+      try? self.flushSlotBuffer(slot, for: job)
+      if job.totalBytes > 0 {
+        job.tracker.save(to: Self.metaFileURL(for: job.destination), totalBytes: job.totalBytes)
+      }
+
+      if self.pausingIds.remove(job.id) != nil {
+        job.flushAndCloseHandle()
+        job.cancelAllWorkerTasks()
+        self.fgJobs.removeValue(forKey: job.id)
+        return
+      }
+      if self.cancellingIds.remove(job.id) != nil {
+        job.cancelAllWorkerTasks()
+        self.fgJobs.removeValue(forKey: job.id)
         return
       }
 
@@ -1003,46 +1738,90 @@ final class BackgroundDownloadPlugin: NSObject, FlutterPlugin, URLSessionDataDel
         if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled {
           return
         }
-        // Transient network / interface-change errors (Wi-Fi -> Cellular, timeout, dropped TCP):
-        // keep all bytes already in .part and automatically reconnect from that exact offset.
+
+        // Detect strict 1-connection IPTV server kicking Primary Worker 0 right after ramp-up.
+        let now = Date().timeIntervalSince1970
+        let recentlyScaledUp = job.lastScaleUpAt > 0 && (now - job.lastScaleUpAt) <= 3.5
+        if slot.isPrimary && recentlyScaledUp && job.effectiveMaxWorkers > 1 {
+          job.singleConnKickDetected = true
+          job.effectiveMaxWorkers = 1
+          job.probeSucceeded = false
+          job.workers.removeValue(forKey: slot.workerId)
+          if job.workers.isEmpty {
+            self.startForegroundCycle(for: job)
+          }
+          return
+        }
+
+        // If an extra worker failed while other workers are still healthy, simply back off concurrency!
+        if !slot.isPrimary && job.workers.count > 1 {
+          job.workers.removeValue(forKey: slot.workerId)
+          job.effectiveMaxWorkers = max(1, job.workers.count)
+          return
+        }
+
+        job.workers.removeValue(forKey: slot.workerId)
+        if !job.workers.isEmpty {
+          return
+        }
+
         if Self.isRecoverableNetworkError(nsError) && job.retryCount < Self.maxAutoRetries {
+          if job.receivedAnyBytesThisCycle { job.retryCount = 0 }
           job.retryCount += 1
           let delay = min(8.0, pow(1.5, Double(job.retryCount)))
           let work = DispatchWorkItem { [weak self] in
-            guard let self = self, let current = self.fgJobs[id], current === job else { return }
-            self.launchForegroundTask(for: current)
+            guard let self = self, let current = self.fgJobs[job.id], current === job else { return }
+            self.startForegroundCycle(for: current)
           }
           job.retryWorkItem = work
           self.stateQueue.asyncAfter(deadline: .now() + delay, execute: work)
           return
         }
 
-        self.fgJobs.removeValue(forKey: id)
-        self.sendEvent("failed", payload: ["id": id, "error": error.localizedDescription])
+        job.flushAndCloseHandle()
+        self.fgJobs.removeValue(forKey: job.id)
+        self.sendEvent("failed", payload: ["id": job.id, "error": error.localizedDescription])
         return
       }
 
-      // Stream ended without an explicit URLSession error: verify total bytes before finalizing.
-      let diskSize = Self.partFileSize(for: job.destination)
-      if job.totalBytes > 0 && diskSize < job.totalBytes {
+      // Stream ended without an explicit URLSession error: check whether this slot finished its range.
+      if job.totalBytes > 0 && slot.cursor < slot.end {
+        // Premature EOF before span end!
+        let now = Date().timeIntervalSince1970
+        let recentlyScaledUp = job.lastScaleUpAt > 0 && (now - job.lastScaleUpAt) <= 3.5
+        if slot.isPrimary && recentlyScaledUp && job.effectiveMaxWorkers > 1 {
+          job.singleConnKickDetected = true
+          job.effectiveMaxWorkers = 1
+          job.probeSucceeded = false
+          job.workers.removeValue(forKey: slot.workerId)
+          if job.workers.isEmpty {
+            self.startForegroundCycle(for: job)
+          }
+          return
+        }
+        job.workers.removeValue(forKey: slot.workerId)
+        if !job.workers.isEmpty {
+          return
+        }
         if job.retryCount < Self.maxAutoRetries {
+          if job.receivedAnyBytesThisCycle { job.retryCount = 0 }
           job.retryCount += 1
           let delay = min(6.0, Double(job.retryCount) * 1.5)
           let work = DispatchWorkItem { [weak self] in
-            guard let self = self, let current = self.fgJobs[id], current === job else { return }
-            self.launchForegroundTask(for: current)
+            guard let self = self, let current = self.fgJobs[job.id], current === job else { return }
+            self.startForegroundCycle(for: current)
           }
           job.retryWorkItem = work
           self.stateQueue.asyncAfter(deadline: .now() + delay, execute: work)
           return
         }
-        self.fgJobs.removeValue(forKey: id)
-        self.sendEvent("failed", payload: ["id": id, "error": "Bağlantı indirme bitmeden kesildi"])
+        job.flushAndCloseHandle()
+        self.fgJobs.removeValue(forKey: job.id)
+        self.sendEvent("failed", payload: ["id": job.id, "error": "Bağlantı indirme bitmeden kesildi"])
         return
       }
 
-      self.fgJobs.removeValue(forKey: id)
-      self.finalizePartFile(id: id, destination: job.destination, knownTotal: max(job.totalBytes, diskSize))
+      self.finishWorkerSlotCleanly(slot, for: job)
     }
   }
 
@@ -1055,43 +1834,42 @@ final class BackgroundDownloadPlugin: NSObject, FlutterPlugin, URLSessionDataDel
       self.lastBgProgressSent.removeValue(forKey: meta.id)
       self.lastBgProgressBytes.removeValue(forKey: meta.id)
 
-      if self.pausingIds.remove(meta.id) != nil {
-        return
-      }
-      if self.cancellingIds.remove(meta.id) != nil {
-        return
-      }
-      if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled {
-        return
-      }
+      if self.pausingIds.remove(meta.id) != nil { return }
+      if self.cancellingIds.remove(meta.id) != nil { return }
+      if self.handoffToFgIds.remove(meta.id) != nil { return }
+      if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled { return }
 
-      // If the background slice failed due to a network change while already on disk,
-      // retry from the exact .part offset instead of losing prior slices.
-      let currentOffset = Self.partFileSize(for: meta.destination)
       let retries = (self.bgRetryCounts[meta.id] ?? 0) + 1
       if Self.isRecoverableNetworkError(nsError) && retries <= Self.maxAutoRetries {
         self.bgRetryCounts[meta.id] = retries
         if self.isInBackground {
+          let gap = self.nextMissingBackgroundSlice(
+            destination: meta.destination,
+            knownTotalBytes: meta.knownTotalBytes,
+            supportsRange: meta.supportsRange
+          )
           self.enqueueBackgroundSlice(
             id: meta.id,
             urlString: meta.url,
             destination: meta.destination,
             userAgent: meta.userAgent,
-            baseOffset: currentOffset,
-            knownTotalBytes: meta.knownTotalBytes,
-            supportsRange: meta.supportsRange
+            baseOffset: gap.start,
+            sliceEndInclusive: gap.endInclusive,
+            knownTotalBytes: gap.totalBytes,
+            supportsRange: meta.supportsRange,
+            maxConnections: meta.maxConnections ?? 6
           )
-        } else {
+        } else if self.fgJobs[meta.id] == nil {
           let job = ForegroundJob(
             id: meta.id,
             urlString: meta.url,
             destination: meta.destination,
             userAgent: meta.userAgent,
-            existingBytes: currentOffset,
-            totalBytes: meta.knownTotalBytes
+            totalBytes: meta.knownTotalBytes,
+            maxConnections: meta.maxConnections ?? 6
           )
           self.fgJobs[meta.id] = job
-          self.launchForegroundTask(for: job)
+          self.startForegroundCycle(for: job)
         }
         return
       }
@@ -1107,8 +1885,10 @@ final class BackgroundDownloadPlugin: NSObject, FlutterPlugin, URLSessionDataDel
   private func finalizePartFile(id: String, destination: String, knownTotal: Int64) {
     let fm = FileManager.default
     let partURL = Self.partFileURL(for: destination)
+    let metaURL = Self.metaFileURL(for: destination)
     let destURL = URL(fileURLWithPath: destination)
     do {
+      try? fm.removeItem(at: metaURL)
       if fm.fileExists(atPath: destURL.path) {
         try fm.removeItem(at: destURL)
       }

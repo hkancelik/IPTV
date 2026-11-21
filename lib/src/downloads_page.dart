@@ -468,6 +468,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
     final metaParts = <String>[
       if (sizeText.isNotEmpty) sizeText,
       if (e.isDownloading && speed.isNotEmpty) speed,
+      if (e.isDownloading && e.activeConnections > 1) '${e.activeConnections}x bağlantı',
     ];
 
     final canResume = widget.account != null || e.isActive;

@@ -27,6 +27,7 @@ class AppSettings extends ChangeNotifier {
   bool tvMode = !kIsWeb && Platform.isAndroid; // remote-control friendly UI
   double uiScale = !kIsWeb && Platform.isAndroid ? 0.7 : 1.0; // whole-UI zoom
   String downloadDir = ''; // empty = platform default (PC: ~/Downloads/IPTV, iOS: Documents/IPTV)
+  int downloadConnections = 6; // parallel HTTP Range workers per download (auto-falls back to 1 on single-connection servers)
   Set<String> hiddenGroups = {}; // "kind:group"
   Map<String, List<String>> groupOrder = {}; // kind name -> category names, user's order
   int syncUpdatedMs = 0; // timestamp of last change to cross-device syncable settings
@@ -49,6 +50,7 @@ class AppSettings extends ChangeNotifier {
     tvMode = p.getBool('tvMode') ?? tvMode;
     uiScale = p.getDouble('uiScale') ?? uiScale;
     downloadDir = p.getString('downloadDir') ?? downloadDir;
+    downloadConnections = normalizeDownloadConnections(p.getInt('downloadConnections') ?? downloadConnections);
     syncUpdatedMs = p.getInt('syncUpdatedMs') ?? 0;
     if (!kIsWeb && Platform.isIOS) {
       tvMode = false;
@@ -66,7 +68,7 @@ class AppSettings extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> update({String? audioLang, String? subLang, double? subtitleScale, bool? hwdec, String? deinterlace, int? cacheSecs, int? skipSecs, bool? hideAdult, bool? resume, bool? autoNext, bool? autoPipOnLeave, bool? dedupe, bool? tvMode, bool? phoneRemote, double? uiScale, String? downloadDir, Set<String>? hiddenGroups, Map<String, List<String>>? groupOrder}) async {
+  Future<void> update({String? audioLang, String? subLang, double? subtitleScale, bool? hwdec, String? deinterlace, int? cacheSecs, int? skipSecs, bool? hideAdult, bool? resume, bool? autoNext, bool? autoPipOnLeave, bool? dedupe, bool? tvMode, bool? phoneRemote, double? uiScale, String? downloadDir, int? downloadConnections, Set<String>? hiddenGroups, Map<String, List<String>>? groupOrder}) async {
     final syncableChanged = audioLang != null ||
         subLang != null ||
         deinterlace != null ||
@@ -93,6 +95,9 @@ class AppSettings extends ChangeNotifier {
     this.phoneRemote = phoneRemote ?? this.phoneRemote;
     this.uiScale = uiScale ?? this.uiScale;
     this.downloadDir = downloadDir ?? this.downloadDir;
+    this.downloadConnections = downloadConnections == null
+        ? this.downloadConnections
+        : normalizeDownloadConnections(downloadConnections);
     this.hiddenGroups = hiddenGroups ?? this.hiddenGroups;
     this.groupOrder = groupOrder ?? this.groupOrder;
     if (syncableChanged) {
@@ -116,6 +121,7 @@ class AppSettings extends ChangeNotifier {
     await p.setBool('phoneRemote', this.phoneRemote);
     await p.setDouble('uiScale', this.uiScale);
     await p.setString('downloadDir', this.downloadDir);
+    await p.setInt('downloadConnections', this.downloadConnections);
     await p.setStringList('hiddenGroups', this.hiddenGroups.toList());
     await p.setString('groupOrder', jsonEncode(this.groupOrder));
     await p.setInt('syncUpdatedMs', syncUpdatedMs);
@@ -244,6 +250,17 @@ class AppSettings extends ChangeNotifier {
     1.2: '%120',
     1.4: '%140',
   };
+
+  static const downloadConnectionOptions = <int, String>{
+    1: '1',
+    2: '2',
+    4: '4',
+    6: '6',
+    8: '8',
+  };
+
+  static int normalizeDownloadConnections(int raw) =>
+      downloadConnectionOptions.containsKey(raw) ? raw : 6;
 
   static final adultPattern = RegExp(r'(adult|xxx|18\+|porn|nsfw)', caseSensitive: false);
 }
