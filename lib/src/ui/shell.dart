@@ -7,14 +7,14 @@ import 'layout.dart';
 import 'liquid_glass.dart';
 import 'tokens.dart';
 
-const navLabels = ['Ana sayfa', 'Canlı TV', 'Filmler', 'Diziler', 'Favoriler', 'Ayarlar', 'İndirilenler'];
+const navLabels = ['Ana sayfa', 'Canlı TV', 'Filmler', 'Diziler', 'Rafım', 'Ayarlar', 'İndirilenler'];
 const navKeys = ['nav-home', 'nav-live', 'nav-movies', 'nav-series', 'nav-favorites', 'nav-settings', 'nav-downloads'];
 const navIcons = [
   Icons.home_rounded,
   Icons.live_tv_rounded,
   Icons.movie_rounded,
   Icons.video_library_rounded,
-  Icons.favorite_rounded,
+  Icons.collections_bookmark_rounded,
   Icons.tune_rounded,
   Icons.download_for_offline_rounded,
 ];
@@ -230,7 +230,7 @@ class PhoneBottomBar extends StatefulWidget {
   /// when Settings (`5`) is opened from the top bar so tapping any tab returns.
   final int lastMainTab;
 
-  static const _shortLabels = ['Ana sayfa', 'Canlı TV', 'Filmler', 'Diziler', 'Favoriler'];
+  static const _shortLabels = ['Ana sayfa', 'Canlı TV', 'Filmler', 'Diziler', 'Rafım'];
 
   /// Native iOS 26+ Liquid Glass tab definitions using SF Symbols.
   static const nativeTabs = [
@@ -238,7 +238,7 @@ class PhoneBottomBar extends StatefulWidget {
     NativeGlassTab(id: 'nav-live', label: 'Canlı TV', sfSymbol: 'tv.fill'),
     NativeGlassTab(id: 'nav-movies', label: 'Filmler', sfSymbol: 'film.fill'),
     NativeGlassTab(id: 'nav-series', label: 'Diziler', sfSymbol: 'play.square.stack.fill'),
-    NativeGlassTab(id: 'nav-favorites', label: 'Favoriler', sfSymbol: 'heart.fill'),
+    NativeGlassTab(id: 'nav-favorites', label: 'Rafım', sfSymbol: 'books.vertical.fill'),
   ];
 
   @override

@@ -76,6 +76,12 @@ String? sfSymbolForIcon(IconData icon) {
   if (icon == Icons.bedtime_rounded) return 'moon.fill';
   if (icon == Icons.bedtime_outlined) return 'moon';
   if (icon == Icons.fast_forward_rounded) return 'forward.fill';
+  if (icon == Icons.star_rounded) return 'star.fill';
+  if (icon == Icons.star_border_rounded) return 'star';
+  if (icon == Icons.bookmark_rounded) return 'bookmark.fill';
+  if (icon == Icons.bookmark_border_rounded) return 'bookmark';
+  if (icon == Icons.collections_bookmark_rounded) return 'books.vertical.fill';
+  if (icon == Icons.shuffle_rounded) return 'shuffle';
   return null;
 }
 

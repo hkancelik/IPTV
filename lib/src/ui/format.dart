@@ -72,3 +72,55 @@ String? episodeLabel(String title) {
   if (m == null) return null;
   return '${int.parse(m.group(1)!)}. sezon ${int.parse(m.group(2)!)}. bölüm';
 }
+
+const _trMonthsShort = [
+  'Oca',
+  'Şub',
+  'Mar',
+  'Nis',
+  'May',
+  'Haz',
+  'Tem',
+  'Ağu',
+  'Eyl',
+  'Eki',
+  'Kas',
+  'Ara',
+];
+
+const _trMonthsFull = [
+  'Ocak',
+  'Şubat',
+  'Mart',
+  'Nisan',
+  'Mayıs',
+  'Haziran',
+  'Temmuz',
+  'Ağustos',
+  'Eylül',
+  'Ekim',
+  'Kasım',
+  'Aralık',
+];
+
+/// "18 Kas" or "18 Kas 2026" when [includeYear] is true.
+String shortDateTr(DateTime date, {bool includeYear = false}) {
+  final d = date.day;
+  final m = _trMonthsShort[(date.month - 1).clamp(0, 11)];
+  return includeYear ? '$d $m ${date.year}' : '$d $m';
+}
+
+/// "Kas" for month 1..12.
+String shortMonthTr(int month) => _trMonthsShort[(month - 1).clamp(0, 11)];
+
+/// "Kasım 2026".
+String monthYearTr(DateTime date) => '${_trMonthsFull[(date.month - 1).clamp(0, 11)]} ${date.year}';
+
+/// "★★★★½" text representation for a 0.5–5.0 rating.
+String starGlyphs(double rating) {
+  final clamped = rating.clamp(0.5, 5.0);
+  final full = clamped.floor();
+  final half = (clamped - full) >= 0.5;
+  return '${'★' * full}${half ? '½' : ''}';
+}
+

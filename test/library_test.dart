@@ -244,4 +244,111 @@ void main() {
     expect(ep3Inherited.audio, const TrackPref(id: '2', language: 'tur', title: 'Türkçe'));
     expect(ep3Inherited.subtitle, const TrackPref(id: '4', language: 'tur', title: 'Türkçe Altyazı'));
   });
+
+  test('MediaLogEntry normalizes half-star ratings and resolves Turkish moods', () {
+    expect(MediaLogEntry.normalizeRating(null), isNull);
+    expect(MediaLogEntry.normalizeRating(0.1), isNull);
+    expect(MediaLogEntry.normalizeRating(0.3), 0.5);
+    expect(MediaLogEntry.normalizeRating(4.49), 4.5);
+    expect(MediaLogEntry.normalizeRating(7.0), 5.0);
+    expect(MediaLogEntry.formatRating(4.5), '4.5');
+    expect(MediaLogEntry.moodFor(4.5), 'Başyapıt');
+    expect(MediaLogEntry.moodFor(5.0), 'Efsane');
+    expect(MediaLogEntry.moodFor(0.5), 'Zaman kaybı');
+  });
+
+  test('mediaLog and watchlist are kept per account without writing passwords to preferences', () async {
+    SharedPreferences.setMockInitialValues({});
+    await lib.use(_a);
+    final dune = _movie(_a, 10);
+    final conclave = _movie(_a, 11);
+
+    await lib.toggleWatchlist(conclave);
+    expect(lib.isInWatchlist(conclave), isTrue);
+    expect(lib.watchlist.map((e) => e.id), ['m11']);
+
+    final watchedTime = DateTime(2026, 11, 18, 21, 30);
+    await lib.saveLog(
+      dune,
+      rating: 4.5,
+      liked: true,
+      review: 'Sinematografi ve ses tasarımı harika.',
+      watchedAt: watchedTime,
+    );
+
+    final entry = lib.logFor(dune)!;
+    expect(entry.rating, 4.5);
+    expect(entry.liked, isTrue);
+    expect(entry.watched, isTrue);
+    expect(entry.review, 'Sinematografi ve ses tasarımı harika.');
+    expect(entry.lastWatch?.watchedAtMs, watchedTime.millisecondsSinceEpoch);
+    expect(entry.rewatchCount, 0);
+    expect(lib.ratingFor(dune), 4.5);
+
+    // Logging a rewatch appends a second WatchRecord with rewatch: true.
+    await lib.saveLog(dune, addRewatch: true, watchedAt: DateTime(2026, 11, 20, 22, 0));
+    expect(lib.logFor(dune)!.watches.length, 2);
+    expect(lib.logFor(dune)!.rewatchCount, 1);
+
+    // Rating or watching an item that was on the watchlist automatically takes it off the watchlist.
+    await lib.saveLog(conclave, rating: 4.0);
+    expect(lib.isInWatchlist(conclave), isFalse);
+    expect(lib.logFor(conclave)!.watched, isTrue);
+
+    final stored = await _stored();
+    expect(stored, isNot(contains('secret-a')));
+
+    // Account isolation: _b sees empty log and watchlist.
+    await lib.use(_b);
+    expect(lib.mediaLog, isEmpty);
+    expect(lib.watchlist, isEmpty);
+
+    // Reloading _a with a changed password restores portable URLs and full log entries.
+    await lib.use(Account(name: 'Ev', host: 'http://a.example:8080', username: 'ua', password: 'new-pass'));
+    expect(lib.ratingForId('m10'), 4.5);
+    expect(lib.logForId('m10')?.item.url, 'http://a.example:8080/movie/ua/new-pass/10.mkv');
+    expect(lib.logForId('m10')?.watches.length, 2);
+  });
+
+  test('mediaLog merges across devices via LWW timestamps and propagates tombstones', () async {
+    SharedPreferences.setMockInitialValues({});
+    await lib.use(_a);
+    final m1 = _movie(_a, 1);
+    final m2 = _movie(_a, 2);
+
+    await lib.saveLog(m1, rating: 3.5, review: 'İlk not');
+    await lib.saveLog(m2, rating: 4.0);
+    final t1 = lib.logFor(m1)!.updatedAtMs;
+    final t2 = lib.logFor(m2)!.updatedAtMs;
+
+    final remotePayload = {
+      'favorites': const [],
+      'removedFavorites': const {},
+      'history': const [],
+      'mediaLog': [
+        {
+          'item': {...m1.toJson(), 'url': _a.portableUrl(m1.url!)},
+          'rating': 4.5,
+          'liked': true,
+          'review': 'Güncel not',
+          'watches': [
+            {'at': t1},
+          ],
+          'updatedAtMs': t1 + 5000,
+        },
+        {
+          'item': {...m2.toJson(), 'url': _a.portableUrl(m2.url!)},
+          'updatedAtMs': t2 + 5000,
+          'deletedAtMs': t2 + 5000,
+        },
+      ],
+    };
+
+    final stats = await lib.mergeSyncData(_a, remotePayload);
+    expect(stats.logsChanged, 2);
+    expect(stats.totalLogs, 1);
+    expect(lib.ratingFor(m1), 4.5);
+    expect(lib.logFor(m1)?.review, 'Güncel not');
+    expect(lib.logFor(m2), isNull);
+  });
 }

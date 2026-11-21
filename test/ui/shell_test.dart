@@ -47,4 +47,12 @@ void main() {
     await tester.pumpWidget(_app(PageHeader(title: long, subtitle: '64 kanal', actions: const [SizedBox(width: 300, height: 44)])));
     expect(tester.takeException(), isNull);
   });
+  test('Rafım tab updates navLabels, navIcons and PhoneBottomBar.nativeTabs', () {
+    expect(navLabels[4], 'Rafım');
+    expect(navIcons[4], Icons.collections_bookmark_rounded);
+    final tab = PhoneBottomBar.nativeTabs[4];
+    expect(tab.id, 'nav-favorites');
+    expect(tab.label, 'Rafım');
+    expect(tab.sfSymbol, 'books.vertical.fill');
+  });
 }

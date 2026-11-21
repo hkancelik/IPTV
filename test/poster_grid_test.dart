@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:iptv_app/src/home_page.dart';
 import 'package:iptv_app/src/library.dart';
+import 'package:iptv_app/src/poster_card.dart';
 import 'package:iptv_app/src/settings.dart';
 import 'package:iptv_app/src/ui/app_theme.dart';
 import 'package:iptv_app/src/ui/tokens.dart';
@@ -110,5 +111,19 @@ void main() {
     await tester.tap(find.byTooltip('Favorilere ekle'));
     await tester.pump();
     expect(Library.instance.favorites, hasLength(1));
+  });
+
+  testWidgets('a rated movie displays the ★ 4.5 PosterRatingBadge in the poster corner', (tester) async {
+    final m = _movie('Dune: Part Two |2024| EN');
+    await _pumpHome(tester, movies: [m]);
+    await tester.tap(find.byKey(const ValueKey('nav-movies')));
+    await _settle(tester);
+
+    expect(find.byType(PosterRatingBadge), findsNothing);
+    await Library.instance.saveLog(m, rating: 4.5);
+    await tester.pump();
+
+    expect(find.byType(PosterRatingBadge), findsOneWidget);
+    expect(find.text('4.5'), findsOneWidget);
   });
 }

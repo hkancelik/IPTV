@@ -23,8 +23,12 @@ abstract final class AppColors {
   static const liveInk = Color(0xFFFFB3BC);
   static const liveText = Color(0xFFFF8A96);
   static const ok = Color(0xFF7DD3A8);
+  static const okSoft = Color(0xFF14301F); // ground of the "İzlendi" tag under ok text
   static const warnSoft = Color(0xFF3A2E14);
   static const warnInk = Color(0xFFF2C879);
+
+  /// Filled rating star (the warm gold of [warnInk]); empty stars use [dashed].
+  static const star = warnInk;
 
   /// Background of the video itself (the only dark surface).
   static const video = Color(0xFF000000);

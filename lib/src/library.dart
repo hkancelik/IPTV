@@ -108,6 +108,155 @@ class HistoryEntry {
   }
 }
 
+/// One viewing of a movie or series, as logged in the personal diary.
+class WatchRecord {
+  const WatchRecord({required this.watchedAtMs, this.rewatch = false});
+
+  /// When the viewing happened (epoch milliseconds).
+  final int watchedAtMs;
+
+  /// True when the user had already seen the title before this viewing.
+  final bool rewatch;
+
+  DateTime get watchedAt => DateTime.fromMillisecondsSinceEpoch(watchedAtMs);
+
+  Map<String, dynamic> toJson() => {'at': watchedAtMs, if (rewatch) 're': true};
+
+  static WatchRecord? fromJson(Object? raw) {
+    if (raw is! Map) return null;
+    final at = raw['at'];
+    if (at is! int || at <= 0) return null;
+    return WatchRecord(watchedAtMs: at, rewatch: raw['re'] == true);
+  }
+
+  @override
+  bool operator ==(Object other) => other is WatchRecord && other.watchedAtMs == watchedAtMs && other.rewatch == rewatch;
+
+  @override
+  int get hashCode => Object.hash(watchedAtMs, rewatch);
+}
+
+/// Personal diary entry for one movie or series ([Item.id]): rating, like, watchlist, review and viewings.
+///
+/// Entries are merged across devices last-writer-wins on [updatedAtMs]; a removed entry stays as a tombstone
+/// ([deletedAtMs]) so the removal also reaches the other devices.
+class MediaLogEntry {
+  MediaLogEntry({
+    required this.item,
+    this.rating,
+    this.liked = false,
+    this.watchlist = false,
+    this.watchlistAddedAtMs,
+    this.review = '',
+    List<WatchRecord>? watches,
+    required this.updatedAtMs,
+    this.deletedAtMs,
+  }) : watches = watches ?? [];
+
+  static const minRating = 0.5;
+  static const maxRating = 5.0;
+
+  /// Turkish one-word verdict for each half-star step (0.5 → index 0, 5.0 → index 9).
+  static const moods = <String>[
+    'Zaman kaybı',
+    'Kötü',
+    'Zayıf',
+    'Vasat',
+    'İdare eder',
+    'İyi',
+    'Çok iyi',
+    'Harika',
+    'Başyapıt',
+    'Efsane',
+  ];
+
+  /// Snaps [value] to the nearest half star within 0.5–5.0; null, NaN and anything below 0.25 mean "not rated".
+  static double? normalizeRating(num? value) {
+    if (value == null || value.isNaN || value < 0.25) return null;
+    final snapped = (value * 2).round() / 2;
+    return snapped.clamp(minRating, maxRating).toDouble();
+  }
+
+  /// "4.5", "3.0".
+  static String formatRating(double rating) => rating.toStringAsFixed(1);
+
+  static String? moodFor(double? rating) {
+    final r = normalizeRating(rating);
+    return r == null ? null : moods[(r * 2).round() - 1];
+  }
+
+  Item item;
+  String get id => item.id;
+
+  /// 0.5–5.0 in half-star steps, or null when not rated.
+  double? rating;
+  bool liked;
+  bool watchlist;
+  int? watchlistAddedAtMs;
+  String review;
+
+  /// Viewings, oldest first.
+  final List<WatchRecord> watches;
+  int updatedAtMs;
+  int? deletedAtMs;
+
+  bool get isDeleted => deletedAtMs != null;
+  bool get watched => watches.isNotEmpty;
+  WatchRecord? get lastWatch => watches.isEmpty ? null : watches.last;
+  int get rewatchCount => watches.where((w) => w.rewatch).length;
+
+  /// Newest change of any kind (edit or removal), used for last-writer-wins merging.
+  int get changedAtMs => deletedAtMs != null && deletedAtMs! > updatedAtMs ? deletedAtMs! : updatedAtMs;
+
+  /// Nothing left worth keeping: the entry can become a tombstone.
+  bool get isBlank => rating == null && !liked && !watchlist && review.trim().isEmpty && watches.isEmpty;
+
+  Map<String, dynamic> toJson() => {
+        'item': item.toJson(),
+        if (rating != null) 'rating': rating,
+        if (liked) 'liked': true,
+        if (watchlist) 'watchlist': true,
+        if (watchlistAddedAtMs != null) 'wlAt': watchlistAddedAtMs,
+        if (review.isNotEmpty) 'review': review,
+        if (watches.isNotEmpty) 'watches': [for (final w in watches) w.toJson()],
+        'updatedAtMs': updatedAtMs,
+        if (deletedAtMs != null) 'deletedAtMs': deletedAtMs,
+      };
+
+  static MediaLogEntry? fromJson(Object? raw) {
+    if (raw is! Map<String, dynamic>) return null;
+    final rawItem = raw['item'];
+    if (rawItem is! Map<String, dynamic>) return null;
+    final Item item;
+    try {
+      item = Item.fromJson(rawItem);
+    } catch (_) {
+      return null;
+    }
+    final rawRating = raw['rating'];
+    final rawWatches = raw['watches'];
+    final updated = raw['updatedAtMs'];
+    final deleted = raw['deletedAtMs'];
+    final wlAt = raw['wlAt'];
+    final review = raw['review'];
+    final watches = <WatchRecord>[
+      if (rawWatches is List)
+        for (final w in rawWatches) ?WatchRecord.fromJson(w),
+    ]..sort((a, b) => a.watchedAtMs.compareTo(b.watchedAtMs));
+    return MediaLogEntry(
+      item: item,
+      rating: normalizeRating(rawRating is num ? rawRating : null),
+      liked: raw['liked'] == true,
+      watchlist: raw['watchlist'] == true,
+      watchlistAddedAtMs: wlAt is int ? wlAt : null,
+      review: review is String ? review : '',
+      watches: watches,
+      updatedAtMs: updated is int ? updated : 0,
+      deletedAtMs: deleted is int ? deleted : null,
+    );
+  }
+}
+
 /// Summary returned after merging remote library data during LAN sync.
 class LibraryMergeStats {
   const LibraryMergeStats({
@@ -115,12 +264,16 @@ class LibraryMergeStats {
     required this.totalHistory,
     required this.favoritesChanged,
     required this.historyChanged,
+    this.totalLogs = 0,
+    this.logsChanged = 0,
   });
 
   final int totalFavorites;
   final int totalHistory;
   final int favoritesChanged;
   final int historyChanged;
+  final int totalLogs;
+  final int logsChanged;
 }
 
 /// Favorites and watch history of the signed-in account ([use]).
@@ -134,9 +287,29 @@ class Library extends ChangeNotifier {
   final Map<String, int> _favoriteAddedAt = {};
   final Map<String, int> _favoriteRemovedAt = {};
   final List<HistoryEntry> _history = []; // newest first
+  final Map<String, MediaLogEntry> _log = {}; // by Item.id, tombstones included
 
   List<Item> get favorites => _favorites.values.toList();
   bool isFavorite(Item i) => _favorites.containsKey(i.id);
+
+  /// Live diary entries, most recently changed first.
+  List<MediaLogEntry> get mediaLog =>
+      [for (final e in _log.values) if (!e.isDeleted) e]..sort((a, b) => b.updatedAtMs.compareTo(a.updatedAtMs));
+
+  /// "Sonra İzle" list, most recently added first.
+  List<MediaLogEntry> get watchlist => [for (final e in _log.values) if (!e.isDeleted && e.watchlist) e]
+    ..sort((a, b) => (b.watchlistAddedAtMs ?? b.updatedAtMs).compareTo(a.watchlistAddedAtMs ?? a.updatedAtMs));
+
+  /// Live diary entry for [itemId], or null.
+  MediaLogEntry? logForId(String itemId) {
+    final e = _log[itemId];
+    return e == null || e.isDeleted ? null : e;
+  }
+
+  MediaLogEntry? logFor(Item i) => logForId(i.id);
+  double? ratingForId(String itemId) => logForId(itemId)?.rating;
+  double? ratingFor(Item i) => ratingForId(i.id);
+  bool isInWatchlist(Item i) => logFor(i)?.watchlist ?? false;
 
   List<HistoryEntry> get history => List.unmodifiable(_history);
   List<HistoryEntry> get continueWatching => _history.where((e) => e.resumable).toList();
@@ -151,6 +324,7 @@ class Library extends ChangeNotifier {
   static const _favoritesKey = 'favorites';
   static const _favoritesMetaKey = 'favoritesMeta';
   static const _historyKey = 'history';
+  static const _logKey = 'mediaLog';
 
   Account? _account; // nothing is stored until an account is in use
 
@@ -162,6 +336,7 @@ class Library extends ChangeNotifier {
     _favoriteAddedAt.clear();
     _favoriteRemovedAt.clear();
     _history.clear();
+    _log.clear();
     final p = await SharedPreferences.getInstance();
 
     List<Map<String, dynamic>> read(String key) {
@@ -203,6 +378,7 @@ class Library extends ChangeNotifier {
     final favorites = [...read(_scoped(_favoritesKey)), ...await claim(_favoritesKey)];
     final history = [...read(_scoped(_historyKey)), ...await claim(_historyKey)];
     final rawMeta = p.getString(_scoped(_favoritesMetaKey));
+    final rawLog = read(_scoped(_logKey));
     if (_account != account) return; // another account was selected meanwhile
     for (final j in favorites) {
       try {
@@ -239,6 +415,10 @@ class Library extends ChangeNotifier {
         // corrupt entry: skip it
       }
     }
+    for (final j in rawLog) {
+      final e = MediaLogEntry.fromJson({...j, if (j['item'] is Map<String, dynamic>) 'item': playable(j['item'] as Map<String, dynamic>)});
+      if (e != null) _log[e.id] = e;
+    }
     notifyListeners();
     if (migrated) await Future.wait([_persistFavorites(), _persist()]);
   }
@@ -269,6 +449,121 @@ class Library extends ChangeNotifier {
       _scoped(_favoritesMetaKey),
       jsonEncode({'added': _favoriteAddedAt, 'removed': _favoriteRemovedAt}),
     );
+  }
+
+  /// Change time for [prev]: now, but always after its last change so last-writer-wins stays ordered.
+  int _stamp(MediaLogEntry? prev) {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    return prev == null || now > prev.changedAtMs ? now : prev.changedAtMs + 1;
+  }
+
+  /// Creates or updates the diary entry of [item]; only the given fields change.
+  ///
+  /// * [rating] is snapped to half stars (0.5–5.0); [clearRating] removes it.
+  /// * [watched] `true` logs a first viewing when there is none, `false` drops all viewings.
+  /// * [addRewatch] logs one more viewing marked as a rewatch.
+  /// * Rating a title that has no viewing yet logs one (rating means "I watched it"), and the first viewing
+  ///   takes the title off the watchlist.
+  ///
+  /// An entry left with nothing in it becomes a tombstone. Returns the live entry, or null.
+  Future<MediaLogEntry?> saveLog(
+    Item item, {
+    double? rating,
+    bool clearRating = false,
+    bool? liked,
+    String? review,
+    bool? watched,
+    bool addRewatch = false,
+    DateTime? watchedAt,
+  }) async {
+    final prev = _log[item.id];
+    final now = _stamp(prev);
+    final at = watchedAt?.millisecondsSinceEpoch ?? now;
+    final e = prev ?? MediaLogEntry(item: item, updatedAtMs: now);
+    if (prev != null && prev.isDeleted) {
+      e
+        ..rating = null
+        ..liked = false
+        ..watchlist = false
+        ..watchlistAddedAtMs = null
+        ..review = ''
+        ..watches.clear();
+    }
+    e.item = item;
+    final hadWatch = e.watched;
+    if (clearRating) {
+      e.rating = null;
+    } else if (rating != null) {
+      e.rating = MediaLogEntry.normalizeRating(rating);
+    }
+    if (liked != null) e.liked = liked;
+    if (review != null) e.review = review.trim();
+    if (watched == false) {
+      e.watches.clear();
+    } else if ((watched == true || (rating != null && e.rating != null)) && e.watches.isEmpty) {
+      e.watches.add(WatchRecord(watchedAtMs: at));
+    }
+    if (addRewatch) {
+      e.watches
+        ..add(WatchRecord(watchedAtMs: at, rewatch: true))
+        ..sort((a, b) => a.watchedAtMs.compareTo(b.watchedAtMs));
+    }
+    if (!hadWatch && e.watched) {
+      e.watchlist = false;
+      e.watchlistAddedAtMs = null;
+    }
+    e.updatedAtMs = now;
+    e.deletedAtMs = e.isBlank ? now : null;
+    _log[item.id] = e;
+    notifyListeners();
+    await _persistLog();
+    return e.isDeleted ? null : e;
+  }
+
+  /// Adds [item] to the "Sonra İzle" list, or takes it off.
+  Future<void> toggleWatchlist(Item item) async {
+    final prev = _log[item.id];
+    final now = _stamp(prev);
+    final live = prev != null && !prev.isDeleted;
+    final e = live ? prev : MediaLogEntry(item: item, updatedAtMs: now);
+    e.item = item;
+    e.watchlist = !e.watchlist;
+    e.watchlistAddedAtMs = e.watchlist ? now : null;
+    e.updatedAtMs = now;
+    e.deletedAtMs = e.isBlank ? now : null;
+    _log[item.id] = e;
+    notifyListeners();
+    await _persistLog();
+  }
+
+  /// Removes the whole diary entry of [item] (kept as a tombstone for LAN sync).
+  Future<void> removeLog(Item item) async {
+    final prev = _log[item.id];
+    if (prev == null || prev.isDeleted) return;
+    final now = _stamp(prev);
+    prev
+      ..rating = null
+      ..liked = false
+      ..watchlist = false
+      ..watchlistAddedAtMs = null
+      ..review = ''
+      ..watches.clear()
+      ..updatedAtMs = now
+      ..deletedAtMs = now;
+    notifyListeners();
+    await _persistLog();
+  }
+
+  Map<String, dynamic> _portableLogJson(MediaLogEntry e, Account a) => {
+        ...e.toJson(),
+        'item': {...e.item.toJson(), 'url': e.item.url == null ? null : a.portableUrl(e.item.url!)},
+      };
+
+  Future<void> _persistLog() async {
+    final a = _account;
+    if (a == null) return;
+    final json = jsonEncode([for (final e in _log.values) _portableLogJson(e, a)]);
+    await (await SharedPreferences.getInstance()).setString(_scoped(_logKey), json);
   }
 
   Duration? positionFor(String url) {
@@ -389,6 +684,7 @@ class Library extends ChangeNotifier {
             if (e.item != null) 'item': portableItem(e.item!),
           },
       ],
+      'mediaLog': [for (final e in _log.values) _portableLogJson(e, account)],
     };
   }
 
@@ -528,14 +824,34 @@ class Library extends ChangeNotifier {
       ..clear()
       ..addAll(mergedHistory.take(_maxHistory));
 
+    // Diary entries: the newer change (edit or removal) wins as a whole.
+    var logChanged = 0;
+    final rawLog = remote['mediaLog'];
+    if (rawLog is List) {
+      for (final raw in rawLog) {
+        if (raw is! Map<String, dynamic>) continue;
+        final rawItem = raw['item'];
+        if (rawItem is! Map<String, dynamic>) continue;
+        final incoming = MediaLogEntry.fromJson({...raw, 'item': hydrateItemJson(rawItem)});
+        if (incoming == null) continue;
+        final existing = _log[incoming.id];
+        if (existing == null || incoming.changedAtMs > existing.changedAtMs) {
+          _log[incoming.id] = incoming;
+          logChanged++;
+        }
+      }
+    }
+
     notifyListeners();
-    await Future.wait([_persistFavorites(), _persist()]);
+    await Future.wait([_persistFavorites(), _persist(), _persistLog()]);
 
     return LibraryMergeStats(
       totalFavorites: _favorites.length,
       totalHistory: _history.length,
       favoritesChanged: favChanged,
       historyChanged: histChanged,
+      totalLogs: _log.values.where((e) => !e.isDeleted).length,
+      logsChanged: logChanged,
     );
   }
 

@@ -42,6 +42,7 @@ class SyncMergeResult {
     final parts = <String>[
       '${libraryStats.totalFavorites} favori',
       '${libraryStats.totalHistory} izleme kaydı',
+      if (libraryStats.totalLogs > 0) '${libraryStats.totalLogs} günlük kaydı',
       if (settingsUpdated) 'tercihler ve kategori düzeni güncellendi',
     ];
     return parts.join(' · ');

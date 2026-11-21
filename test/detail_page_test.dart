@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:iptv_app/src/detail_page.dart';
 import 'package:iptv_app/src/library.dart';
+import 'package:iptv_app/src/poster_card.dart';
 import 'package:iptv_app/src/settings.dart';
 import 'package:iptv_app/src/ui/app_theme.dart';
 import 'package:iptv_app/src/xtream.dart';
@@ -132,5 +133,96 @@ void main() {
     tester.view.physicalSize = const Size(800, 600);
     await _settle(tester, 2);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('desktop detail page toggles Sonra İzle and saves inline half-star rating, review and poster badge', (tester) async {
+    final c = _movie();
+    await _pumpDetail(tester, c);
+
+    // Watchlist toggle button in action row.
+    expect(find.text('Sonra İzle'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('detail-watchlist-button')));
+    await _settle(tester, 2);
+    expect(find.text('Listemde ✓'), findsOneWidget);
+    expect(Library.instance.isInWatchlist(c.$1), isTrue);
+
+    // Inline personal diary card is present on desktop.
+    expect(find.byKey(const ValueKey('detail-inline-log-card')), findsOneWidget);
+
+    // Tap the left half of the 5th star -> 4.5 rating ("Başyapıt").
+    final fifthStar = find.byKey(const ValueKey('star-slot-5'));
+    final rect = tester.getRect(fifthStar);
+    await tester.tapAt(Offset(rect.left + 4, rect.center.dy));
+    await _settle(tester, 2);
+    expect(find.text('4.5'), findsOneWidget);
+    expect(find.text('Başyapıt'), findsOneWidget);
+
+    // Enter a review and toggle rewatch, then save.
+    await tester.enterText(
+      find.byKey(const ValueKey('detail-inline-review-input')),
+      'Sinematografi ve ses tasarımı evde bile inanılmazdı.',
+    );
+    await tester.tap(find.byKey(const ValueKey('detail-rewatch-toggle')));
+    await _settle(tester, 2);
+    await tester.tap(find.byKey(const ValueKey('detail-inline-save-button')));
+    await tester.pump(const Duration(milliseconds: 1600));
+
+    final log = Library.instance.logFor(c.$1)!;
+    expect(log.rating, 4.5);
+    expect(log.review, 'Sinematografi ve ses tasarımı evde bile inanılmazdı.');
+    expect(log.watched, isTrue);
+    expect(log.rewatchCount, 1);
+
+    // Poster corner badge ★ 4.5 appears once rated.
+    expect(find.byType(PosterRatingBadge), findsOneWidget);
+  });
+
+  testWidgets('iPhone portrait detail page shows glass ★ button and saves rating via Bottom Sheet', (tester) async {
+    tester.view.physicalSize = const Size(393, 852);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    AppSettings.instance.tvMode = false;
+
+    final c = _movie();
+    await tester.pumpWidget(MaterialApp(theme: buildAppTheme(), home: DetailPage(client: c.$2, item: c.$1)));
+    await _settle(tester);
+
+    // Glass ★ button and personal log card are visible.
+    expect(find.byKey(const ValueKey('detail-phone-glass-rating-button')), findsOneWidget);
+    expect(find.byKey(const ValueKey('detail-phone-log-card')), findsOneWidget);
+
+    // Open the Bottom Sheet via the glass ★ button.
+    await tester.tap(find.byKey(const ValueKey('detail-phone-glass-rating-button')));
+    await _settle(tester);
+
+    expect(find.text('Puanla & Günlüğe Ekle'), findsOneWidget);
+    expect(find.byKey(const ValueKey('sheet-star-picker')), findsOneWidget);
+
+    // Pick 4.5 stars inside the sheet (left half of 5th star inside sheet-star-picker).
+    final sheetFifthStar = find.descendant(
+      of: find.byKey(const ValueKey('sheet-star-picker')),
+      matching: find.byKey(const ValueKey('star-slot-5')),
+    );
+    final rect = tester.getRect(sheetFifthStar);
+    await tester.tapAt(Offset(rect.left + 4, rect.center.dy));
+    await _settle(tester, 2);
+
+    expect(find.byKey(const ValueKey('sheet-rating-value')), findsOneWidget);
+    expect(find.text('4.5'), findsWidgets);
+
+    // Toggle ♥ Beğendim and enter a note, then save.
+    await tester.tap(find.byKey(const ValueKey('sheet-toggle-liked')));
+    await tester.enterText(find.byKey(const ValueKey('sheet-review-input')), 'IMAX sahneleri harika.');
+    await tester.tap(find.byKey(const ValueKey('sheet-save-button')));
+    await _settle(tester);
+
+    final log = Library.instance.logFor(c.$1)!;
+    expect(log.rating, 4.5);
+    expect(log.liked, isTrue);
+    expect(log.watched, isTrue);
+    expect(log.review, 'IMAX sahneleri harika.');
+    expect(Library.instance.isFavorite(c.$1), isTrue);
+    expect(find.text('★★★★½'), findsOneWidget);
+    expect(find.byType(PosterRatingBadge), findsOneWidget);
   });
 }

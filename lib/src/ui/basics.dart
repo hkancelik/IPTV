@@ -137,7 +137,7 @@ class AppCard extends StatelessWidget {
   );
 }
 
-enum PillTone { accent, live, warn, neutral, onImage }
+enum PillTone { accent, live, warn, ok, neutral, onImage }
 
 /// Small tag.
 class Pill extends StatelessWidget {
@@ -155,6 +155,7 @@ class Pill extends StatelessWidget {
       PillTone.accent => (AppColors.accentSoft, AppColors.accentInk),
       PillTone.live => (AppColors.liveSoft, AppColors.liveInk),
       PillTone.warn => (AppColors.warnSoft, AppColors.warnInk),
+      PillTone.ok => (AppColors.okSoft, AppColors.ok),
       PillTone.neutral => (AppColors.surfaceAlt, AppColors.body),
       PillTone.onImage => (AppColors.surface, AppColors.ink),
     };

@@ -830,9 +830,15 @@ class _GlobalSearchPageState extends State<GlobalSearchPage> {
                   ),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(AppSizes.itemRadius),
-                    child: PosterImage(item.logo),
+                    child: PosterImage(item.logo, rating: downloaded ? null : Library.instance.ratingFor(item)),
                   ),
                 ),
+                if (downloaded && Library.instance.ratingFor(item) != null)
+                  Positioned(
+                    left: 6,
+                    bottom: 6,
+                    child: PosterRatingBadge(rating: Library.instance.ratingFor(item)!, compact: true),
+                  ),
                 if (downloaded)
                   Positioned(
                     left: 6,

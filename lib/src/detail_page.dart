@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'downloads.dart';
 import 'library.dart';
 import 'mini_player.dart';
 import 'player_page.dart';
-import 'title_utils.dart';
 import 'poster_card.dart';
 import 'settings.dart';
+import 'title_utils.dart';
+import 'tv_text_field.dart';
 import 'ui/basics.dart';
 import 'ui/controls.dart';
 import 'ui/focus_ring.dart';
@@ -37,8 +39,32 @@ class _DetailPageState extends State<DetailPage> {
   Future<SeriesData>? _series;
   Future<Details>? _movie;
   late String _trackedId;
+  late final TextEditingController _reviewCtrl = TextEditingController();
+  double? _draftRating;
+  bool _draftRewatch = false;
+  bool _reviewDirty = false;
+  bool _savedFlash = false;
+  int _lastSyncedLogMs = -1;
 
   bool get _isSeries => widget.item.kind == Kind.series;
+
+  void _syncDraftFromLibrary({bool force = false}) {
+    final log = Library.instance.logFor(widget.item);
+    final stamp = log?.changedAtMs ?? 0;
+    if (!force && stamp == _lastSyncedLogMs) return;
+    _lastSyncedLogMs = stamp;
+    _draftRating = log?.rating;
+    if (force || !_reviewDirty) {
+      final text = log?.review ?? '';
+      if (_reviewCtrl.text != text) {
+        _reviewCtrl.value = TextEditingValue(
+          text: text,
+          selection: TextSelection.collapsed(offset: text.length),
+        );
+      }
+      _reviewDirty = false;
+    }
+  }
 
   void _load() {
     if (_isSeries) {
@@ -55,6 +81,7 @@ class _DetailPageState extends State<DetailPage> {
     super.initState();
     _trackedId = widget.item.id;
     DetailPage._openItemIds.add(_trackedId);
+    _syncDraftFromLibrary(force: true);
     _load();
   }
 
@@ -67,6 +94,9 @@ class _DetailPageState extends State<DetailPage> {
       _trackedId = widget.item.id;
       _season = null;
       _plotExpanded = false;
+      _draftRewatch = false;
+      _savedFlash = false;
+      _syncDraftFromLibrary(force: true);
       _load();
     }
   }
@@ -75,6 +105,7 @@ class _DetailPageState extends State<DetailPage> {
   void dispose() {
     final idx = DetailPage._openItemIds.lastIndexOf(_trackedId);
     if (idx >= 0) DetailPage._openItemIds.removeAt(idx);
+    _reviewCtrl.dispose();
     super.dispose();
   }
 
@@ -472,7 +503,15 @@ class _DetailPageState extends State<DetailPage> {
   List<Widget> _metaTags(Details details, ParsedTitle t, Map<int, List<Episode>> seasons) {
     final year = details.year.isNotEmpty ? details.year : t.year;
     final duration = minutesLabel(details.duration);
+    final log = Library.instance.logFor(widget.item);
+    final lastWatch = log?.lastWatch;
     return <Widget>[
+      if (lastWatch != null)
+        Pill(
+          '✓ İzlendi (${shortDateTr(lastWatch.watchedAt)})',
+          tone: PillTone.ok,
+          height: 26,
+        ),
       if (details.rating.isNotEmpty && details.rating != '0') Pill(details.rating, tone: PillTone.warn, icon: Icons.star_rounded, height: 26),
       if (year != null && year.isNotEmpty) Pill(year, height: 26),
       if (details.genre.isNotEmpty) Pill(details.genre, height: 26),
@@ -480,6 +519,313 @@ class _DetailPageState extends State<DetailPage> {
       if (!_isSeries && duration.isNotEmpty) Pill(duration, height: 26),
       if (_isSeries && seasons.isNotEmpty) Pill('${seasons.length} sezon', height: 26),
     ];
+  }
+
+  Widget _watchlistButton({bool fullWidth = false, bool iconOnly = false, double height = AppSizes.primaryHeight}) {
+    final inWl = Library.instance.isInWatchlist(widget.item);
+    final label = inWl ? 'Listemde ✓' : 'Sonra İzle';
+    return AppButton(
+      key: const ValueKey('detail-watchlist-button'),
+      variant: inWl ? AppButtonVariant.primary : AppButtonVariant.secondary,
+      height: height,
+      width: fullWidth ? double.infinity : null,
+      icon: inWl ? Icons.bookmark_added_rounded : Icons.schedule_rounded,
+      label: iconOnly ? null : label,
+      tooltip: inWl ? 'Sonra İzle listesinden çıkar' : 'Sonra İzle listesine ekle',
+      onPressed: () {
+        AppHaptics.selection(context);
+        Library.instance.toggleWatchlist(widget.item);
+      },
+    );
+  }
+
+  Future<void> _saveInlineLog() async {
+    final existing = Library.instance.logFor(widget.item);
+    final hasExisting = existing != null;
+    await Library.instance.saveLog(
+      widget.item,
+      rating: _draftRating,
+      clearRating: _draftRating == null && hasExisting,
+      review: _reviewCtrl.text,
+      watched: _draftRating != null || _draftRewatch || _reviewCtrl.text.trim().isNotEmpty ? true : null,
+      addRewatch: _draftRewatch,
+    );
+    if (!mounted) return;
+    setState(() {
+      _draftRewatch = false;
+      _reviewDirty = false;
+      _savedFlash = true;
+    });
+    Future.delayed(const Duration(milliseconds: 1500), () {
+      if (mounted) setState(() => _savedFlash = false);
+    });
+  }
+
+  Widget _desktopInlineLogCard() {
+    _syncDraftFromLibrary();
+    final log = Library.instance.logFor(widget.item);
+    final rating = _draftRating;
+    final mood = MediaLogEntry.moodFor(rating);
+    final rewatchCount = log?.rewatchCount ?? 0;
+
+    return Container(
+      key: const ValueKey('detail-inline-log-card'),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceAlt,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: AppColors.line),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('KİŞİSEL GÜNLÜK KAYDIN', style: AppText.label(12, color: AppColors.ink2)),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Yarım yıldız (0.5) adımlarla puanla · LAN Sync ile cihazlarına eşitlenir',
+                      style: AppText.meta(12, color: AppColors.ink2),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              AppButton(
+                key: const ValueKey('detail-rewatch-toggle'),
+                dense: true,
+                height: 32,
+                variant: _draftRewatch ? AppButtonVariant.primary : AppButtonVariant.onPage,
+                icon: Icons.replay_rounded,
+                label: rewatchCount > 0 && !_draftRewatch ? 'Tekrar İzleme ($rewatchCount)' : 'Tekrar İzleme',
+                onPressed: () {
+                  AppHaptics.selection(context);
+                  setState(() => _draftRewatch = !_draftRewatch);
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 14,
+            runSpacing: 10,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              HalfStarRatingPicker(
+                key: const ValueKey('detail-inline-star-picker'),
+                rating: rating,
+                size: 28,
+                onChanged: (next) {
+                  AppHaptics.selection(context);
+                  setState(() => _draftRating = next);
+                },
+              ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.baseline,
+                textBaseline: TextBaseline.alphabetic,
+                children: [
+                  Text(
+                    rating == null ? '—' : MediaLogEntry.formatRating(rating),
+                    key: const ValueKey('detail-inline-rating-readout'),
+                    style: AppText.title(24, color: rating == null ? AppColors.ink2 : AppColors.star),
+                  ),
+                  const SizedBox(width: 4),
+                  Text('/ 5.0', style: AppText.meta(12)),
+                ],
+              ),
+              if (mood != null) Pill(mood, tone: PillTone.warn, height: 26),
+              if (log != null && log.watched && log.lastWatch != null)
+                Pill('✓ ${shortDateTr(log.lastWatch!.watchedAt)}', tone: PillTone.ok, height: 26),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: Container(
+                  height: 40,
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: AppColors.ground,
+                    borderRadius: BorderRadius.circular(AppSizes.smallRadius),
+                    border: Border.all(color: AppColors.line),
+                  ),
+                  child: RemoteTextField(
+                    key: const ValueKey('detail-inline-review-input'),
+                    controller: _reviewCtrl,
+                    textInputAction: TextInputAction.done,
+                    onChanged: (_) => _reviewDirty = true,
+                    onSubmitted: (_) => _saveInlineLog(),
+                    decoration: InputDecoration(
+                      hintText: 'Bu yapım hakkında kısa notun veya yorumun...',
+                      hintStyle: AppText.meta(13.5),
+                      isCollapsed: true,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              AppButton(
+                key: const ValueKey('detail-inline-save-button'),
+                height: 40,
+                variant: _savedFlash ? AppButtonVariant.primary : AppButtonVariant.onPage,
+                icon: _savedFlash ? Icons.check_rounded : null,
+                label: _savedFlash ? 'Kaydedildi' : (log == null ? 'Günlüğe Kaydet' : 'Kaydı Güncelle'),
+                onPressed: () {
+                  AppHaptics.light(context);
+                  _saveInlineLog();
+                },
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _phoneGlassRatingButton({double height = 38}) {
+    final r = Library.instance.ratingFor(widget.item);
+    final label = r == null ? 'Puanla' : MediaLogEntry.formatRating(r);
+    final fg = r == null ? AppColors.ink : AppColors.star;
+    final fallback = Tooltip(
+      message: 'Puanla ve günlüğe ekle',
+      child: GestureDetector(
+        key: const ValueKey('detail-phone-glass-rating-button'),
+        behavior: HitTestBehavior.opaque,
+        onTap: () {
+          AppHaptics.selection(context);
+          _openPhoneRatingSheet();
+        },
+        child: Container(
+          height: height,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: AppColors.videoGlass,
+            borderRadius: BorderRadius.circular(height / 2),
+            border: Border.all(color: AppColors.glassBorder, width: 1),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(r == null ? Icons.star_border_rounded : Icons.star_rounded, size: 16, color: AppColors.star),
+              const SizedBox(width: 5),
+              Text(label, style: AppText.meta(13, color: fg)),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    return NativeGlassButton(
+      sfSymbol: r == null ? 'star' : 'star.fill',
+      label: label,
+      tooltip: 'Puanla ve günlüğe ekle',
+      isRound: false,
+      height: height,
+      iconSize: 14,
+      fontSize: 13,
+      style: NativeGlassStyle.glass,
+      foregroundColor: fg,
+      onPressed: () {
+        AppHaptics.selection(context);
+        _openPhoneRatingSheet();
+      },
+      fallback: fallback,
+    );
+  }
+
+  Widget _phonePersonalLogCard() {
+    final log = Library.instance.logFor(widget.item);
+    final rating = log?.rating;
+    final lastWatch = log?.lastWatch;
+    final review = log?.review.trim() ?? '';
+
+    return GestureDetector(
+      key: const ValueKey('detail-phone-log-card'),
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        AppHaptics.selection(context);
+        _openPhoneRatingSheet();
+      },
+      child: AppCard(
+        radius: AppSizes.tileRadius,
+        padding: const EdgeInsets.all(14),
+        border: Border.all(color: AppColors.line),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text('GÜNLÜK KAYDIN', style: AppText.label(11.5, color: AppColors.ink2)),
+                ),
+                Text(
+                  log == null ? 'Puanla ›' : 'Düzenle ›',
+                  style: AppText.label(12, color: AppColors.accent),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                if (rating != null) ...[
+                  Text(
+                    starGlyphs(rating),
+                    key: const ValueKey('detail-phone-stars-display'),
+                    style: AppText.title(18, color: AppColors.star),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(MediaLogEntry.formatRating(rating), style: AppText.meta(13, color: AppColors.warnInk)),
+                  const Spacer(),
+                ] else
+                  Expanded(
+                    child: Text(
+                      'Henüz puanlanmadı · Dokunarak puanla',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppText.meta(13, color: AppColors.ink2),
+                    ),
+                  ),
+                if (lastWatch != null)
+                  Text(
+                    shortDateTr(lastWatch.watchedAt, includeYear: true),
+                    style: AppText.meta(12, color: AppColors.ink2),
+                  ),
+              ],
+            ),
+            if (review.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(
+                '"$review"',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: AppText.body(size: 13),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openPhoneRatingSheet() async {
+    final t = parsedTitleOf(widget.item);
+    await showAppSheet<void>(
+      context: context,
+      title: t.title,
+      subtitle: 'Puanla & Günlüğe Ekle',
+      builder: (ctx) => _PhoneRatingSheetBody(item: widget.item),
+    );
+    if (mounted) {
+      setState(() => _syncDraftFromLibrary(force: true));
+    }
   }
 
   Widget _buildPhonePortrait(
@@ -547,7 +893,7 @@ class _DetailPageState extends State<DetailPage> {
                               ),
                               child: ClipRRect(
                                 borderRadius: BorderRadius.circular(17),
-                                child: PosterImage(poster, cacheWidth: 320),
+                                child: PosterImage(poster, cacheWidth: 320, rating: Library.instance.ratingFor(widget.item)),
                               ),
                             ),
                             const SizedBox(width: 16),
@@ -569,34 +915,19 @@ class _DetailPageState extends State<DetailPage> {
                           ],
                         ),
                         const SizedBox(height: 18),
-                        _primaryCta(queue, position, resumeEpisode, fullWidth: true),
-                        const SizedBox(height: 10),
-                        if (!_isSeries) ...[
-                          _movieDownloadButton(fullWidth: true, height: 44),
-                          const SizedBox(height: 10),
-                        ],
-                        fav
-                            ? AppButton(
-                                variant: AppButtonVariant.danger,
-                                height: 44,
-                                width: double.infinity,
-                                icon: Icons.favorite_rounded,
-                                label: 'Favorilerde',
-                                onPressed: () {
-                                  AppHaptics.selection(context);
-                                  Library.instance.toggleFavorite(widget.item);
-                                },
-                              )
-                            : AppButton(
-                                height: 44,
-                                width: double.infinity,
-                                icon: Icons.favorite_border_rounded,
-                                label: 'Favorilere ekle',
-                                onPressed: () {
-                                  AppHaptics.selection(context);
-                                  Library.instance.toggleFavorite(widget.item);
-                                },
-                              ),
+                        Row(
+                          children: [
+                            Expanded(child: _primaryCta(queue, position, resumeEpisode)),
+                            const SizedBox(width: 8),
+                            _watchlistButton(iconOnly: true),
+                            if (!_isSeries) ...[
+                              const SizedBox(width: 8),
+                              _movieDownloadButton(iconOnly: true),
+                            ],
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        _phonePersonalLogCard(),
                         if (loading) ...[
                           const SizedBox(height: 18),
                           ClipRRect(borderRadius: BorderRadius.circular(3), child: const LinearProgressIndicator(minHeight: 5)),
@@ -721,7 +1052,7 @@ class _DetailPageState extends State<DetailPage> {
               SliverToBoxAdapter(child: SizedBox(height: pad.bottom + 24)),
           ],
         ),
-        // Floating translucent Back + Favorite controls below Dynamic Island.
+        // Floating translucent Back + Rating + Favorite controls below Dynamic Island.
         Positioned(
           left: 14,
           right: 14,
@@ -735,6 +1066,8 @@ class _DetailPageState extends State<DetailPage> {
                 onTap: () => Navigator.of(context).maybePop(),
               ),
               const Spacer(),
+              _phoneGlassRatingButton(height: 38),
+              const SizedBox(width: 8),
               PhoneIconButton(
                 icon: fav ? Icons.favorite_rounded : Icons.favorite_border_rounded,
                 tooltip: fav ? 'Favorilerden çıkar' : 'Favorilere ekle',
@@ -815,6 +1148,8 @@ class _DetailPageState extends State<DetailPage> {
                         style: AppText.meta(13),
                       ),
                     ),
+                    const SizedBox(width: 6),
+                    _phoneGlassRatingButton(height: 36),
                   ]),
                   const SizedBox(height: 12),
                   Expanded(
@@ -827,7 +1162,11 @@ class _DetailPageState extends State<DetailPage> {
                             children: [
                               ClipRRect(
                                 borderRadius: BorderRadius.circular(14),
-                                child: SizedBox(width: 84, height: 126, child: PosterImage(poster, cacheWidth: 240)),
+                                child: SizedBox(
+                                  width: 84,
+                                  height: 126,
+                                  child: PosterImage(poster, cacheWidth: 240, rating: Library.instance.ratingFor(widget.item)),
+                                ),
                               ),
                               const SizedBox(width: 12),
                               Expanded(
@@ -856,6 +1195,8 @@ class _DetailPageState extends State<DetailPage> {
                             const SizedBox(height: 10),
                             Text(details.plot, maxLines: 3, overflow: TextOverflow.ellipsis, style: AppText.body(size: 13)),
                           ],
+                          const SizedBox(height: 10),
+                          _phonePersonalLogCard(),
                         ],
                       ),
                     ),
@@ -863,6 +1204,8 @@ class _DetailPageState extends State<DetailPage> {
                   const SizedBox(height: 10),
                   Row(children: [
                     Expanded(child: _primaryCta(queue, position, resumeEpisode)),
+                    const SizedBox(width: 8),
+                    _watchlistButton(iconOnly: true),
                     if (!_isSeries) ...[
                       const SizedBox(width: 8),
                       _movieDownloadButton(iconOnly: true),
@@ -1173,7 +1516,10 @@ class _DetailPageState extends State<DetailPage> {
       );
     }
     final duration = minutesLabel(details.duration);
+    final log = Library.instance.logFor(widget.item);
+    final lastWatch = log?.lastWatch;
     final tags = <Widget>[
+      if (lastWatch != null) Pill('✓ İzlendi (${shortDateTr(lastWatch.watchedAt)})', tone: PillTone.ok),
       if (details.rating.isNotEmpty && details.rating != '0') Pill(details.rating, tone: PillTone.warn, icon: Icons.star_rounded),
       if (year != null && year.isNotEmpty) Pill(year),
       if (details.genre.isNotEmpty) Pill(details.genre),
@@ -1210,7 +1556,14 @@ class _DetailPageState extends State<DetailPage> {
           Padding(
             padding: EdgeInsets.fromLTRB(24, 24, backdrop ? 420 : 28, 24),
             child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              ClipRRect(borderRadius: BorderRadius.circular(AppSizes.tileRadius), child: SizedBox(width: 168, height: 252, child: PosterImage(poster))),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(AppSizes.tileRadius),
+                child: SizedBox(
+                  width: 168,
+                  height: 252,
+                  child: PosterImage(poster, rating: Library.instance.ratingFor(widget.item)),
+                ),
+              ),
               const SizedBox(width: 28),
               Flexible(
                 child: ConstrainedBox(
@@ -1242,7 +1595,6 @@ class _DetailPageState extends State<DetailPage> {
                     const SizedBox(height: 18),
                     Wrap(spacing: 12, runSpacing: 12, children: [
                       primary,
-                      if (!_isSeries) _movieDownloadButton(),
                       fav
                           ? AppButton(
                               variant: AppButtonVariant.danger,
@@ -1257,7 +1609,11 @@ class _DetailPageState extends State<DetailPage> {
                               label: 'Favorilere ekle',
                               onPressed: () => Library.instance.toggleFavorite(widget.item),
                             ),
+                      _watchlistButton(),
+                      if (!_isSeries) _movieDownloadButton(),
                     ]),
+                    const SizedBox(height: 18),
+                    _desktopInlineLogCard(),
                   ]),
                 ),
               ),
@@ -1352,3 +1708,368 @@ class _DetailPageState extends State<DetailPage> {
     );
   }
 }
+
+/// Interactive 5-star picker supporting half-star (0.5) steps via tap, horizontal drag, and D-pad / keyboard arrows.
+class HalfStarRatingPicker extends StatefulWidget {
+  const HalfStarRatingPicker({
+    super.key,
+    required this.rating,
+    required this.onChanged,
+    this.size = 28,
+    this.gap = 4,
+    this.allowClear = true,
+  });
+
+  final double? rating;
+  final ValueChanged<double?> onChanged;
+  final double size;
+  final double gap;
+  final bool allowClear;
+
+  @override
+  State<HalfStarRatingPicker> createState() => _HalfStarRatingPickerState();
+}
+
+class _HalfStarRatingPickerState extends State<HalfStarRatingPicker> {
+  bool _focused = false;
+
+  double _ratingAtDx(double dx, double totalWidth) {
+    final slotWidth = widget.size + widget.gap;
+    final starIdx = (dx / slotWidth).floor().clamp(0, 4);
+    final localX = (dx - starIdx * slotWidth).clamp(0.0, widget.size);
+    final half = localX < widget.size / 2 ? 0.5 : 1.0;
+    return (starIdx + half).clamp(MediaLogEntry.minRating, MediaLogEntry.maxRating);
+  }
+
+  void _handleTap(double dx, double totalWidth) {
+    final picked = _ratingAtDx(dx, totalWidth);
+    if (widget.allowClear && widget.rating == picked) {
+      widget.onChanged(null);
+    } else {
+      widget.onChanged(picked);
+    }
+  }
+
+  void _handleDrag(double dx, double totalWidth) {
+    final picked = _ratingAtDx(dx, totalWidth);
+    if (widget.rating != picked) {
+      widget.onChanged(picked);
+    }
+  }
+
+  KeyEventResult _handleKey(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) return KeyEventResult.ignored;
+    final k = event.logicalKey;
+    final cur = widget.rating ?? 0.0;
+    if (k == LogicalKeyboardKey.arrowRight) {
+      final next = (cur + 0.5).clamp(MediaLogEntry.minRating, MediaLogEntry.maxRating);
+      widget.onChanged(next);
+      return KeyEventResult.handled;
+    }
+    if (k == LogicalKeyboardKey.arrowLeft) {
+      final next = cur - 0.5;
+      if (next < MediaLogEntry.minRating) {
+        if (widget.allowClear && widget.rating != null) widget.onChanged(null);
+      } else {
+        widget.onChanged(next);
+      }
+      return KeyEventResult.handled;
+    }
+    if (k == LogicalKeyboardKey.delete || k == LogicalKeyboardKey.backspace) {
+      if (widget.allowClear && widget.rating != null) {
+        widget.onChanged(null);
+        return KeyEventResult.handled;
+      }
+    }
+    return KeyEventResult.ignored;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final totalWidth = widget.size * 5 + widget.gap * 4;
+    final current = widget.rating ?? 0.0;
+    return Focus(
+      onFocusChange: (f) => setState(() => _focused = f),
+      onKeyEvent: _handleKey,
+      child: Semantics(
+        label: 'Puan seçici',
+        value: widget.rating == null ? 'Puanlanmadı' : '${MediaLogEntry.formatRating(widget.rating!)} yıldız',
+        slider: true,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTapDown: (d) => _handleTap(d.localPosition.dx, totalWidth),
+          onHorizontalDragUpdate: (d) => _handleDrag(d.localPosition.dx, totalWidth),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+            decoration: _focused
+                ? BoxDecoration(
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: AppColors.ink, width: 2),
+                  )
+                : null,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (var i = 1; i <= 5; i++) ...[
+                  if (i > 1) SizedBox(width: widget.gap),
+                  _StarGlyph(
+                    key: ValueKey('star-slot-$i'),
+                    size: widget.size,
+                    fill: current >= i ? 1.0 : (current >= i - 0.5 ? 0.5 : 0.0),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _StarGlyph extends StatelessWidget {
+  const _StarGlyph({super.key, required this.size, required this.fill});
+
+  final double size;
+  final double fill; // 0.0, 0.5, or 1.0
+
+  @override
+  Widget build(BuildContext context) {
+    if (fill >= 1.0) {
+      return Icon(Icons.star_rounded, size: size, color: AppColors.star);
+    }
+    if (fill <= 0.0) {
+      return Icon(Icons.star_rounded, size: size, color: AppColors.dashed);
+    }
+    return SizedBox(
+      width: size,
+      height: size,
+      child: Stack(
+        fit: StackFit.passthrough,
+        children: [
+          Icon(Icons.star_rounded, size: size, color: AppColors.dashed),
+          ClipRect(
+            clipper: const _LeftHalfClipper(),
+            child: Icon(Icons.star_rounded, size: size, color: AppColors.star),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LeftHalfClipper extends CustomClipper<Rect> {
+  const _LeftHalfClipper();
+
+  @override
+  Rect getClip(Size size) => Rect.fromLTWH(0, 0, size.width / 2, size.height);
+
+  @override
+  bool shouldReclip(covariant CustomClipper<Rect> oldClipper) => false;
+}
+
+class _PhoneRatingSheetBody extends StatefulWidget {
+  const _PhoneRatingSheetBody({required this.item});
+
+  final Item item;
+
+  @override
+  State<_PhoneRatingSheetBody> createState() => _PhoneRatingSheetBodyState();
+}
+
+class _PhoneRatingSheetBodyState extends State<_PhoneRatingSheetBody> {
+  late final TextEditingController _reviewCtrl;
+  double? _rating;
+  bool _watched = false;
+  bool _liked = false;
+  bool _rewatch = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final log = Library.instance.logFor(widget.item);
+    _rating = log?.rating;
+    _watched = log?.watched ?? false;
+    _liked = (log?.liked ?? false) || Library.instance.isFavorite(widget.item);
+    _rewatch = false;
+    _reviewCtrl = TextEditingController(text: log?.review ?? '');
+  }
+
+  @override
+  void dispose() {
+    _reviewCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final existing = Library.instance.logFor(widget.item);
+    final hasExisting = existing != null;
+    final effectiveWatched = _watched || _rating != null || _rewatch || _reviewCtrl.text.trim().isNotEmpty;
+    await Library.instance.saveLog(
+      widget.item,
+      rating: _rating,
+      clearRating: _rating == null && hasExisting,
+      liked: _liked,
+      review: _reviewCtrl.text,
+      watched: effectiveWatched,
+      addRewatch: _rewatch,
+    );
+    if (_liked != Library.instance.isFavorite(widget.item)) {
+      await Library.instance.toggleFavorite(widget.item);
+    }
+    if (mounted) Navigator.of(context).pop();
+  }
+
+  Widget _togglePill({
+    required Key key,
+    required String label,
+    required bool active,
+    required Color activeBg,
+    required Color activeFg,
+    required VoidCallback onTap,
+  }) {
+    return Expanded(
+      child: GestureDetector(
+        key: key,
+        behavior: HitTestBehavior.opaque,
+        onTap: () {
+          AppHaptics.selection(context);
+          onTap();
+        },
+        child: Container(
+          height: 38,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: active ? activeBg : AppColors.ground,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: active ? activeFg : AppColors.line, width: 1),
+          ),
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppText.label(12.5, color: active ? activeFg : AppColors.ink2),
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final mood = MediaLogEntry.moodFor(_rating);
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(18, 16, 18, 20),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: AppColors.surfaceAlt,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: AppColors.line),
+            ),
+            child: Row(
+              children: [
+                HalfStarRatingPicker(
+                  key: const ValueKey('sheet-star-picker'),
+                  rating: _rating,
+                  size: 27,
+                  gap: 3,
+                  onChanged: (next) {
+                    AppHaptics.selection(context);
+                    setState(() {
+                      _rating = next;
+                      if (next != null) _watched = true;
+                    });
+                  },
+                ),
+                const Spacer(),
+                if (mood != null) ...[
+                  Flexible(child: Pill(mood, tone: PillTone.warn, height: 24)),
+                  const SizedBox(width: 6),
+                ],
+                Text(
+                  _rating == null ? '—' : MediaLogEntry.formatRating(_rating!),
+                  key: const ValueKey('sheet-rating-value'),
+                  style: AppText.title(21, color: _rating == null ? AppColors.ink2 : AppColors.star),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              _togglePill(
+                key: const ValueKey('sheet-toggle-watched'),
+                label: '✓ İzlendi',
+                active: _watched,
+                activeBg: AppColors.okSoft,
+                activeFg: AppColors.ok,
+                onTap: () => setState(() => _watched = !_watched),
+              ),
+              const SizedBox(width: 8),
+              _togglePill(
+                key: const ValueKey('sheet-toggle-liked'),
+                label: '♥ Beğendim',
+                active: _liked,
+                activeBg: AppColors.liveSoft,
+                activeFg: AppColors.live,
+                onTap: () => setState(() => _liked = !_liked),
+              ),
+              const SizedBox(width: 8),
+              _togglePill(
+                key: const ValueKey('sheet-toggle-rewatch'),
+                label: '↻ Tekrar',
+                active: _rewatch,
+                activeBg: AppColors.accentSoft,
+                activeFg: AppColors.accentInk,
+                onTap: () => setState(() {
+                  _rewatch = !_rewatch;
+                  if (_rewatch) _watched = true;
+                }),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: AppColors.ground,
+              borderRadius: BorderRadius.circular(AppSizes.smallRadius),
+              border: Border.all(color: AppColors.line),
+            ),
+            child: TextField(
+              key: const ValueKey('sheet-review-input'),
+              controller: _reviewCtrl,
+              maxLines: 2,
+              minLines: 1,
+              textInputAction: TextInputAction.done,
+              style: AppText.body(size: 13.5, color: AppColors.ink),
+              decoration: InputDecoration(
+                hintText: 'Kısa notun veya yorumun...',
+                hintStyle: AppText.meta(13),
+                isCollapsed: true,
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          AppButton(
+            key: const ValueKey('sheet-save-button'),
+            variant: AppButtonVariant.primary,
+            height: 44,
+            width: double.infinity,
+            label: 'Kaydet',
+            onPressed: () {
+              AppHaptics.light(context);
+              _save();
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
