@@ -6,12 +6,12 @@
 
 **Xtream Codes tabanlı, Flutter ve mpv ile geliştirilmiş modern IPTV oynatıcı.**
 
-Linux masaüstü · Android TV / TV Stick · macOS · iOS
+Linux masaüstü · Windows · Android TV / TV Stick · macOS · iOS
 
 [![License: MIT](https://img.shields.io/badge/Lisans-MIT-a78bfa.svg)](LICENSE)
 [![Flutter](https://img.shields.io/badge/Flutter-Stable-02569B?logo=flutter&logoColor=white)](https://flutter.dev)
 [![Player](https://img.shields.io/badge/Oynat%C4%B1c%C4%B1-mpv%20(media__kit)-6D28D9)](https://mpv.io)
-[![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20Android%20TV%20%7C%20macOS%20%7C%20iOS-1e1e22)](#kurulum-ve-%C3%A7al%C4%B1%C5%9Ft%C4%B1rma)
+[![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20Windows%20%7C%20Android%20TV%20%7C%20macOS%20%7C%20iOS-1e1e22)](#kurulum-ve-%C3%A7al%C4%B1%C5%9Ft%C4%B1rma)
 
 </div>
 
@@ -96,6 +96,7 @@ Dynamic Island ve Home Indicator güvenli alanlarına uyumlu, tek elle kullanıl
 **Gereksinimler:**
 - [Flutter SDK](https://flutter.dev) (stable)
 - **Linux:** `clang`, `cmake`, `ninja`, `gtk3` ve **`mpv`** (`libmpv`)
+- **Windows:** Visual Studio (C++ ile Masaüstü geliştirme iş yükü; `mpv` otomatik olarak paketlenir)
 - **Android:** JDK 17 + Android SDK
 - **macOS / iOS:** Xcode + CocoaPods
 
@@ -114,6 +115,16 @@ Uygulama menüsüne **IPTV** kısayolunu ve uçbirime `iptv` komutunu ekler:
 flutter build linux --release
 ./linux/packaging/install.sh
 ```
+
+### Windows (Visual Studio veya GitHub Actions)
+
+```powershell
+flutter pub get
+flutter build windows --release
+# Çıktı: build\windows\x64\runner\Release\iptv_app.exe
+```
+
+Windows bilgisayarın yoksa GitHub **Actions** sekmesindeki **Windows build** iş akışı taşınabilir `iptv-windows.zip` paketini otomatik olarak derleyip artifact olarak sunar.
 
 ### Android TV / TV Stick
 
@@ -189,7 +200,7 @@ assets/
   icon/                        Uygulama simgeleri ve Android TV banner
 test/                          Birim ve widget testleri
 linux/packaging/               Linux kurulum betiği ve simge
-.github/workflows/             macOS ve iOS otomatik derleme iş akışları
+.github/workflows/             Windows, macOS ve iOS otomatik derleme iş akışları
 ```
 
 ---
